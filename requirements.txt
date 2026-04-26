@@ -1,0 +1,21 @@
+google-genai>=1.0.0
+python-dotenv>=1.0.0
+pillow>=10.0.0
+requests>=2.31.0
+fal-client>=0.13.0
+flask>=3.0.0
+jsonschema>=4.20.0
+pytest>=8.0.0
+
+# 動画分析 (scripts/analyze_video.py)
+openai>=1.30.0
+anthropic>=0.40.0
+librosa>=0.10.0
+faster-whisper>=1.0.0  # ローカルWhisper（OPENAI_API_KEY未設定時のフォールバック）
+soundfile>=0.12.0
+scenedetect[opencv]>=0.6.0  # サブショット検出
+demucs>=4.0.0  # BGM分離（重いので任意。HPSSフォールバックあり）
+
+# ダッシュボード (scripts/dashboard.py)
+streamlit>=1.30.0
+pandas>=2.0.0

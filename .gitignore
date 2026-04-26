@@ -1,0 +1,40 @@
+.env
+.env.local
+*.env.local
+__pycache__/
+.mypy_cache/
+.pytest_cache/
+.venv/
+.DS_Store
+temp/
+output/
+post_captions/
+reports/
+drafts/
+*.mp4
+data/*.db
+data/*.db-journal
+data/*.db-wal
+data/*.db-shm
+assets/bgm/*.wav
+assets/bgm/*.mp3
+
+# frontend
+frontend/node_modules/
+frontend/dist/
+frontend/.vite/
+frontend/tsconfig.tsbuildinfo
+
+# editor
+.vscode/
+.idea/
+.claude/
+
+# Python builds
+*.egg-info/
+build/
+dist/
+*.pyc
+
+# OS
+Thumbs.db
