@@ -7,9 +7,13 @@ import SceneTtsRow from "../SceneTtsRow";
 import type { Scene } from "../../types";
 
 const KLING_COST_PER_SEC = 0.084;
+// config.KLING_DURATION_TOLERANCE_RATIO と同期。5.01s で即 10s 切替を避けるため
+// 5s 上限を 5.0 * 1.2 = 6.0s まで吸収する (超過分は slow_mo)。
+const KLING_DURATION_TOLERANCE_RATIO = 1.2;
 
 function klingSceneCost(durationSec: number): number {
-  return (durationSec <= 5 ? 5 : 10) * KLING_COST_PER_SEC;
+  const fiveSecMax = 5 * KLING_DURATION_TOLERANCE_RATIO;
+  return (durationSec <= fiveSecMax ? 5 : 10) * KLING_COST_PER_SEC;
 }
 
 export default function StageKling() {

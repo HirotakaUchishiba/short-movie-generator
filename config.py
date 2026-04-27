@@ -679,6 +679,14 @@ ACTION_FRONTLOAD_RATIO = 0.7
 ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
 
+# Kling V3 は 5s と 10s しか生成できない。TTS が 5.0 を僅かに超えただけで
+# 10s クリップ ($0.84) に切り替わるとコスパが悪いため、許容比率を導入する。
+# - target ≤ 5.0 * KLING_DURATION_TOLERANCE_RATIO → 5s クリップ + slow_mo
+# - それ以外 → 10s クリップ
+# 1.2 = 5s クリップで TTS 6.0s まで、10s クリップで TTS 12.0s まで吸収。
+# slow_mo ratio が 1.2x 以下に収まるため知覚的に自然。
+KLING_DURATION_TOLERANCE_RATIO = 1.2
+
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
 LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "fal-sync")
 LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")
