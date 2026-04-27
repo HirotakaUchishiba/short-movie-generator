@@ -1,25 +1,98 @@
 import { useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { klingAssetUrl, sceneTrimAssetUrl, api } from "../../api";
+import ComposedPromptPreview from "../ComposedPromptPreview";
+import EmotionCueOverridePanel from "../EmotionCueOverridePanel";
+import SceneTtsRow from "../SceneTtsRow";
 import type { Scene } from "../../types";
+
+const KLING_COST_PER_SEC = 0.084;
+
+function klingSceneCost(durationSec: number): number {
+  return (durationSec <= 5 ? 5 : 10) * KLING_COST_PER_SEC;
+}
 
 export default function StageKling() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
+  const totalCost = sp.scenes.reduce(
+    (a, s) => a + klingSceneCost(s.duration),
+    0,
+  );
 
   return (
     <StageGate
       stage="kling"
       title="Stage 4: Kling動画"
-      description="背景を動かしたシーンクリップを確認。最高額のステージなので慎重に。"
+      description="Stage 3 の背景画像に Kling V3 でモーションを付与。lines[].emotion arc + Stage 2 のTTS音響特徴 (audio_dynamics) が自動で animation_prompt に注入されます。最高額のステージなので慎重に。"
       needsRunFirst
     >
+      <BulkKlingRegenBar totalCost={totalCost} />
       <div className="grid grid-cols-2 lg:grid-cols-3 gap-4">
         {sp.scenes.map((scene, i) => (
           <KlingCard key={i} scene={scene} sIdx={i} />
         ))}
       </div>
     </StageGate>
+  );
+}
+
+function BulkKlingRegenBar({ totalCost }: { totalCost: number }) {
+  const ctx = useShellCtx();
+  const [confirming, setConfirming] = useState(false);
+  const running = ctx.jobStatus?.status === "running";
+
+  const onClick = async () => {
+    setConfirming(false);
+    // scene_idx 未指定 → backend が全シーン一括再生成
+    await ctx.regen({ stage: "kling" });
+  };
+
+  return (
+    <div className="card border-rose-700/40 bg-rose-900/10 mb-4">
+      <div className="flex items-center justify-between gap-3">
+        <div>
+          <h3 className="font-semibold">全シーン Kling動画を一括再生成</h3>
+          <p className="text-xs text-slate-400 mt-1">
+            合成後 prompt (emotion + TTS audio dynamics 反映済み) を使って
+            すべてのシーンの Kling clip を順次再生成します。
+          </p>
+        </div>
+        <div className="flex items-center gap-3">
+          <span className="text-xs text-slate-400">
+            合計コスト:{" "}
+            <span className="text-rose-300 font-mono">
+              ${totalCost.toFixed(2)}
+            </span>
+          </span>
+          {!confirming ? (
+            <button
+              className="btn-secondary"
+              disabled={running}
+              onClick={() => setConfirming(true)}
+            >
+              全シーン一括再生成
+            </button>
+          ) : (
+            <>
+              <button
+                className="btn-ghost"
+                onClick={() => setConfirming(false)}
+              >
+                キャンセル
+              </button>
+              <button
+                className="btn-danger"
+                disabled={running}
+                onClick={onClick}
+              >
+                本当に ${totalCost.toFixed(2)} 使う
+              </button>
+            </>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -32,8 +105,7 @@ function KlingCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const COST_PER_SEC = 0.084;
-  const cost = (scene.duration <= 5 ? 5 : 10) * COST_PER_SEC;
+  const cost = klingSceneCost(scene.duration);
 
   const onSave = async () => {
     setSaving(true);
@@ -103,10 +175,21 @@ function KlingCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
           {showRaw ? "trim後" : "生raw"}
         </button>
       </div>
-      <p className="text-xs text-slate-300 line-clamp-3 mb-2" title={prompt}>
+      <SceneTtsRow lines={scene.lines ?? []} />
+      <p
+        className="text-xs text-slate-300 line-clamp-3 mb-2 mt-2"
+        title={prompt}
+      >
         {prompt}
       </p>
-      {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
+      <ComposedPromptPreview
+        ts={ctx.detail.timestamp}
+        sceneIdx={sIdx}
+        field="animation_prompt"
+        version={ctx.detail.progress.stages.kling.regen_count}
+      />
+      <EmotionCueOverridePanel scene={scene} sIdx={sIdx} />
+      {error && <div className="text-rose-400 text-xs mb-2 mt-2">{error}</div>}
       {!editing ? (
         <div className="flex justify-end gap-2">
           <button
