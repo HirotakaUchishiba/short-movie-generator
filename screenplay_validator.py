@@ -2,11 +2,25 @@ import re
 
 from jsonschema import Draft202012Validator
 
+import config
+
+# preset enum 一覧 (config.py から動的に取得して enum 制約に展開する)
+_FACIAL_KEYS = list(config.FACIAL_PRESETS.keys())
+_EYE_GAZE_KEYS = list(config.EYE_GAZE_PRESETS.keys())
+_HAIR_KEYS = list(config.HAIR_PRESETS.keys())
+_BODY_POSTURE_KEYS = list(config.BODY_POSTURE_PRESETS.keys())
+_LIGHTING_KEYS = list(config.LIGHTING_PRESETS.keys())
+_CAMERA_KEYS = list(config.CAMERA_PRESETS.keys())
+_TONE_KEYS = list(config.TONE_PRESETS.keys())
+_SCENE_ELEMENT_KEYS = list(config.SCENE_ELEMENT_PRESETS.keys())
+_SCENE_TAGS = list(config.SCENE_TAGS)
+
 SCHEMA: dict = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
     "type": "object",
     "required": ["caption", "scenes"],
-    "additionalProperties": True,
+    # SSOT 強制: ルートも未定義キー拒否
+    "additionalProperties": False,
     "properties": {
         "caption": {
             "type": "string",
@@ -29,10 +43,54 @@ SCHEMA: dict = {
             "type": "number",
             "description": "BGMの相対音量dB。既定 -18 (ボイスより小)",
         },
+        "subtitle_y_from_bottom": {
+            "type": "integer",
+            "minimum": 0,
+            "description": (
+                "字幕の Y 位置 (画面下端からのピクセル数)。"
+                "未指定なら config.SUBTITLE_Y_FROM_BOTTOM を使用"
+            ),
+        },
         "wardrobe_continuity": {
             "type": "object",
-            "additionalProperties": True,
+            "additionalProperties": {"type": "string"},
             "description": "衣装識別子→説明 のマップ。scenes[].wardrobe.identifier と紐付け、Imagenプロンプトに自動展開",
+        },
+        "scoped_augmentations": {
+            "type": "array",
+            "description": (
+                "横断適用ルール。scope 一致するシーンに scene_element preset を追加挿入する。"
+                "値はすべて preset ID (enum) で SSOT 厳格"
+            ),
+            "items": {
+                "type": "object",
+                "additionalProperties": False,
+                "required": ["scope", "elements"],
+                "properties": {
+                    "id": {"type": "string"},
+                    "scope": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "properties": {
+                            "tag": {"enum": _SCENE_TAGS},
+                            "scene_idx": {
+                                "type": "array",
+                                "items": {"type": "integer", "minimum": 0},
+                            },
+                        },
+                    },
+                    "elements": {
+                        "type": "array",
+                        "items": {"enum": _SCENE_ELEMENT_KEYS},
+                        "minItems": 1,
+                    },
+                },
+            },
+        },
+        "_analysis": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": "analyze_video.py が書く解析メタデータ (analytics 用、再生成パイプには影響しない)",
         },
         "scenes": {
             "type": "array",
@@ -40,7 +98,8 @@ SCHEMA: dict = {
             "items": {
                 "type": "object",
                 "required": ["duration", "background_prompt"],
-                "additionalProperties": True,
+                # SSOT 強制: 未定義のキーは拒否 (廃止フィールドの再混入を防ぐ)
+                "additionalProperties": False,
                 "properties": {
                     "time": {
                         "type": "string",
@@ -75,44 +134,61 @@ SCHEMA: dict = {
                     },
                     "characters": {
                         "type": "array",
-                        "description": "シーンに登場する人物一覧",
+                        "description": (
+                            "シーンに登場する人物一覧 (多人数シーン時に使用)。"
+                            "name / role のみ。outfit / ref は廃止 (SSOT原則)"
+                        ),
                         "items": {
                             "type": "object",
-                            "additionalProperties": True,
+                            "additionalProperties": False,
                             "properties": {
                                 "name": {"type": "string"},
                                 "role": {"type": "string", "description": "主役/相手/通行人 など"},
-                                "ref": {"type": "string", "description": "characters/<ref>.png のキー"},
-                                "outfit": {"type": "string", "description": "服装の自然言語記述"},
                             },
                         },
                     },
                     "wardrobe": {
                         "type": "object",
-                        "additionalProperties": True,
-                        "description": "シーン内の主役キャラの服装。同一identifierなら他シーンと一貫性を保つ",
+                        "additionalProperties": False,
+                        "description": (
+                            "シーン内の服装。identifier だけを書き、"
+                            "実際の説明は root.wardrobe_continuity[identifier] を参照する"
+                        ),
                         "properties": {
                             "identifier": {"type": "string"},
-                            "top": {"type": "string"},
-                            "bottom": {"type": "string"},
-                            "accessories": {"type": "string"},
-                            "hair": {"type": "string"},
                         },
                     },
-                    "facial_expression": {
-                        "type": "string",
-                        "description": "シーン全体の主要な表情（例 \"細目で寝起き顔\" \"驚いて目を見開く\"）",
+                    "tags": {
+                        "type": "array",
+                        "items": {"enum": _SCENE_TAGS},
+                        "description": (
+                            "scope 解決用のタグ。config.SCENE_TAGS の値のみ許容。"
+                            "scoped_augmentations の scope.tag と照合される"
+                        ),
                     },
-                    "hand_gesture": {
-                        "type": "string",
-                        "description": "シーン全体の主要な手の動き（例 \"頭を抱える\" \"スマホを見せる\"）",
+                    "emotion_cue_overrides": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "description": (
+                            "EMOTION_VISUAL_CUES の上書き。値は preset ID (enum)。"
+                            "上書きされなかったカテゴリは emotion 由来の既定 cue を使う"
+                        ),
+                        "properties": {
+                            "facial":       {"enum": _FACIAL_KEYS},
+                            "eye_gaze":     {"enum": _EYE_GAZE_KEYS},
+                            "hair":         {"enum": _HAIR_KEYS},
+                            "body_posture": {"enum": _BODY_POSTURE_KEYS},
+                            "lighting":     {"enum": _LIGHTING_KEYS},
+                            "camera":       {"enum": _CAMERA_KEYS},
+                            "tone":         {"enum": _TONE_KEYS},
+                        },
                     },
                     "lines": {
                         "type": "array",
                         "items": {
                             "type": "object",
                             "required": ["text", "start"],
-                            "additionalProperties": True,
+                            "additionalProperties": False,
                             "properties": {
                                 "text": {
                                     "type": "string",
@@ -136,6 +212,12 @@ SCHEMA: dict = {
                                 "rate": {
                                     "type": "string",
                                     "description": "TTS速度（例 +10%）",
+                                },
+                                "silence_after_ms": {
+                                    "type": "number",
+                                    "minimum": 0,
+                                    "maximum": 2000,
+                                    "description": "このlineの後ろに含める自然音声の長さ (ms)。次lineを侵食しない範囲でclamp",
                                 },
                                 "emotion": {
                                     "type": "string",

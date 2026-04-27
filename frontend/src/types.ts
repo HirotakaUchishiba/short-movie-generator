@@ -48,6 +48,7 @@ export interface Line {
   pause_before?: number;
   breath_before?: boolean;
   speaker?: string;
+  silence_after_ms?: number;
 }
 
 export interface CharacterDef {
@@ -78,6 +79,14 @@ export interface Scene {
   hand_gesture?: string;
   lipsync?: boolean;
   lines?: Line[];
+  tags?: string[];
+  emotion_cue_overrides?: Record<string, string>;
+}
+
+export interface ScopedAugmentation {
+  id?: string;
+  scope: { tag?: string; scene_idx?: number[] };
+  elements: string[];
 }
 
 export interface Screenplay {
@@ -86,7 +95,9 @@ export interface Screenplay {
   audio_mode?: "voiced" | "silent";
   bgm_path?: string;
   bgm_volume_db?: number;
+  subtitle_y_from_bottom?: number;
   wardrobe_continuity?: Record<string, string>;
+  scoped_augmentations?: ScopedAugmentation[];
   scenes: Scene[];
 }
 

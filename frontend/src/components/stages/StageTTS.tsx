@@ -1,4 +1,5 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import WaveSurfer from "wavesurfer.js";
 import StageGate, { useShellCtx } from "../StageGate";
 import { ttsAssetUrl, ttsMergedAssetUrl, api } from "../../api";
 import type { Line, Scene, TtsPricing } from "../../types";
@@ -15,13 +16,14 @@ export default function StageTTS() {
     <StageGate
       stage="tts"
       title="Stage 2: TTS音声 (one-shot方式)"
-      description="screenplay全体を1 API call で生成。各lineの再生成は不可、全体まとめての再生成のみ。"
+      description="screenplay全体を1 API call で生成。line.audio_tags があれば ElevenLabs V3 inline tag として注入。各lineの再生成は不可、全体まとめての再生成のみ。"
       needsRunFirst
     >
       <PricingBanner
         pricing={ctx.serverConfig.tts_pricing}
         totalCost={totalCost}
       />
+      <TtsSourcePreview />
       <BulkRegenBar totalCost={totalCost} />
       <MergedTTSPlayer />
       <div className="space-y-6 mt-4">
@@ -381,9 +383,15 @@ function BulkRegenBar({
   const [confirming, setConfirming] = useState(false);
   const running = ctx.jobStatus?.status === "running";
 
-  const onClick = async () => {
+  const onForceRegen = async () => {
     setConfirming(false);
     await ctx.regen({ stage: "tts", force: true });
+  };
+
+  // パディングのみ反映: tts_full.mp3 を保持して per-line 切出しのみ再実行 (無料)。
+  // text/voice/native_speed が変わっていれば cache miss になり自動で API 再呼出しに昇格する。
+  const onApplyPaddingOnly = async () => {
+    await ctx.regen({ stage: "tts", force: false });
   };
 
   return (
@@ -394,6 +402,10 @@ function BulkRegenBar({
           <p className="text-xs text-slate-400 mt-1">
             screenplay の全 line.text を半角スペース×2で連結し、1 API call
             で生成します。
+          </p>
+          <p className="text-xs text-amber-300/80 mt-1">
+            パディング/速度のみ変えた場合は「パディングのみ反映 (無料)」、
+            テキスト・感情・声色を変えた場合は「全シーン一括再生成」。
           </p>
         </div>
         <div className="flex items-center gap-3">
@@ -406,6 +418,14 @@ function BulkRegenBar({
               (¥{totalCost.jpy.toFixed(2)} / {totalCost.credits} credits)
             </span>
           </span>
+          <button
+            className="btn-ghost"
+            disabled={running}
+            onClick={onApplyPaddingOnly}
+            title="既存の tts_full.mp3 を使って per-line audio を再構築。API再呼び出しなし"
+          >
+            パディングのみ反映 (無料)
+          </button>
           {!confirming ? (
             <button
               className="btn-secondary"
@@ -425,7 +445,7 @@ function BulkRegenBar({
               <button
                 className="btn-danger"
                 disabled={running}
-                onClick={onClick}
+                onClick={onForceRegen}
               >
                 本当に ${totalCost.usd.toFixed(4)} 使う
               </button>
@@ -433,6 +453,144 @@ function BulkRegenBar({
           )}
         </div>
       </div>
+    </div>
+  );
+}
+
+// ─────────────────────────────────────────────────────────
+// TTS送信原文プレビュー (ElevenLabsへの実送信文字列を可視化)
+// ─────────────────────────────────────────────────────────
+
+function TtsSourcePreview() {
+  const ctx = useShellCtx();
+  const ts = ctx.detail.timestamp;
+  const sp = ctx.detail.screenplay;
+  const [data, setData] = useState<{
+    text: string;
+    char_count: number;
+    separator: string;
+    line_specs: {
+      scene_idx: number;
+      line_idx: number;
+      char_start: number;
+      char_end: number;
+    }[];
+  } | null>(null);
+  const [error, setError] = useState<string | null>(null);
+  const [open, setOpen] = useState(true);
+
+  // screenplay 内容が変わったら refetch (slider/text編集後の即時反映)
+  const screenplayKey = useMemo(() => {
+    const lines: string[] = [];
+    sp.scenes.forEach((s) =>
+      (s.lines ?? []).forEach((l) => lines.push(l.text)),
+    );
+    return lines.join("|");
+  }, [sp]);
+
+  useEffect(() => {
+    let cancel = false;
+    setError(null);
+    api
+      .ttsSource(ts)
+      .then((d) => {
+        if (!cancel) setData(d);
+      })
+      .catch((e) => {
+        if (!cancel) setError(String(e));
+      });
+    return () => {
+      cancel = true;
+    };
+  }, [ts, screenplayKey]);
+
+  if (error) {
+    return (
+      <div className="card border-rose-700/40 bg-rose-900/10 mt-4 text-xs text-rose-200">
+        TTS送信原文の取得失敗: {error}
+      </div>
+    );
+  }
+  if (!data) {
+    return (
+      <div className="card border-sky-700/40 bg-sky-900/10 mt-4 text-xs text-slate-400">
+        TTS送信原文を取得中...
+      </div>
+    );
+  }
+
+  // 各 line を別色で、separator は "·" で可視化したセグメントに分解
+  type Seg = { kind: "line" | "sep"; text: string; idx?: number };
+  const segs: Seg[] = [];
+  let cursor = 0;
+  data.line_specs.forEach((spec, i) => {
+    if (spec.char_start > cursor) {
+      segs.push({
+        kind: "sep",
+        text: data.text.slice(cursor, spec.char_start),
+      });
+    }
+    segs.push({
+      kind: "line",
+      text: data.text.slice(spec.char_start, spec.char_end),
+      idx: i,
+    });
+    cursor = spec.char_end;
+  });
+  if (cursor < data.text.length) {
+    segs.push({ kind: "sep", text: data.text.slice(cursor) });
+  }
+
+  // separator を点滅文字で見える化
+  const renderSep = (s: string) =>
+    s.replace(/ /g, "·").replace(/\t/g, "→").replace(/\n/g, "↵\n");
+
+  return (
+    <div className="card border-sky-700/40 bg-sky-900/10 mt-4">
+      <div className="flex items-start justify-between gap-3 mb-2">
+        <div>
+          <h3 className="font-semibold text-sky-200">
+            TTS送信原文 (ElevenLabs に実送信される文字列)
+          </h3>
+          <p className="text-[11px] text-slate-400 mt-0.5">
+            <span className="font-mono">{data.char_count}</span> 文字 ·{" "}
+            <span className="font-mono">{data.line_specs.length}</span> line ·
+            区切り{" "}
+            <span className="font-mono bg-slate-800 px-1 rounded">
+              "{renderSep(data.separator)}"
+            </span>
+          </p>
+        </div>
+        <button
+          className="btn-ghost text-xs"
+          onClick={() => setOpen((v) => !v)}
+        >
+          {open ? "折りたたむ" : "展開"}
+        </button>
+      </div>
+      {open && (
+        <div className="mt-1 p-3 rounded bg-slate-950/70 border border-slate-800 font-mono text-[13px] leading-7 break-all whitespace-pre-wrap">
+          {segs.map((s, i) =>
+            s.kind === "line" ? (
+              <span
+                key={i}
+                className={
+                  ((s.idx ?? 0) % 2 === 0
+                    ? "bg-emerald-900/30 text-emerald-100"
+                    : "bg-sky-900/30 text-sky-100") + " px-0.5 rounded-sm"
+                }
+                title={`line #${s.idx} (${s.text.length}字)`}
+              >
+                {s.text}
+              </span>
+            ) : (
+              <span key={i} className="text-slate-500" title="separator">
+                {renderSep(s.text)}
+              </span>
+            ),
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -531,18 +689,6 @@ function LineTTSRow({
           </div>
         </div>
         <div className="flex gap-2 items-center flex-shrink-0">
-          <audio
-            key={`${sIdx}-${lIdx}-${ctx.detail.progress.stages.tts.regen_count}`}
-            src={ttsAssetUrl(
-              ctx.detail.timestamp,
-              sIdx,
-              lIdx,
-              ctx.detail.progress.stages.tts.regen_count,
-            )}
-            controls
-            preload="none"
-            className="h-8"
-          />
           <button
             className="btn-ghost text-xs"
             onClick={() => setEditing((v) => !v)}
@@ -551,7 +697,260 @@ function LineTTSRow({
           </button>
         </div>
       </div>
+      <LineWaveformEditor line={line} sIdx={sIdx} lIdx={lIdx} />
       {editing && <LineTextEditor line={line} sIdx={sIdx} lIdx={lIdx} />}
+    </div>
+  );
+}
+
+// 波形ビジュアライザ + パディング (silence_after_ms) 編集。
+// - speech 部分 (緑) と padding 部分 (アンバー overlay) を視覚化
+// - 縦線ハンドルをドラッグして padding 境界を直接調整
+// - スライダー (0-2000ms) でも調整可能
+// - 値の保存のみ。TTS 再生成は「パディングのみ反映」/「全シーン一括再生成」ボタンで反映。
+function LineWaveformEditor({
+  line,
+  sIdx,
+  lIdx,
+}: {
+  line: Line;
+  sIdx: number;
+  lIdx: number;
+}) {
+  const ctx = useShellCtx();
+  const defaultMs = ctx.serverConfig.tts_pricing.max_silence_ms;
+  const stored = line.silence_after_ms;
+  const effective = stored ?? defaultMs;
+  const [draft, setDraft] = useState(effective);
+  const [saving, setSaving] = useState(false);
+  const [fileDur, setFileDur] = useState(0);
+  const [playing, setPlaying] = useState(false);
+  const containerRef = useRef<HTMLDivElement | null>(null);
+  const wsRef = useRef<WaveSurfer | null>(null);
+  const draggingRef = useRef(false);
+  const overlayRef = useRef<HTMLDivElement | null>(null);
+  const draftRef = useRef(draft);
+  draftRef.current = draft;
+  const regenCount = ctx.detail.progress.stages.tts.regen_count;
+  const audioUrl = ttsAssetUrl(ctx.detail.timestamp, sIdx, lIdx, regenCount);
+
+  useEffect(() => {
+    setDraft(stored ?? defaultMs);
+  }, [stored, defaultMs]);
+
+  useEffect(() => {
+    if (!containerRef.current) return;
+    const ws = WaveSurfer.create({
+      container: containerRef.current,
+      url: audioUrl,
+      waveColor: "#10b981",
+      progressColor: "#34d399",
+      cursorColor: "#fde047",
+      height: 56,
+      normalize: true,
+      barWidth: 2,
+      barGap: 1,
+      barRadius: 1,
+    });
+    wsRef.current = ws;
+    const onReady = () => setFileDur(ws.getDuration());
+    ws.on("ready", onReady);
+    ws.on("decode", onReady);
+    ws.on("play", () => setPlaying(true));
+    ws.on("pause", () => setPlaying(false));
+    ws.on("finish", () => setPlaying(false));
+    return () => {
+      ws.destroy();
+      wsRef.current = null;
+    };
+  }, [audioUrl]);
+
+  const currentPadSec = effective / 1000;
+  const draftPadSec = draft / 1000;
+  const speechDurInFile = Math.max(0, fileDur - currentPadSec);
+  const draftBoundarySec = Math.min(
+    speechDurInFile + draftPadSec,
+    Math.max(speechDurInFile, fileDur),
+  );
+  const speechRatio = fileDur > 0 ? speechDurInFile / fileDur : 0;
+  const draftRatio = fileDur > 0 ? draftBoundarySec / fileDur : 0;
+  const dirty = draft !== effective;
+
+  const commit = async (value: number) => {
+    if (value === (stored ?? defaultMs)) return;
+    setSaving(true);
+    try {
+      // patchLine 経由で server-side merge — 並行 commit しても他 line を上書きしない
+      await api.patchLine(ctx.detail.timestamp, sIdx, lIdx, {
+        silence_after_ms: value,
+      });
+      await ctx.reload();
+    } catch (e) {
+      alert(`パディング保存失敗: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onReset = async () => {
+    if (stored === undefined) return;
+    setSaving(true);
+    try {
+      // null で field 削除
+      await api.patchLine(ctx.detail.timestamp, sIdx, lIdx, {
+        silence_after_ms: null,
+      });
+      await ctx.reload();
+    } catch (e) {
+      alert(`パディングリセット失敗: ${e}`);
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  // 波形上の縦ハンドルをドラッグ → boundary 位置から padding 値を逆算
+  const onHandleMouseDown = (e: React.MouseEvent) => {
+    e.preventDefault();
+    e.stopPropagation();
+    if (!overlayRef.current || fileDur <= 0) return;
+    draggingRef.current = true;
+    const rect = overlayRef.current.getBoundingClientRect();
+    const onMove = (ev: MouseEvent) => {
+      if (!draggingRef.current) return;
+      const x = Math.max(0, Math.min(rect.width, ev.clientX - rect.left));
+      const ratio = x / rect.width;
+      const boundarySec = ratio * fileDur;
+      const newPadSec = Math.max(0, fileDur - boundarySec);
+      const newPadMs = Math.round(Math.min(2000, newPadSec * 1000));
+      setDraft(newPadMs);
+    };
+    const onUp = () => {
+      draggingRef.current = false;
+      window.removeEventListener("mousemove", onMove);
+      window.removeEventListener("mouseup", onUp);
+      commit(draftRef.current);
+    };
+    window.addEventListener("mousemove", onMove);
+    window.addEventListener("mouseup", onUp);
+  };
+
+  return (
+    <div className="mt-2 pt-2 border-t border-slate-800/60">
+      <div className="flex items-center gap-2 mb-1.5">
+        <button
+          type="button"
+          className="btn-ghost text-xs px-2 py-1"
+          onClick={() => wsRef.current?.playPause()}
+          disabled={fileDur === 0}
+          title={playing ? "停止" : "再生"}
+        >
+          {playing ? "⏸" : "▶"}
+        </button>
+        <div
+          ref={overlayRef}
+          className="relative flex-1 h-14 bg-slate-950/60 rounded overflow-hidden"
+        >
+          <div ref={containerRef} className="absolute inset-0" />
+          {fileDur > 0 && currentPadSec > 0 && (
+            <div
+              className="absolute top-0 bottom-0 bg-amber-500/15 pointer-events-none border-l border-amber-500/40"
+              style={{
+                left: `${speechRatio * 100}%`,
+                width: `${(1 - speechRatio) * 100}%`,
+              }}
+            />
+          )}
+          {fileDur > 0 && dirty && (
+            <div
+              className="absolute top-0 bottom-0 w-0.5 bg-yellow-300 pointer-events-none z-10"
+              style={{ left: `${draftRatio * 100}%` }}
+            />
+          )}
+          {fileDur > 0 && (
+            <div
+              className="absolute top-0 bottom-0 w-1.5 cursor-ew-resize bg-emerald-300/80 hover:bg-emerald-200 z-20"
+              style={{ left: `calc(${speechRatio * 100}% - 3px)` }}
+              onMouseDown={onHandleMouseDown}
+              title="ドラッグでpadding境界を調整"
+            />
+          )}
+        </div>
+      </div>
+      <div className="flex flex-wrap items-center gap-x-3 gap-y-0.5 text-[10px] text-slate-500">
+        <span>
+          話声{" "}
+          <span className="font-mono text-emerald-300">
+            {speechDurInFile.toFixed(2)}s
+          </span>
+        </span>
+        <span>
+          現padding{" "}
+          <span className="font-mono text-amber-300">
+            {currentPadSec.toFixed(2)}s
+          </span>
+        </span>
+        <span>
+          ファイル長{" "}
+          <span className="font-mono text-slate-300">
+            {fileDur.toFixed(2)}s
+          </span>
+        </span>
+        {dirty && (
+          <span className="text-yellow-300">
+            → 適用後padding{" "}
+            <span className="font-mono">{draftPadSec.toFixed(2)}s</span>
+          </span>
+        )}
+      </div>
+      <div className="mt-1.5 flex items-center gap-2 text-xs">
+        <span className="text-slate-500 w-20 flex-shrink-0">スライダー</span>
+        <span className="text-[10px] text-slate-600 w-6">0</span>
+        <input
+          type="range"
+          min={0}
+          max={2000}
+          step={25}
+          value={draft}
+          onChange={(e) => setDraft(Number(e.target.value))}
+          onMouseUp={() => commit(draft)}
+          onTouchEnd={() => commit(draft)}
+          onKeyUp={() => commit(draft)}
+          disabled={saving}
+          className="flex-1 accent-emerald-500"
+        />
+        <span className="text-[10px] text-slate-600 w-10 text-right">
+          2000ms
+        </span>
+        <span
+          className={
+            (dirty ? "text-yellow-300" : "text-slate-300") +
+            " font-mono w-14 text-right"
+          }
+        >
+          {draft}ms
+        </span>
+        <span
+          className={
+            (stored !== undefined ? "text-emerald-300" : "text-slate-500") +
+            " text-[10px] w-10 text-center"
+          }
+          title={
+            stored !== undefined
+              ? "このセリフ専用の値"
+              : `既定 (グローバル ${defaultMs}ms)`
+          }
+        >
+          {stored !== undefined ? "個別" : "既定"}
+        </span>
+        <button
+          className="btn-ghost text-[10px] py-0.5 px-1.5 disabled:opacity-30"
+          onClick={onReset}
+          disabled={stored === undefined || saving}
+          title="既定値に戻す"
+        >
+          既定に
+        </button>
+      </div>
     </div>
   );
 }
@@ -578,9 +977,7 @@ function LineTextEditor({
     setSaving(true);
     setError(null);
     try {
-      const updated = JSON.parse(JSON.stringify(ctx.detail.screenplay));
-      updated.scenes[sIdx].lines[lIdx].text = draft;
-      await api.saveScreenplay(ctx.detail.timestamp, updated);
+      await api.patchLine(ctx.detail.timestamp, sIdx, lIdx, { text: draft });
       await ctx.reload();
       if (alsoRegen) {
         await ctx.regen({ stage: "tts", force: true });
