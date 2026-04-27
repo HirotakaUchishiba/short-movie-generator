@@ -81,6 +81,56 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ screenplay }),
     }),
+  // Server-side merge: 特定 line の指定フィールドだけ更新。
+  // 並行 patch しても他 line を上書きしない (race condition 回避)。
+  // patch.<field> = null でフィールド削除。
+  patchLine: (
+    ts: string,
+    sceneIdx: number,
+    lineIdx: number,
+    patch: Record<string, unknown>,
+  ) =>
+    http<{ ok: true }>(`/api/projects/${ts}/lines/${sceneIdx}/${lineIdx}`, {
+      method: "PATCH",
+      body: JSON.stringify({ patch }),
+    }),
+  patchScene: (ts: string, sceneIdx: number, patch: Record<string, unknown>) =>
+    http<{ ok: true }>(`/api/projects/${ts}/scenes/${sceneIdx}`, {
+      method: "PATCH",
+      body: JSON.stringify({ patch }),
+    }),
+  patchScreenplayMeta: (ts: string, patch: Record<string, unknown>) =>
+    http<{ ok: true }>(`/api/projects/${ts}/screenplay-meta`, {
+      method: "PATCH",
+      body: JSON.stringify({ patch }),
+    }),
+  presets: () =>
+    http<{
+      libraries: Record<string, Record<string, string>>;
+      labels_ja: Record<string, Record<string, string>>;
+      category_labels_ja: Record<string, string>;
+      scene_tags: string[];
+      scene_tag_labels_ja: Record<string, string>;
+      emotion_default_preset_ids: Record<string, Record<string, string>>;
+    }>("/api/presets"),
+  ttsSource: (ts: string) =>
+    http<{
+      text: string;
+      char_count: number;
+      separator: string;
+      line_specs: {
+        scene_idx: number;
+        line_idx: number;
+        char_start: number;
+        char_end: number;
+      }[];
+    }>(`/api/projects/${ts}/tts-source`),
+  composedPrompts: (ts: string, sceneIdx: number) =>
+    http<{
+      scene_idx: number;
+      background_prompt: string;
+      animation_prompt: string;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/composed-prompts`),
   job: (id: string) => http<JobStatus>(`/api/jobs/${id}`),
 };
 

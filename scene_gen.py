@@ -30,23 +30,136 @@ def _dominant_emotion(scene: dict) -> str | None:
     return Counter(emotions).most_common(1)[0][0]
 
 
-def _get_animation_prompt(scene: dict) -> str:
+def _emotion_arc_summary(scene: dict, cue_key: str) -> str:
+    """lines[].emotion ごとに EMOTION_VISUAL_CUES[cue_key] を引き、" → " 連結。
+
+    例: ["焦り", "焦り", "満足"] + "motion" →
+        "rushed forward-leaning movement → rushed forward-leaning movement →
+         relaxed open posture"
+    """
+    cues: list[str] = []
+    for line in scene.get("lines", []) or []:
+        emo = line.get("emotion")
+        if not emo:
+            continue
+        v = config.EMOTION_VISUAL_CUES.get(emo, {}).get(cue_key)
+        if v:
+            cues.append(v)
+    # 連続重複を畳む (見栄え対策)
+    deduped: list[str] = []
+    for c in cues:
+        if not deduped or deduped[-1] != c:
+            deduped.append(c)
+    return " → ".join(deduped)
+
+
+def _dominant_visual_cues(scene: dict) -> dict:
+    """EMOTION_VISUAL_CUES の dominant emotion 既定 cue に
+    scene.emotion_cue_overrides (preset ID → 実テキスト) を上書き適用する。
+
+    overrides の値は preset ID で、validator が enum を保証する。
+    library lookup で実テキストに展開してから cue dict にマージ。
+    """
+    dom = _dominant_emotion(scene)
+    cues: dict = dict(config.EMOTION_VISUAL_CUES.get(dom or "", {}))
+    overrides = scene.get("emotion_cue_overrides") or {}
+    libs = config.PROMPT_PRESET_LIBRARIES
+    for category, preset_id in overrides.items():
+        lib = libs.get(category)
+        if not lib:
+            continue
+        text = lib.get(preset_id)
+        if text:
+            cues[category] = text
+    return cues
+
+
+def _scope_matches(scope: dict, scene: dict, s_idx: int) -> bool:
+    """scoped_augmentations の scope がこの scene にマッチするか判定。"""
+    if not scope:
+        return False
+    si = scope.get("scene_idx")
+    if isinstance(si, list) and s_idx in si:
+        return True
+    tag = scope.get("tag")
+    if tag and tag in (scene.get("tags") or []):
+        return True
+    return False
+
+
+def _resolve_scoped_elements(screenplay: dict | None, scene: dict,
+                              s_idx: int | None) -> list[str]:
+    """このシーンに適用される scoped_augmentations の要素を実テキスト展開して返す。"""
+    if not screenplay or s_idx is None:
+        return []
+    out: list[str] = []
+    seen: set[str] = set()
+    elements_lib = config.SCENE_ELEMENT_PRESETS
+    for aug in screenplay.get("scoped_augmentations") or []:
+        if not _scope_matches(aug.get("scope") or {}, scene, s_idx):
+            continue
+        for elem_id in aug.get("elements") or []:
+            text = elements_lib.get(elem_id)
+            if text and text not in seen:
+                out.append(text)
+                seen.add(text)
+    return out
+
+
+def _get_animation_prompt(scene: dict, ts_path: str | None = None,
+                          s_idx: int | None = None,
+                          screenplay: dict | None = None) -> str:
+    """Kling 用 animation_prompt を合成する (SSOT準拠)。
+
+    入力は SSOT のみ:
+      - scene.animation_prompt (シーン固有の動作・ベース文)
+      - lines[].emotion (per-line) → EMOTION_VISUAL_CUES (motion/facial/camera/tone)
+      - tts_<S>_<L>.mp3 (TTS生成済みなら) → audio_dynamics
+
+    廃止フィールド (scene.facial_expression / hand_gesture) は読まない。
+    """
     explicit = scene.get("animation_prompt")
     bg_prompt = scene.get("background_prompt", "")
     base = explicit if explicit else f"gentle cinematic motion, {bg_prompt}"
 
     extras: list[str] = []
-    fe = scene.get("facial_expression")
-    if fe and fe not in base:
-        extras.append(f"facial expression: {fe}")
-    hg = scene.get("hand_gesture")
-    if hg and hg not in base:
-        extras.append(f"hand gesture: {hg}")
 
-    dominant = _dominant_emotion(scene)
-    addon = config.EMOTION_MOTION_ADDONS.get(dominant or "") if dominant else None
-    if addon and addon not in base:
-        extras.append(addon)
+    motion_arc = _emotion_arc_summary(scene, "motion")
+    if motion_arc:
+        extras.append(f"motion arc: {motion_arc}")
+
+    facial_arc = _emotion_arc_summary(scene, "facial")
+    if facial_arc:
+        extras.append(f"facial arc: {facial_arc}")
+
+    dom_cues = _dominant_visual_cues(scene)
+    if dom_cues.get("camera"):
+        extras.append(f"camera: {dom_cues['camera']}")
+    if dom_cues.get("tone"):
+        extras.append(f"tone: {dom_cues['tone']}")
+    # override で書かれることが多いカテゴリ (Kling は人物動作プロンプトなので)
+    if dom_cues.get("eye_gaze"):
+        extras.append(f"eye gaze: {dom_cues['eye_gaze']}")
+    if dom_cues.get("body_posture"):
+        extras.append(f"body posture: {dom_cues['body_posture']}")
+    if dom_cues.get("hair"):
+        extras.append(f"hair: {dom_cues['hair']}")
+
+    # 横断適用ルール (scoped_augmentations) の要素注入
+    scoped = _resolve_scoped_elements(screenplay, scene, s_idx)
+    if scoped:
+        extras.append("scene elements: " + ", ".join(scoped))
+
+    # TTS 音響特徴 (TTS 生成済みのときだけ)
+    if ts_path is not None and s_idx is not None:
+        try:
+            import audio_dynamics
+            dyn = audio_dynamics.summarize_scene_dynamics(
+                scene.get("lines") or [], ts_path, s_idx)
+            if dyn:
+                extras.append(dyn)
+        except Exception as e:
+            logger.warning("audio_dynamics サマリ失敗: %s", e)
 
     if extras:
         return f"{base}, " + ", ".join(extras)
@@ -294,14 +407,14 @@ def _prepare_background(bg_path: str, output_path: str) -> None:
 
 
 def _resolve_character_refs(scene: dict) -> list[str]:
-    """character_refs (旧API) と characters[].ref (新API) の両方から参照画像を解決する。"""
-    names: list[str] = []
+    """scene.character_refs (SSOT) から参照画像を解決する。
+
+    旧 characters[].ref への fallback は廃止。validator schema が
+    characters[] から ref フィールドを拒否するので存在しえない。
+    """
     if "character_refs" in scene:
-        names.extend(scene["character_refs"] or [])
-    for c in scene.get("characters") or []:
-        if c.get("ref"):
-            names.append(c["ref"])
-    if not names and "character_refs" not in scene:
+        names = list(scene.get("character_refs") or [])
+    else:
         names = list(config.DEFAULT_CHARACTER_REFS)
 
     seen: set[str] = set()
@@ -318,33 +431,74 @@ def _resolve_character_refs(scene: dict) -> list[str]:
     return resolved
 
 
-def _build_background_prompt(scene: dict, screenplay: dict | None = None) -> str:
+def _build_background_prompt(scene: dict, screenplay: dict | None = None,
+                              ts_path: str | None = None,
+                              s_idx: int | None = None) -> str:
+    """Imagen 用 background prompt を合成する (SSOT準拠)。
+
+    入力は SSOT のみ:
+      - scene.background_prompt (シーン固有のベース文)
+      - scene.wardrobe.identifier → root.wardrobe_continuity[id] で1回だけ展開
+      - lines[].emotion (per-line) → EMOTION_VISUAL_CUES (lighting/facial/tone)
+      - tts_<S>_<L>.mp3 → audio_dynamics
+
+    廃止フィールド (scene.wardrobe.{top,bottom,accessories,hair} /
+    scene.facial_expression / hand_gesture / characters[].outfit) は読まない。
+    """
     parts: list[str] = [scene.get("background_prompt", "")]
 
+    # 服装: identifier から wardrobe_continuity を1度だけ参照 (SSOT)
     wardrobe = scene.get("wardrobe") or {}
     wardrobe_id = wardrobe.get("identifier")
     if wardrobe_id and screenplay:
         global_wd = (screenplay.get("wardrobe_continuity") or {}).get(wardrobe_id)
         if global_wd:
             parts.append(f"wardrobe (consistent across scenes): {global_wd}")
-    wd_details = [f"{k}: {wardrobe[k]}" for k in ("top", "bottom", "accessories", "hair") if wardrobe.get(k)]
-    if wd_details:
-        parts.append(", ".join(wd_details))
 
-    if scene.get("facial_expression"):
-        parts.append(f"facial expression: {scene['facial_expression']}")
-    if scene.get("hand_gesture"):
-        parts.append(f"hand gesture: {scene['hand_gesture']}")
+    # 決定論的 emotion → visual cue 派生 (override preset 適用済み)
+    dom_cues = _dominant_visual_cues(scene)
+    # 既定 cue + 任意の override カテゴリ (eye_gaze / hair / body_posture 等) を全部出力
+    _CUE_LABEL = {
+        "lighting": "lighting and color",
+        "facial": "facial expression",
+        "tone": "tone",
+        "eye_gaze": "eye gaze",
+        "hair": "hair styling",
+        "body_posture": "body posture",
+        "camera": "camera",
+        "motion": None,  # animation_prompt 側で扱う
+    }
+    for cat, label in _CUE_LABEL.items():
+        if not label:
+            continue
+        v = dom_cues.get(cat)
+        if v:
+            parts.append(f"{label}: {v}")
+
+    # 横断適用ルール (scoped_augmentations) の要素注入
+    scoped = _resolve_scoped_elements(screenplay, scene, s_idx)
+    if scoped:
+        parts.append("scene elements: " + ", ".join(scoped))
+
+    # TTS 音響特徴 (TTS 生成済みのときだけ)
+    if ts_path is not None and s_idx is not None:
+        try:
+            import audio_dynamics
+            dyn = audio_dynamics.summarize_scene_dynamics(
+                scene.get("lines") or [], ts_path, s_idx)
+            if dyn:
+                parts.append(dyn)
+        except Exception as e:
+            logger.warning("audio_dynamics サマリ失敗: %s", e)
 
     chars = scene.get("characters") or []
     if len(chars) > 1:
+        # 多人数シーン: name と role のみ列挙 (outfit は廃止、wardrobe_continuity 経由)
         descs = []
         for c in chars:
             d = c.get("name") or "person"
             if c.get("role"):
                 d += f" ({c['role']})"
-            if c.get("outfit"):
-                d += f": {c['outfit']}"
             descs.append(d)
         parts.append(f"characters in scene: {'; '.join(descs)}")
 
@@ -641,7 +795,8 @@ def _generate_single_background(scene_idx: int, scene: dict, temp_dir: str,
     path = os.path.join(temp_dir, f"{bg_key}.png")
 
     if not os.path.exists(path):
-        enhanced = _build_background_prompt(scene, screenplay)
+        enhanced = _build_background_prompt(scene, screenplay, ts_path=temp_dir,
+                                              s_idx=scene_idx)
         full_prompt = f"{enhanced}. no text, no letters, vertical portrait composition"
         refs = _resolve_character_refs(scene)
         logger.info("%s 生成中 (参照キャラ: %d枚)", bg_key, len(refs))
@@ -670,23 +825,56 @@ def generate_backgrounds(screenplay: dict, temp_dir: str) -> dict[str, str]:
     return bg_paths
 
 
+def _resolve_inline_tag(line: dict, _scene: dict, _line_idx: int) -> str:
+    """このlineに対する ElevenLabs V3 inline tag を解決する。
+
+    優先順位:
+      1. line.audio_tags[0] (ユーザー手動指定)
+      2. line.emotion → config.EMOTION_AUDIO_TAGS の最初のタグ (自動補完)
+      3. なし (タグ無し)
+    """
+    user_tags = line.get("audio_tags") or []
+    if user_tags:
+        first = str(user_tags[0]).strip()
+        if first:
+            return first
+    emo = line.get("emotion")
+    if emo and getattr(config, "EMOTION_AUDIO_TAGS_ENABLED", True):
+        auto = config.EMOTION_AUDIO_TAGS.get(emo, [])
+        if auto:
+            first = str(auto[0]).strip()
+            if first:
+                return first
+    return ""
+
+
 def _build_screenplay_text(screenplay: dict) -> tuple[str, list[dict]]:
-    """全line.text を半角スペース×2 で連結。各lineのchar offsetを line_specs に記録して返す。"""
+    """全line.text を半角スペース×2 で連結。各lineのchar offsetを line_specs に記録して返す。
+
+    mood.tts_inline_tags / line.audio_tags があれば line.text の直前に
+    "[tag] " を挿入する (ElevenLabs V3 の inline 感情タグ仕様)。
+    line_specs.char_start は **発話本文 (text)** の先頭位置を指す
+    (タグ部分は char_alignment 上スキップされる前提なのでマッピングに影響しない)。
+    """
     line_specs: list[dict] = []
     text_parts: list[str] = []
     cursor = 0
     for s_idx, scene in enumerate(screenplay["scenes"]):
         for l_idx, line in enumerate(scene.get("lines") or []):
             t = line["text"]
+            tag = _resolve_inline_tag(line, scene, l_idx)
+            prefix = f"[{tag}] " if tag else ""
             if cursor > 0:
                 cursor += len(SCREENPLAY_TEXT_SEPARATOR)
+            # tag prefix を含めて送信文字列に乗せるが、line_specs は本文のみを指す
+            text_parts.append(prefix + t)
+            cursor += len(prefix)
             line_specs.append({
                 "scene_idx": s_idx,
                 "line_idx": l_idx,
                 "char_start": cursor,
                 "char_end": cursor + len(t),
             })
-            text_parts.append(t)
             cursor += len(t)
     return SCREENPLAY_TEXT_SEPARATOR.join(text_parts), line_specs
 
@@ -727,6 +915,98 @@ def _find_line_time_range(pos_to_time: list[dict | None],
     return abs_start, abs_end
 
 
+def _detect_all_silences(audio_path: str, threshold_db: float = -40.0,
+                          min_silence_sec: float = 0.03) -> list[tuple[float, float]]:
+    """ffmpeg silencedetect で audio_path 内の全無音区間 [(start, end), ...] を返す。
+
+    char_ts boundary snap 用に使うので min_silence_sec は短め (30ms)。
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-i", audio_path,
+        "-af", f"silencedetect=noise={threshold_db}dB:d={min_silence_sec:.3f}",
+        "-f", "null", "-",
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    silences: list[tuple[float, float]] = []
+    cur_start: float | None = None
+    for line in r.stderr.splitlines():
+        if "silence_start:" in line:
+            try:
+                cur_start = float(
+                    line.split("silence_start:")[1].strip().split()[0])
+            except (ValueError, IndexError):
+                cur_start = None
+        elif "silence_end:" in line and cur_start is not None:
+            try:
+                end_str = line.split("silence_end:")[1].strip().split()[0]
+                silences.append((cur_start, float(end_str)))
+            except (ValueError, IndexError):
+                pass
+            cur_start = None
+    return silences
+
+
+def _snap_line_boundaries_to_silence(
+    line_times: list[dict],
+    silences: list[tuple[float, float]],
+    snap_tolerance_sec: float = 0.2,
+    min_speech_sec: float = 0.05,
+) -> list[dict]:
+    """char_ts ベースの abs_start/abs_end を、最寄りの無音区間境界に snap する。
+
+    - abs_end → 近隣 (±tolerance) の silence.start に snap (発声末尾を無音直前で切る)
+    - abs_start → 近隣 (±tolerance) の silence.end に snap (子音オンセット直前から始める)
+    - snap 候補が前後 line と overlap する場合は元の char_ts を保持
+    - line間に検出可能な無音が無い (連続発声) 場合も char_ts のまま
+    """
+    if not silences or not line_times:
+        return [dict(lt) for lt in line_times]
+    sorted_sils = sorted(silences)
+
+    def silence_with_start_near(t: float) -> tuple[float, float] | None:
+        best: tuple[float, float] | None = None
+        best_dist = snap_tolerance_sec + 1.0
+        for s_start, s_end in sorted_sils:
+            d = abs(s_start - t)
+            if d <= snap_tolerance_sec and d < best_dist:
+                best = (s_start, s_end)
+                best_dist = d
+            if s_start > t + snap_tolerance_sec:
+                break
+        return best
+
+    def silence_with_end_near(t: float) -> tuple[float, float] | None:
+        best: tuple[float, float] | None = None
+        best_dist = snap_tolerance_sec + 1.0
+        for s_start, s_end in sorted_sils:
+            d = abs(s_end - t)
+            if d <= snap_tolerance_sec and d < best_dist:
+                best = (s_start, s_end)
+                best_dist = d
+            if s_start > t + snap_tolerance_sec:
+                break
+        return best
+
+    snapped: list[dict] = []
+    for lt in line_times:
+        new_start = lt["abs_start"]
+        new_end = lt["abs_end"]
+        sil_end = silence_with_start_near(new_end)
+        if sil_end and sil_end[0] > new_start + min_speech_sec:
+            new_end = sil_end[0]
+        sil_start = silence_with_end_near(new_start)
+        if sil_start and sil_start[1] < new_end - min_speech_sec:
+            new_start = sil_start[1]
+        snapped.append({**lt, "abs_start": new_start, "abs_end": new_end})
+
+    # overlap 検出 → overlap している隣接 line 対は元の char_ts に戻す
+    for i in range(len(snapped) - 1):
+        if snapped[i]["abs_end"] > snapped[i + 1]["abs_start"]:
+            snapped[i]["abs_end"] = line_times[i]["abs_end"]
+            snapped[i + 1]["abs_start"] = line_times[i + 1]["abs_start"]
+    return snapped
+
+
 def _extract_audio_segment(input_path: str, start_sec: float, duration: float,
                             output_path: str, codec: str = "aac",
                             bitrate: str = "192k") -> None:
@@ -748,12 +1028,78 @@ def _extract_audio_segment(input_path: str, start_sec: float, duration: float,
         raise RuntimeError(f"Audio extraction failed: {r.stderr[-500:]}")
 
 
+def _convert_to_aac(input_path: str, output_path: str,
+                     bitrate: str = "192k") -> None:
+    cmd = ["ffmpeg", "-y", "-i", input_path,
+           "-c:a", "aac", "-b:a", bitrate, output_path]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"AAC convert failed: {r.stderr[-500:]}")
+
+
+def _concat_audios_to_aac(audio_paths: list[str], output_path: str) -> None:
+    """複数audioを ffmpeg で連結 → AAC m4a 出力。"""
+    if not audio_paths:
+        return
+    if len(audio_paths) == 1:
+        _convert_to_aac(audio_paths[0], output_path)
+        return
+    inputs: list[str] = []
+    for p in audio_paths:
+        inputs.extend(["-i", p])
+    chain = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
+    filter_str = f"{chain}concat=n={len(audio_paths)}:v=0:a=1[out]"
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", filter_str,
+        "-map", "[out]",
+        "-c:a", "aac", "-b:a", "192k",
+        output_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"Audio concat failed: {r.stderr[-500:]}")
+
+
+def _line_silence_after_sec(line: dict) -> float:
+    """line.silence_after_ms または既定値 (TTS_MAX_SILENCE_MS) を秒数で返す。"""
+    v = line.get("silence_after_ms")
+    if v is None:
+        v = config.TTS_MAX_SILENCE_MS
+    return max(0.0, min(2.0, float(v) / 1000.0))
+
+
+def _concat_audios_to_mp3(audio_paths: list[str], output_path: str) -> None:
+    """複数audioを ffmpeg で連結 → mp3 出力 (per-line speech body + trailing用)。"""
+    if not audio_paths:
+        return
+    if len(audio_paths) == 1:
+        os.replace(audio_paths[0], output_path)
+        return
+    inputs: list[str] = []
+    for p in audio_paths:
+        inputs.extend(["-i", p])
+    chain = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
+    filter_str = f"{chain}concat=n={len(audio_paths)}:v=0:a=1[out]"
+    cmd = ["ffmpeg", "-y"] + inputs + [
+        "-filter_complex", filter_str,
+        "-map", "[out]",
+        "-c:a", "libmp3lame", "-q:a", "4",
+        output_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"mp3 concat failed: {r.stderr[-500:]}")
+
+
 def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
     """既存の tts_full.mp3 から per-line および scene audio を再構築する。
 
-    旧仕様 (連続抽出): scene audio は scene_start から scene_end までを
-    tts_full.mp3 から **連続切り出し** で生成。per-line concat は使わない。
-    line.speed / silence_after_ms 等の per-line調整は使わない。
+    Per-line 後処理パイプライン (timestamp drift 根絶のため全工程 line ファイル単位):
+      1. [abs_start, abs_end] を speech body として切出し
+      2. silenceremove を speech body にのみ適用 (mid-line の長い無音を圧縮)
+      3. [abs_end, abs_end + silence_after_sec] を trailing として切出し (次line侵食しない範囲)
+      4. body + trailing を concat → tts_<S>_<L>.mp3
+      5. atempo を line file 全体に適用 (global_speed > native_max のとき)
     """
     full_mp3 = os.path.join(ts_path, "tts_full.mp3")
     timestamps_json = os.path.join(ts_path, "tts_full.json")
@@ -778,49 +1124,116 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
             "abs_end": abs_end,
         })
 
+    # char_ts は文字発音区間で実音声の自然な境界とは ±50-100ms ズレる。
+    # tts_full.mp3 の無音区間に line 境界を snap して語尾/文頭の食込みを防ぐ。
+    threshold_db = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
+    silences = _detect_all_silences(full_mp3, threshold_db, min_silence_sec=0.03)
+    line_times = _snap_line_boundaries_to_silence(line_times, silences)
+
     by_scene: dict[int, list[dict]] = {}
     for lt in line_times:
         by_scene.setdefault(lt["scene_idx"], []).append(lt)
 
-    # scene.duration / line.start/end (scene-relative) を確定
-    for s_idx, scene in enumerate(screenplay["scenes"]):
-        scene_lts = by_scene.get(s_idx)
-        if not scene_lts:
-            scene["duration"] = config.SCENE_MIN_DURATION
-            continue
-        scene_start = scene_lts[0]["abs_start"]
-        scene_end = scene_lts[-1]["abs_end"]
-        scene["duration"] = max(
-            scene_end - scene_start + config.SCENE_TTS_TAIL_BUFFER,
-            config.SCENE_MIN_DURATION,
-        )
-        for lt in scene_lts:
-            line = scene["lines"][lt["line_idx"]]
-            line["start"] = round(lt["abs_start"] - scene_start, 3)
-            line["end"] = round(lt["abs_end"] - scene_start, 3)
+    if not line_times:
+        return
 
-    # scene 単位 audio_<S>.m4a を tts_full.mp3 から **連続切り出し**
-    for s_idx, scene in enumerate(screenplay["scenes"]):
-        scene_lts = by_scene.get(s_idx)
-        if not scene_lts:
-            continue
-        scene_start = scene_lts[0]["abs_start"]
-        scene_dur = scene["duration"]
-        out_path = os.path.join(ts_path, f"audio_{s_idx:03d}.m4a")
-        if os.path.exists(out_path):
-            os.remove(out_path)
-        _extract_audio_segment(full_mp3, scene_start, scene_dur, out_path)
+    trim_sil = bool(getattr(config, "TTS_TRIM_LONG_SILENCES", False))
+    max_sil_sec = float(getattr(config, "TTS_MAX_SILENCE_MS", 250)) / 1000.0
+    sil_thr = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
+    _native, atempo = _split_global_speed()
+    full_audio_dur = _get_duration(full_mp3)
 
-    # line 単位 mp3 (UI試聴用) を切り出し
-    for lt in line_times:
-        s_idx = lt["scene_idx"]
-        l_idx = lt["line_idx"]
-        line_dur = lt["abs_end"] - lt["abs_start"]
+    # Step 1: 各 line を per-line で切出し + silenceremove + trailing concat + atempo
+    line_actual_silences: dict[tuple[int, int], float] = {}
+    for i, lt in enumerate(line_times):
+        s_idx, l_idx = lt["scene_idx"], lt["line_idx"]
+        line = screenplay["scenes"][s_idx]["lines"][l_idx]
         out_path = os.path.join(ts_path, f"tts_{s_idx:03d}_{l_idx:03d}.mp3")
         if os.path.exists(out_path):
             os.remove(out_path)
-        _extract_audio_segment(full_mp3, lt["abs_start"], line_dur, out_path,
+
+        # abs_end が音声末尾を超える場合は clamp (char_ts > audio_dur のとき)
+        body_end = min(lt["abs_end"], full_audio_dur)
+        next_abs_start = (
+            line_times[i + 1]["abs_start"] if i + 1 < len(line_times)
+            else float("inf")
+        )
+        tail_limit = min(next_abs_start, full_audio_dur)
+        desired = _line_silence_after_sec(line)
+        available = max(0.0, tail_limit - body_end)
+        natural_extract = max(0.0, min(desired, available))
+
+        body_path = out_path + ".body.mp3"
+        speech_dur = max(0.05, body_end - lt["abs_start"])
+        _extract_audio_segment(full_mp3, lt["abs_start"], speech_dur, body_path,
                                 codec="libmp3lame", bitrate="192k")
+        if trim_sil:
+            _apply_silenceremove_inplace(body_path, max_sil_sec, sil_thr)
+
+        pieces = [body_path]
+        if natural_extract > 0:
+            tail_path = out_path + ".tail.mp3"
+            _extract_audio_segment(full_mp3, body_end, natural_extract,
+                                    tail_path, codec="libmp3lame", bitrate="192k")
+            pieces.append(tail_path)
+        _concat_audios_to_mp3(pieces, out_path)
+        for p in pieces:
+            if p != out_path and os.path.exists(p):
+                os.remove(p)
+
+        if abs(atempo - 1.0) > 0.001:
+            _apply_atempo_inplace(out_path, atempo)
+
+        # atempo 後の natural silence 実長 (subtitle 計算用)
+        line_actual_silences[(s_idx, l_idx)] = natural_extract / max(atempo, 1e-6)
+
+    # Step 2: scene 単位 audio_<S>.m4a を line files concat で構築
+    for s_idx, scene in enumerate(screenplay["scenes"]):
+        scene_lts = by_scene.get(s_idx, [])
+        out_path = os.path.join(ts_path, f"audio_{s_idx:03d}.m4a")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+
+        if not scene_lts:
+            scene["duration"] = config.SCENE_MIN_DURATION
+            continue
+
+        line_paths: list[str] = []
+        cumulative = 0.0
+        for lt in scene_lts:
+            line = scene["lines"][lt["line_idx"]]
+            line_path = os.path.join(
+                ts_path, f"tts_{s_idx:03d}_{lt['line_idx']:03d}.mp3")
+            file_dur = _get_duration(line_path)
+            silence_in_file = line_actual_silences.get(
+                (s_idx, lt["line_idx"]), 0.0)
+            speech_dur = max(0.0, file_dur - silence_in_file)
+
+            # subtitle用 line.start/end は speech 部分のみ
+            line["start"] = round(cumulative, 3)
+            line["end"] = round(cumulative + speech_dur, 3)
+            cumulative += file_dur
+            line_paths.append(line_path)
+
+        scene["duration"] = max(
+            cumulative + config.SCENE_TTS_TAIL_BUFFER,
+            config.SCENE_MIN_DURATION,
+        )
+
+        _concat_audios_to_aac(line_paths, out_path)
+
+    # Step 3: 全シーン audio_<S>.m4a を1本に concat → merged preview用
+    # (per-line padding/速度を反映した「実際に聞こえる音」のプレビュー)
+    merged_path = os.path.join(ts_path, "merged_preview.m4a")
+    if os.path.exists(merged_path):
+        os.remove(merged_path)
+    scene_paths = [
+        os.path.join(ts_path, f"audio_{s_idx:03d}.m4a")
+        for s_idx in range(len(screenplay["scenes"]))
+        if os.path.exists(os.path.join(ts_path, f"audio_{s_idx:03d}.m4a"))
+    ]
+    if scene_paths:
+        _concat_audios_to_aac(scene_paths, merged_path)
 
 
 def _clear_tts_artifacts(ts_path: str) -> None:
@@ -829,6 +1242,7 @@ def _clear_tts_artifacts(ts_path: str) -> None:
         "tts_full.mp3", "tts_full.json", "tts_full.text_meta.json",
         "tts_*.mp3", "tts_*.json",
         "audio_*.m4a",
+        "merged_preview.m4a",
     ]
     for pat in patterns:
         for f in glob.glob(os.path.join(ts_path, pat)):
@@ -872,38 +1286,13 @@ def _apply_atempo_inplace(input_path: str, atempo: float) -> None:
     os.replace(tmp_path, input_path)
 
 
-def _detect_silences(audio_path: str, threshold_db: float,
-                       min_silence_sec: float) -> list[tuple[float, float]]:
-    """ffmpeg silencedetect で無音区間を検出し [(start, end), ...] を返す。"""
-    cmd = [
-        "ffmpeg", "-hide_banner", "-i", audio_path,
-        "-af",
-        f"silencedetect=noise={threshold_db}dB:d={min_silence_sec:.3f}",
-        "-f", "null", "-",
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    silences: list[tuple[float, float]] = []
-    cur_start: float | None = None
-    for line in r.stderr.splitlines():
-        if "silence_start:" in line:
-            try:
-                cur_start = float(line.split("silence_start:")[1].strip().split()[0])
-            except (ValueError, IndexError):
-                cur_start = None
-        elif "silence_end:" in line and cur_start is not None:
-            try:
-                end_str = line.split("silence_end:")[1].strip().split()[0]
-                end = float(end_str)
-                silences.append((cur_start, end))
-            except (ValueError, IndexError):
-                pass
-            cur_start = None
-    return silences
-
-
 def _apply_silenceremove_inplace(input_path: str, max_silence_sec: float,
                                     threshold_db: float) -> None:
-    """ffmpeg silenceremove で max_silence_sec 超の無音を圧縮 (in-place)。"""
+    """ffmpeg silenceremove で max_silence_sec 超の無音を圧縮 (in-place)。
+
+    per-line speech body にのみ適用 (mid-line の長い無音を圧縮する用途)。
+    leading silence は start_periods=0 で保護、trailing は呼出元が body を切出した時点で除去済み。
+    """
     tmp_path = input_path + ".sr.tmp.mp3"
     cmd = [
         "ffmpeg", "-y", "-i", input_path,
@@ -920,42 +1309,6 @@ def _apply_silenceremove_inplace(input_path: str, max_silence_sec: float,
     if r.returncode != 0:
         raise RuntimeError(f"silenceremove failed: {r.stderr[-500:]}")
     os.replace(tmp_path, input_path)
-
-
-def _adjust_timestamps_for_silence_trim(char_ts: list[dict],
-                                          silences: list[tuple[float, float]],
-                                          max_silence_sec: float) -> None:
-    """char timestamps を、長い無音を max_silence_sec まで圧縮した後の時刻に補正する (in-place)。
-
-    各時刻 t に対し、t より前にある無音区間の超過分の合計を引く。
-    """
-    if not silences:
-        return
-    sorted_silences = sorted(silences)
-
-    def removed_before(t: float) -> float:
-        """時刻 t より前にカットされた合計秒数。"""
-        total = 0.0
-        for s_start, s_end in sorted_silences:
-            if s_end <= t:
-                dur = s_end - s_start
-                if dur > max_silence_sec:
-                    total += dur - max_silence_sec
-            elif s_start < t < s_end:
-                # t が無音区間内: 超過カット分のうち start からの相対分だけ
-                offset_in_silence = t - s_start
-                if offset_in_silence > max_silence_sec:
-                    total += offset_in_silence - max_silence_sec
-                break
-            else:
-                break
-        return total
-
-    for entry in char_ts:
-        t_start = float(entry["start"])
-        t_end = float(entry["end"])
-        entry["start"] = max(0.0, t_start - removed_before(t_start))
-        entry["end"] = max(0.0, t_end - removed_before(t_end))
 
 
 def _full_screenplay_voice_settings() -> dict:
@@ -986,15 +1339,9 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
     if not full_text.strip():
         return None
 
-    native_speed, atempo = _split_global_speed()
+    native_speed, _atempo = _split_global_speed()
     voice_id = config.ELEVENLABS_VOICE_ID
-    trim_sil = bool(getattr(config, "TTS_TRIM_LONG_SILENCES", False))
-    max_sil_ms = float(getattr(config, "TTS_MAX_SILENCE_MS", 250))
-    sil_thr = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
-    cache_key = (
-        f"{full_text}|v={voice_id}|s={native_speed:.3f}|a={atempo:.3f}"
-        f"|trim={int(trim_sil)}|maxsil={max_sil_ms:.0f}|thr={sil_thr:.1f}"
-    )
+    cache_key = f"{full_text}|v={voice_id}|s={native_speed:.3f}"
     text_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
 
     full_mp3 = os.path.join(ts_path, "tts_full.mp3")
@@ -1014,9 +1361,8 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
                   or not os.path.exists(timestamps_json))
 
     if need_regen:
-        logger.info("[1-shot TTS] 全 %d 文字を生成中... (hash=%s, "
-                    "native_speed=%.2f, atempo=%.2f)",
-                    len(full_text), text_hash, native_speed, atempo)
+        logger.info("[1-shot TTS] 全 %d 文字を生成中... (hash=%s, native_speed=%.2f)",
+                    len(full_text), text_hash, native_speed)
         for f in [full_mp3, timestamps_json, text_meta_json]:
             if os.path.exists(f):
                 os.remove(f)
@@ -1034,40 +1380,8 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
             keep_whitespace=True,
         )
 
-        if trim_sil:
-            max_sec = max_sil_ms / 1000.0
-            # 検出最小尺は max_sec より少し大きい無音を狙う
-            detect_min = max(0.05, max_sec * 0.8)
-            silences = _detect_silences(full_mp3, sil_thr, detect_min)
-            if silences:
-                logger.info(
-                    "[1-shot TTS] 無音 %d 区間検出 (>= %.0fms) → %.0fms に圧縮",
-                    len(silences), detect_min * 1000, max_sil_ms,
-                )
-                _apply_silenceremove_inplace(full_mp3, max_sec, sil_thr)
-                with open(timestamps_json) as f:
-                    raw_char_ts = json.load(f)
-                _adjust_timestamps_for_silence_trim(
-                    raw_char_ts, silences, max_sec)
-                with open(timestamps_json, "w") as f:
-                    json.dump(raw_char_ts, f)
-
-        if abs(atempo - 1.0) > 0.001:
-            logger.info("[1-shot TTS] atempo=%.3f で速度補正中...", atempo)
-            _apply_atempo_inplace(full_mp3, atempo)
-
-    if need_regen and abs(atempo - 1.0) > 0.001:
-        # APIが atempoを掛けた直後 → timestamps_json も保存し直す (atempo分割引)
-        with open(timestamps_json) as f:
-            raw = json.load(f)
-        for entry in raw:
-            entry["start"] = float(entry["start"]) / atempo
-            entry["end"] = float(entry["end"]) / atempo
-        with open(timestamps_json, "w") as f:
-            json.dump(raw, f)
-
     # per-line audio + scene audio を 既存tts_full.mp3 から再構築
-    # (per-line speed / silence_after_ms を反映)
+    # (silenceremove + atempo + silence_after_ms はすべて per-line で適用)
     _build_audios_from_full(screenplay, ts_path)
 
     with open(text_meta_json, "w") as f:
@@ -1084,9 +1398,17 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
 
 
 def build_merged_tts_preview(screenplay: dict, ts_path: str) -> str | None:
-    """tts_full.mp3 (one-shot生成) を返す。"""
+    """per-line audio を全 scene 連結した merged_preview.m4a を返す。
+
+    `_build_audios_from_full` が生成する「実際に動画に乗る音」のプレビュー。
+    silence_after_ms / atempo / silenceremove 反映済み。
+    無ければ生 tts_full.mp3 (パディング未反映) にフォールバック。
+    """
     if screenplay.get("audio_mode") == "silent":
         return None
+    merged = os.path.join(ts_path, "merged_preview.m4a")
+    if os.path.exists(merged):
+        return merged
     p = os.path.join(ts_path, "tts_full.mp3")
     if os.path.exists(p):
         return p
@@ -1132,14 +1454,16 @@ def regen_tts_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
 
 
 def regen_background_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
-    """単一シーンの背景画像を再生成。下流のkling/scene動画も無効化。"""
+    """単一シーンの背景画像を再生成。下流のkling/scene動画も無効化。
+
+    audio_<S>.m4a は TTS 由来 (BG非依存) なので削除しない。
+    """
     scene = screenplay["scenes"][scene_idx]
     for fname in [
         f"bg_{scene_idx:03d}.png",
         f"composite_{scene_idx:03d}.png",
         f"kling_{scene_idx:03d}.mp4",
         f"scene_{scene_idx:03d}.trim.mp4",
-        f"audio_{scene_idx:03d}.m4a",
         f"scene_{scene_idx:03d}.mp4",
     ]:
         p = os.path.join(temp_dir, fname)
@@ -1174,7 +1498,9 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
                 scene_idx + 1, target_duration, kling_duration, tts_end)
 
     if not os.path.exists(kling_raw_path):
-        anim_prompt = _get_animation_prompt(scene)
+        anim_prompt = _get_animation_prompt(scene, ts_path=temp_dir,
+                                              s_idx=scene_idx,
+                                              screenplay=screenplay)
         _generate_kling(bg_path, anim_prompt, kling_duration,
                         kling_raw_path, scene_idx)
 

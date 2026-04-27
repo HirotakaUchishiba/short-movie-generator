@@ -39,6 +39,79 @@ def test_build_screenplay_text_concatenates_with_separator() -> None:
     assert text[specs[2]["char_start"]:specs[2]["char_end"]] == "助かった"
 
 
+def test_build_screenplay_text_injects_audio_tags() -> None:
+    """line.audio_tags の先頭タグが [tag] として挿入される。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 3,
+                "background_prompt": "x",
+                "lines": [
+                    {"text": "やばい", "start": 0, "audio_tags": ["panicked"]},
+                    {"text": "セーフ", "start": 1, "audio_tags": ["relieved"]},
+                ],
+            },
+        ],
+    }
+    text, specs = scene_gen._build_screenplay_text(sp)
+    assert text == "[panicked] やばい  [relieved] セーフ"
+    # line_specs は **本文** の char range を指す (tag 部分は含まない)
+    assert text[specs[0]["char_start"]:specs[0]["char_end"]] == "やばい"
+    assert text[specs[1]["char_start"]:specs[1]["char_end"]] == "セーフ"
+
+
+def test_build_screenplay_text_emotion_auto_completes_audio_tag() -> None:
+    """audio_tags 未指定でも line.emotion から EMOTION_AUDIO_TAGS で自動補完される。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 3,
+                "background_prompt": "x",
+                "lines": [
+                    {"text": "やばい", "start": 0, "emotion": "驚き"},
+                ],
+            },
+        ],
+    }
+    text, _ = scene_gen._build_screenplay_text(sp)
+    # config.EMOTION_AUDIO_TAGS["驚き"] = ["surprised"]
+    assert text == "[surprised] やばい"
+
+
+def test_build_screenplay_text_audio_tags_override_emotion() -> None:
+    """line.audio_tags が line.emotion 由来の自動補完より優先される。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 3,
+                "background_prompt": "x",
+                "lines": [
+                    {"text": "やばい", "start": 0,
+                     "audio_tags": ["screaming"], "emotion": "驚き"},
+                ],
+            },
+        ],
+    }
+    text, _ = scene_gen._build_screenplay_text(sp)
+    assert text == "[screaming] やばい"
+
+
+def test_build_screenplay_text_no_emotion_no_tags_no_inline_tag() -> None:
+    sp = {
+        "scenes": [
+            {
+                "duration": 3,
+                "background_prompt": "x",
+                "lines": [
+                    {"text": "やばい", "start": 0},
+                ],
+            },
+        ],
+    }
+    text, _ = scene_gen._build_screenplay_text(sp)
+    assert text == "やばい"
+
+
 def test_build_position_to_time_map_aligns_chars() -> None:
     text = "abc"
     char_ts = [
@@ -83,6 +156,52 @@ def test_find_line_time_range_returns_none_when_no_data() -> None:
     abs_start, abs_end = scene_gen._find_line_time_range(pos_to_time, 0, 3)
     assert abs_start is None
     assert abs_end is None
+
+
+def test_snap_line_boundaries_to_silence_snaps_end_to_silence_start() -> None:
+    """abs_end が無音区間.start の近くなら snap (語尾を無音直前で切る)。"""
+    line_times = [
+        {"scene_idx": 0, "line_idx": 0, "abs_start": 0.0, "abs_end": 1.40},
+        {"scene_idx": 0, "line_idx": 1, "abs_start": 1.65, "abs_end": 2.50},
+    ]
+    silences = [(1.42, 1.60)]  # line0末尾の直後に18ms→180msのpause
+    result = scene_gen._snap_line_boundaries_to_silence(line_times, silences)
+    # line0.end は 1.40 → 1.42 にsnap (silence.startへ)
+    assert result[0]["abs_end"] == 1.42
+    # line1.start は 1.65 → 1.60 にsnap (silence.endへ)
+    assert result[1]["abs_start"] == 1.60
+
+
+def test_snap_line_boundaries_to_silence_keeps_when_no_silence_nearby() -> None:
+    """近隣に無音がなければ char_ts のまま。"""
+    line_times = [
+        {"scene_idx": 0, "line_idx": 0, "abs_start": 0.0, "abs_end": 1.40},
+        {"scene_idx": 0, "line_idx": 1, "abs_start": 1.41, "abs_end": 2.50},
+    ]
+    silences = [(5.0, 5.5)]  # line付近に無音なし
+    result = scene_gen._snap_line_boundaries_to_silence(line_times, silences)
+    assert result[0]["abs_end"] == 1.40
+    assert result[1]["abs_start"] == 1.41
+
+
+def test_snap_line_boundaries_handles_empty_silences() -> None:
+    line_times = [{"scene_idx": 0, "line_idx": 0, "abs_start": 0.0, "abs_end": 1.0}]
+    result = scene_gen._snap_line_boundaries_to_silence(line_times, [])
+    assert result == line_times
+
+
+def test_snap_line_boundaries_reverts_overlap() -> None:
+    """snap 後に隣接 line と overlap する場合は元に戻す。"""
+    line_times = [
+        {"scene_idx": 0, "line_idx": 0, "abs_start": 0.0, "abs_end": 1.0},
+        {"scene_idx": 0, "line_idx": 1, "abs_start": 1.05, "abs_end": 2.0},
+    ]
+    # line0.end を 1.10 にsnap、line1.start を 0.95 にsnap → overlap
+    silences = [(1.10, 1.20), (0.85, 0.95)]
+    result = scene_gen._snap_line_boundaries_to_silence(line_times, silences)
+    # overlap は元の値に戻る
+    assert result[0]["abs_end"] == 1.0
+    assert result[1]["abs_start"] == 1.05
 
 
 def test_clear_tts_artifacts_removes_all_relevant_files(temp_dir) -> None:
@@ -161,6 +280,16 @@ def test_one_shot_full_flow_with_mocked_api(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen, "_get_duration",
                           lambda p: file_durs.get(p, 0.3))
     monkeypatch.setattr(scene_gen, "_apply_atempo_inplace", lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_apply_silenceremove_inplace",
+                          lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_detect_all_silences", lambda *a, **kw: [])
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_aac",
+                          lambda paths, out: open(out, "wb").write(b"x"))
+
+    def fake_concat_mp3(paths, out):
+        file_durs[out] = sum(file_durs.get(p, 0.0) for p in paths)
+        open(out, "wb").write(b"x")
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_mp3", fake_concat_mp3)
 
     result = scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
     assert result is not None
@@ -182,15 +311,9 @@ def test_one_shot_caches_when_text_unchanged(temp_dir, monkeypatch) -> None:
     sp = _minimal_screenplay()
 
     full_text, _ = scene_gen._build_screenplay_text(sp)
-    native_speed, atempo = scene_gen._split_global_speed()
+    native_speed, _atempo = scene_gen._split_global_speed()
     voice_id = scene_gen.config.ELEVENLABS_VOICE_ID
-    trim_sil = bool(getattr(scene_gen.config, "TTS_TRIM_LONG_SILENCES", False))
-    max_sil_ms = float(getattr(scene_gen.config, "TTS_MAX_SILENCE_MS", 250))
-    sil_thr = float(getattr(scene_gen.config, "TTS_SILENCE_THRESHOLD_DB", -40))
-    cache_key = (
-        f"{full_text}|v={voice_id}|s={native_speed:.3f}|a={atempo:.3f}"
-        f"|trim={int(trim_sil)}|maxsil={max_sil_ms:.0f}|thr={sil_thr:.1f}"
-    )
+    cache_key = f"{full_text}|v={voice_id}|s={native_speed:.3f}"
     import hashlib
     text_hash = hashlib.sha256(cache_key.encode()).hexdigest()[:12]
 
@@ -213,6 +336,13 @@ def test_one_shot_caches_when_text_unchanged(temp_dir, monkeypatch) -> None:
     )
     monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 0.3)
     monkeypatch.setattr(scene_gen, "_apply_atempo_inplace", lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_apply_silenceremove_inplace",
+                          lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_detect_all_silences", lambda *a, **kw: [])
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_aac",
+                          lambda paths, out: open(out, "wb").write(b"x"))
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_mp3",
+                          lambda paths, out: open(out, "wb").write(b"x"))
 
     scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
     api_spy.assert_not_called()
@@ -286,39 +416,5 @@ def test_split_global_speed_clamps_extremes() -> None:
     native, atempo = scene_gen._split_global_speed(0.1)
     assert native == 0.7
     assert abs(atempo - (0.5 / 0.7)) < 0.001
-
-
-def test_adjust_timestamps_for_silence_trim_subtracts_excess() -> None:
-    """無音超過分を時刻から差し引く。"""
-    char_ts = [
-        {"char": "a", "start": 0.0, "end": 0.5},
-        {"char": "b", "start": 0.5, "end": 1.0},
-        {"char": "c", "start": 2.0, "end": 2.5},  # 無音(1.0〜2.0)後
-    ]
-    silences = [(1.0, 2.0)]  # 1秒の無音
-    max_silence_sec = 0.25  # 250msに圧縮 → 750ms削減
-    scene_gen._adjust_timestamps_for_silence_trim(
-        char_ts, silences, max_silence_sec)
-    # 'a', 'b' は無音より前なので影響なし
-    assert char_ts[0]["start"] == 0.0
-    assert char_ts[1]["end"] == 1.0
-    # 'c' は無音より後なので 0.75秒 (= 1.0 - 0.25) 引く
-    assert abs(char_ts[2]["start"] - (2.0 - 0.75)) < 0.01
-    assert abs(char_ts[2]["end"] - (2.5 - 0.75)) < 0.01
-
-
-def test_adjust_timestamps_for_silence_trim_no_excess_no_change() -> None:
-    """無音が max 以下なら変更なし。"""
-    char_ts = [{"char": "a", "start": 1.5, "end": 2.0}]
-    silences = [(1.0, 1.2)]  # 200ms 無音 (max=250msなら超過なし)
-    scene_gen._adjust_timestamps_for_silence_trim(char_ts, silences, 0.25)
-    assert char_ts[0]["start"] == 1.5
-    assert char_ts[0]["end"] == 2.0
-
-
-def test_adjust_timestamps_handles_empty_silences() -> None:
-    char_ts = [{"char": "a", "start": 1.0, "end": 1.5}]
-    scene_gen._adjust_timestamps_for_silence_trim(char_ts, [], 0.25)
-    assert char_ts[0]["start"] == 1.0
 
 
