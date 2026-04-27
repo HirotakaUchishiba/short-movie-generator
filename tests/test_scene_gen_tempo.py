@@ -94,12 +94,32 @@ def test_compute_safe_final_duration_no_action_complete() -> None:
     assert final == 5.0
 
 
-def test_compute_safe_final_duration_capped_at_kling() -> None:
+def test_compute_safe_final_duration_allows_exceeding_kling_for_tts() -> None:
+    """TTS が kling 尺を超える場合、cap せず TTS 尺を採用する
+    (動画は後段で slow_mo 延長して合わせる)。"""
     final = scene_gen._compute_safe_final_duration(
-        target_duration=8.0, kling_duration=5.0,
+        target_duration=5.0, kling_duration=5.0,
+        action_complete=None, tts_total_end=6.5,
+    )
+    assert final == 6.5
+
+
+def test_compute_safe_final_duration_action_complete_above_kling_ignored() -> None:
+    """action_complete が kling_duration を超える場合は採用しない。"""
+    final = scene_gen._compute_safe_final_duration(
+        target_duration=5.0, kling_duration=5.0,
+        action_complete=6.0, tts_total_end=2.0,
+    )
+    assert final == 5.0
+
+
+def test_compute_safe_final_duration_target_within_kling() -> None:
+    """target_duration が kling 内なら従来通り target を返す。"""
+    final = scene_gen._compute_safe_final_duration(
+        target_duration=4.0, kling_duration=5.0,
         action_complete=None, tts_total_end=2.0,
     )
-    assert final <= 5.0
+    assert final == 4.0
 
 
 def test_augment_animation_prompt_adds_settle_instruction() -> None:

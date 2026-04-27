@@ -606,6 +606,44 @@ def _trim_video(input_path: str, duration: float, output_path: str) -> None:
         raise RuntimeError(f"Video trim failed: {r.stderr[-500:]}")
 
 
+def _extend_video_to_duration(input_path: str, target_duration: float,
+                              output_path: str) -> None:
+    """slow_mo で映像を target_duration まで引き伸ばす。音声トラックは捨てる
+    (input は trim 段階で -an のため元から無音想定)。
+
+    setpts=PTS*ratio で全フレームを等倍にスローモーション化する。
+    ratio < 1.0 (= 短縮) の呼出は誤用なのでエラーにする。
+    """
+    cur = _get_duration(input_path)
+    if cur <= 0.0:
+        raise RuntimeError(f"動画尺取得に失敗: {input_path}")
+
+    ratio = target_duration / cur
+    if ratio <= 1.0 + 1e-3:
+        # 既に十分長い → 単純コピーで output を作る
+        shutil.copyfile(input_path, output_path)
+        return
+
+    if ratio > 2.0:
+        logger.warning(
+            "slow_mo ratio が大きすぎます (%.2fx)。動画 %.2fs → %.2fs に延長します",
+            ratio, cur, target_duration,
+        )
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-filter_complex", f"[0:v]setpts=PTS*{ratio:.6f}[v]",
+        "-map", "[v]",
+        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+        "-pix_fmt", "yuv420p",
+        "-an",
+        output_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"Video slow_mo extension failed: {r.stderr[-500:]}")
+
+
 def _generate_tts(text: str, output_path: str,
                   voice_settings: dict | None = None,
                   previous_text: str | None = None,
@@ -774,19 +812,24 @@ def _compute_target_duration(scene: dict, tts_total_end: float) -> float:
 def _compute_safe_final_duration(target_duration: float, kling_duration: float,
                                  action_complete: float | None,
                                  tts_total_end: float) -> float:
-    """trim後の最終秒数。動作・音声どちらも絶対にcut-offしない。
+    """trim後の最終秒数。**音声 cut-off を絶対に許さない**。
 
     優先度:
       1. tts_total_end と SCENE_MIN_DURATION の最大値以上 (音声cut-off回避)
-      2. action_complete があれば早期stopでテンポ向上
-      3. それ以外は target_duration
+         → kling_duration を超えても許容。動画側は呼出元で slow_mo 延長して合わせる
+      2. action_complete が safe_floor 以上 + kling_duration 以下なら早期stopでテンポ向上
+      3. それ以外は max(safe_floor, target_duration)
     """
     safe_floor = max(tts_total_end, config.SCENE_MIN_DURATION)
 
-    if action_complete is not None and action_complete >= safe_floor:
-        return min(round(action_complete, 3), kling_duration)
+    # action_complete は kling_duration 内 かつ safe_floor 以上なら採用
+    if (action_complete is not None
+            and action_complete >= safe_floor
+            and action_complete <= kling_duration):
+        return round(action_complete, 3)
 
-    return min(max(safe_floor, target_duration), kling_duration)
+    # ここでは kling_duration で cap しない (足りなければ後段で動画延長)
+    return max(safe_floor, target_duration)
 
 
 def _generate_single_background(scene_idx: int, scene: dict, temp_dir: str,
@@ -1392,9 +1435,65 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
             "line_specs": line_specs,
         }, f, ensure_ascii=False, indent=2)
 
+    # _build_audios_from_full が memory 上で更新した
+    # scene.duration / line.start / line.end を disk に永続化する。
+    # 後段の Kling/Scene 生成が古い disk 値を読まないようにするため。
+    # 並行 patch との衝突を避けるため field-level merge で書く。
+    _persist_tts_derived_timings(screenplay, ts_path)
+
     logger.info("[1-shot TTS] 完了 (scenes=%d)",
                 len(screenplay["scenes"]))
     return {"full_text": full_text}
+
+
+def _persist_tts_derived_timings(screenplay: dict, ts_path: str) -> None:
+    """TTS regen 後の scene.duration / line.start / line.end のみ
+    disk 上の screenplay JSON に field-level merge する。
+
+    並行する patchLine / patchScene 等との衝突を避けるため、
+    staged_pipeline.screenplay_lock を取得した上で disk を再読込し、
+    TTS が更新した3項目だけを上書きしてから保存する。
+
+    上書きしない (= disk の内容を保持する) フィールド:
+      - line.text / emotion / audio_tags / pronunciation_hints / voice_overrides 等
+      - scene.background_prompt / animation_prompt / wardrobe / tags
+        / emotion_cue_overrides 等
+      - root の caption / wardrobe_continuity / scoped_augmentations 等
+
+    StageOverlay で手動編集した line.start / line.end は volatile (TTS regen
+    で reset される) — 仕様として明文化済み。
+    """
+    import staged_pipeline
+    meta = staged_pipeline.read_metadata(ts_path)
+    if not meta:
+        return
+    name = meta.get("screenplay_name")
+    if not name:
+        return
+
+    with staged_pipeline.screenplay_lock(name):
+        try:
+            disk_sp = staged_pipeline.load_screenplay(name)
+        except FileNotFoundError:
+            return
+        for s_idx, scene in enumerate(screenplay.get("scenes") or []):
+            disk_scenes = disk_sp.get("scenes") or []
+            if s_idx >= len(disk_scenes):
+                break
+            disk_scene = disk_scenes[s_idx]
+            if "duration" in scene:
+                disk_scene["duration"] = scene["duration"]
+            for l_idx, line in enumerate(scene.get("lines") or []):
+                disk_lines = disk_scene.get("lines") or []
+                if l_idx >= len(disk_lines):
+                    break
+                disk_line = disk_lines[l_idx]
+                if "start" in line:
+                    disk_line["start"] = line["start"]
+                if "end" in line:
+                    disk_line["end"] = line["end"]
+        staged_pipeline.save_screenplay(name, disk_sp)
+        logger.info("[1-shot TTS] disk merge: %s に scene.duration/line timings 反映", name)
 
 
 def build_merged_tts_preview(screenplay: dict, ts_path: str) -> str | None:
@@ -1517,11 +1616,24 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
         action_complete=action_complete,
         tts_total_end=tts_end,
     )
-    final_duration = max(config.SCENE_MIN_DURATION, min(final_duration, raw_dur))
+    final_duration = max(config.SCENE_MIN_DURATION, final_duration)
+
+    # 実際の trim 秒数は raw_dur が上限 (これ以上長く trim できない)。
+    # final_duration > raw_dur のときは Stage 5+6 (_scene_video_for_scene) で
+    # slow_mo 延長して TTS 尺に合わせる。
+    trim_at = min(final_duration, raw_dur)
 
     if not os.path.exists(trimmed_path):
-        _trim_video(kling_raw_path, final_duration, trimmed_path)
-        logger.info("シーン%d trim → %.2fs", scene_idx + 1, final_duration)
+        _trim_video(kling_raw_path, trim_at, trimmed_path)
+        logger.info("シーン%d trim → %.2fs (target=%.2fs, raw=%.2fs)",
+                    scene_idx + 1, trim_at, final_duration, raw_dur)
+
+    if final_duration > raw_dur + 0.05:
+        logger.warning(
+            "シーン%d: TTS要求尺 %.2fs > Kling raw %.2fs。"
+            "後段で slow_mo 延長します",
+            scene_idx + 1, final_duration, raw_dur,
+        )
 
     scene["duration"] = final_duration
 
@@ -1538,6 +1650,7 @@ def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
     for fname in [
         f"kling_{scene_idx:03d}.mp4",
         f"scene_{scene_idx:03d}.trim.mp4",
+        f"scene_{scene_idx:03d}.extended.mp4",
         f"scene_{scene_idx:03d}.mp4",
     ]:
         p = os.path.join(temp_dir, fname)
@@ -1550,6 +1663,9 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
                             temp_dir: str) -> str:
     """Stage 5+6 (one-shot方式): 既に audio_<S>.m4a が生成済み前提。
     trim済みKling + audio をリップシンク or 単純合成して scene_<S>.mp4 を作る。
+
+    trimmed の実尺が scene.duration / TTS audio に届かない場合は
+    slow_mo で延長してからリップシンクする (Kling の 5/10s 上限対策)。
     """
     silent = screenplay.get("audio_mode") == "silent"
     trimmed_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.trim.mp4")
@@ -1563,13 +1679,21 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
     scene["duration"] = final_duration
 
     if silent:
+        # silent モードは audio が無いので、scene.duration に対する
+        # 動画尺の不足は trimmed_path 自体を slow_mo 延長して埋める。
+        video_path = _maybe_extend_video(trimmed_path, final_duration,
+                                         scene_idx, temp_dir)
         if not os.path.exists(final_path):
-            shutil.copyfile(trimmed_path, final_path)
+            shutil.copyfile(video_path, final_path)
         return final_path
 
     if not os.path.exists(audio_path):
         raise FileNotFoundError(
             f"audio_{scene_idx:03d}.m4a が見つかりません。Stage 2 (TTS) 未実行?")
+
+    audio_dur = _get_duration(audio_path)
+    target = max(final_duration, audio_dur)
+    video_path = _maybe_extend_video(trimmed_path, target, scene_idx, temp_dir)
 
     lipsync_enabled = (config.LIPSYNC_ENABLED
                        and scene.get("lipsync", True)
@@ -1579,11 +1703,36 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
         if lipsync_enabled:
             logger.info("シーン%d リップシンク処理中 (%s)",
                         scene_idx + 1, config.LIPSYNC_PROVIDER)
-            lipsync_client.apply(trimmed_path, audio_path, final_path)
+            lipsync_client.apply(video_path, audio_path, final_path)
         else:
-            _replace_audio(trimmed_path, audio_path, final_path)
+            _replace_audio(video_path, audio_path, final_path)
 
     return final_path
+
+
+def _maybe_extend_video(trimmed_path: str, target_duration: float,
+                        scene_idx: int, temp_dir: str) -> str:
+    """trimmed の実尺が target_duration に満たない場合のみ slow_mo して
+    scene_<S>.extended.mp4 を作る。十分な尺があれば trimmed_path をそのまま返す。
+    """
+    cur = _get_duration(trimmed_path)
+    # 0.05s 以下の差は誤差として無視 (ffprobe の浮動小数誤差吸収)
+    if cur + 0.05 >= target_duration:
+        return trimmed_path
+
+    extended_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.extended.mp4")
+    if os.path.exists(extended_path):
+        ext_dur = _get_duration(extended_path)
+        if abs(ext_dur - target_duration) < 0.1:
+            return extended_path
+        os.remove(extended_path)
+
+    logger.info(
+        "シーン%d slow_mo 延長: %.2fs → %.2fs (ratio=%.2fx)",
+        scene_idx + 1, cur, target_duration, target_duration / cur,
+    )
+    _extend_video_to_duration(trimmed_path, target_duration, extended_path)
+    return extended_path
 
 
 def assemble_scene_videos(screenplay: dict, temp_dir: str) -> list[str]:
@@ -1598,9 +1747,13 @@ def assemble_scene_videos(screenplay: dict, temp_dir: str) -> list[str]:
 def regen_scene_video(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
     """単一シーンの最終動画を再生成（trim済みKling + audioを再利用してリップシンクのみ）。"""
     scene = screenplay["scenes"][scene_idx]
-    final_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.mp4")
-    if os.path.exists(final_path):
-        os.remove(final_path)
+    for fname in [
+        f"scene_{scene_idx:03d}.mp4",
+        f"scene_{scene_idx:03d}.extended.mp4",
+    ]:
+        p = os.path.join(temp_dir, fname)
+        if os.path.exists(p):
+            os.remove(p)
     _scene_video_for_scene(scene_idx, scene, screenplay, temp_dir)
 
 
