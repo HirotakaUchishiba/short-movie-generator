@@ -33,6 +33,18 @@ OUTPUT_DIR = config.OUTPUT_DIR
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
+# screenplay disk write の serialize 用 (per-name)
+_screenplay_locks: dict[str, threading.Lock] = {}
+_screenplay_locks_guard = threading.Lock()
+
+
+def _screenplay_lock(name: str) -> threading.Lock:
+    with _screenplay_locks_guard:
+        lk = _screenplay_locks.get(name)
+        if lk is None:
+            lk = threading.Lock()
+            _screenplay_locks[name] = lk
+        return lk
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
@@ -228,6 +240,48 @@ def api_project_detail(ts):
     })
 
 
+# ElevenLabs に実際に送信される原文を返す。
+# scene_gen._build_screenplay_text を呼んで line を separator で連結した結果と、
+# 各 line の char range (char_start, char_end) を返す。UI 透明性のため。
+@app.route("/api/projects/<ts>/tts-source", methods=["GET"])
+def api_tts_source(ts):
+    _validate_ts(ts)
+    if not os.path.isdir(_ts_path(ts)):
+        return jsonify({"error": "プロジェクトが存在しません"}), 404
+    sp, _ = _load_screenplay_for_project(ts)
+    full_text, line_specs = scene_gen._build_screenplay_text(sp)
+    return jsonify({
+        "text": full_text,
+        "char_count": len(full_text),
+        "separator": scene_gen.SCREENPLAY_TEXT_SEPARATOR,
+        "line_specs": line_specs,
+    })
+
+
+# scene 単位の合成済みプロンプト (BG/Kling 用) を返す。
+# scene_gen._build_background_prompt / _get_animation_prompt の出力をそのまま返す。
+@app.route("/api/projects/<ts>/scenes/<int:scene_idx>/composed-prompts",
+            methods=["GET"])
+def api_composed_prompts(ts, scene_idx):
+    _validate_ts(ts)
+    if not os.path.isdir(_ts_path(ts)):
+        return jsonify({"error": "プロジェクトが存在しません"}), 404
+    sp, _ = _load_screenplay_for_project(ts)
+    scenes = sp.get("scenes") or []
+    if scene_idx >= len(scenes):
+        return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+    scene = scenes[scene_idx]
+    bg_prompt = scene_gen._build_background_prompt(
+        scene, sp, ts_path=_ts_path(ts), s_idx=scene_idx)
+    anim_prompt = scene_gen._get_animation_prompt(
+        scene, ts_path=_ts_path(ts), s_idx=scene_idx)
+    return jsonify({
+        "scene_idx": scene_idx,
+        "background_prompt": bg_prompt,
+        "animation_prompt": anim_prompt,
+    })
+
+
 @app.route("/api/projects/<ts>/progress", methods=["GET"])
 def api_project_progress(ts):
     _validate_ts(ts)
@@ -309,10 +363,143 @@ def api_save_screenplay(ts):
         errors = validate_screenplay(sp, strict=False)
         if errors:
             return jsonify({"error": "validator失敗", "details": errors}), 400
-        staged_pipeline.save_screenplay(name, sp)
+        with _screenplay_lock(name):
+            staged_pipeline.save_screenplay(name, sp)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
+
+
+# Server-side merge: line 単位の field patch。
+# 全 screenplay を投げる PUT と異なり、複数 client が並行 patch しても他 line を上書きしない。
+@app.route("/api/projects/<ts>/lines/<int:scene_idx>/<int:line_idx>",
+            methods=["PATCH"])
+def api_patch_line(ts, scene_idx, line_idx):
+    _validate_ts(ts)
+    data = request.get_json(force=True) or {}
+    patch = data.get("patch")
+    if not isinstance(patch, dict):
+        return jsonify({"error": "patch (object) が必要です"}), 400
+    # 許可フィールドの allowlist (誤更新防止)
+    allowed = {"silence_after_ms", "text", "tts_text", "rate", "emotion",
+                "emotion_intensity", "delivery", "pause_before",
+                "breath_before", "speaker", "audio_tags",
+                "pronunciation_hints", "voice_overrides"}
+    unknown = set(patch.keys()) - allowed
+    if unknown:
+        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
+
+    _, name = _load_screenplay_for_project(ts)
+    try:
+        from screenplay_validator import validate_screenplay
+        with _screenplay_lock(name):
+            sp = staged_pipeline.load_screenplay(name)
+            scenes = sp.get("scenes") or []
+            if scene_idx >= len(scenes):
+                return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+            lines = scenes[scene_idx].get("lines") or []
+            if line_idx >= len(lines):
+                return jsonify({"error": f"line_idx範囲外: {line_idx}"}), 400
+            line = lines[line_idx]
+            for k, v in patch.items():
+                if v is None:
+                    line.pop(k, None)
+                else:
+                    line[k] = v
+            errors = validate_screenplay(sp, strict=False)
+            if errors:
+                return jsonify({"error": "validator失敗", "details": errors}), 400
+            staged_pipeline.save_screenplay(name, sp)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+# scene 単位の patch (emotion_cue_overrides / tags / wardrobe.identifier 等)。
+# enum 制約は schema 側で担保される。
+@app.route("/api/projects/<ts>/scenes/<int:scene_idx>", methods=["PATCH"])
+def api_patch_scene(ts, scene_idx):
+    _validate_ts(ts)
+    data = request.get_json(force=True) or {}
+    patch = data.get("patch")
+    if not isinstance(patch, dict):
+        return jsonify({"error": "patch (object) が必要です"}), 400
+    allowed = {"emotion_cue_overrides", "tags", "wardrobe", "background_prompt",
+                "animation_prompt", "lipsync", "duration", "time", "label",
+                "character_refs"}
+    unknown = set(patch.keys()) - allowed
+    if unknown:
+        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
+
+    _, name = _load_screenplay_for_project(ts)
+    try:
+        from screenplay_validator import validate_screenplay
+        with _screenplay_lock(name):
+            sp = staged_pipeline.load_screenplay(name)
+            scenes = sp.get("scenes") or []
+            if scene_idx >= len(scenes):
+                return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+            scene = scenes[scene_idx]
+            for k, v in patch.items():
+                if v is None:
+                    scene.pop(k, None)
+                else:
+                    scene[k] = v
+            errors = validate_screenplay(sp, strict=False)
+            if errors:
+                return jsonify({"error": "validator失敗", "details": errors}), 400
+            staged_pipeline.save_screenplay(name, sp)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+# screenplay-level patch (scoped_augmentations / wardrobe_continuity 等)。
+@app.route("/api/projects/<ts>/screenplay-meta", methods=["PATCH"])
+def api_patch_screenplay_meta(ts):
+    _validate_ts(ts)
+    data = request.get_json(force=True) or {}
+    patch = data.get("patch")
+    if not isinstance(patch, dict):
+        return jsonify({"error": "patch (object) が必要です"}), 400
+    allowed = {"scoped_augmentations", "wardrobe_continuity", "title_overlay",
+                "bgm_path", "bgm_volume_db", "audio_mode",
+                "subtitle_y_from_bottom"}
+    unknown = set(patch.keys()) - allowed
+    if unknown:
+        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
+
+    _, name = _load_screenplay_for_project(ts)
+    try:
+        from screenplay_validator import validate_screenplay
+        with _screenplay_lock(name):
+            sp = staged_pipeline.load_screenplay(name)
+            for k, v in patch.items():
+                if v is None:
+                    sp.pop(k, None)
+                else:
+                    sp[k] = v
+            errors = validate_screenplay(sp, strict=False)
+            if errors:
+                return jsonify({"error": "validator失敗", "details": errors}), 400
+            staged_pipeline.save_screenplay(name, sp)
+    except Exception as e:
+        return jsonify({"error": str(e)}), 500
+    return jsonify({"ok": True})
+
+
+# preset ライブラリ全部をフロントに返す。UI dropdown 用。
+@app.route("/api/presets", methods=["GET"])
+def api_presets():
+    import config as _config
+    return jsonify({
+        "libraries": _config.PROMPT_PRESET_LIBRARIES,
+        "labels_ja": _config.PRESET_LABELS_JA,
+        "category_labels_ja": _config.PRESET_CATEGORY_LABELS_JA,
+        "scene_tags": _config.SCENE_TAGS,
+        "scene_tag_labels_ja": _config.SCENE_TAG_LABELS_JA,
+        "emotion_default_preset_ids": _config.EMOTION_DEFAULT_PRESET_IDS,
+    })
 
 
 # ───────────────── ジョブステータス ─────────────────
