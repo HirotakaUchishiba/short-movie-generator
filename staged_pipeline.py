@@ -205,21 +205,29 @@ def regen(stage: str, screenplay: dict, ts_path: str,
     """指定stage・scene・lineの単独再生成。承認をリセット。
 
     force=False (TTSのみ): text_hash不変ならAPIスキップでaudio再構築のみ。
+    bg / kling / scene で scene_idx=None の場合は全シーン一括再生成。
     """
+    n_scenes = len(screenplay.get("scenes") or [])
     if stage == "tts":
         scene_gen.regen_tts_full(screenplay, ts_path, force=force)
     elif stage == "bg":
         if scene_idx is None:
-            raise ValueError("bg再生成にはscene_idxが必要")
-        scene_gen.regen_background_scene(scene_idx, screenplay, ts_path)
+            for i in range(n_scenes):
+                scene_gen.regen_background_scene(i, screenplay, ts_path)
+        else:
+            scene_gen.regen_background_scene(scene_idx, screenplay, ts_path)
     elif stage == "kling":
         if scene_idx is None:
-            raise ValueError("kling再生成にはscene_idxが必要")
-        scene_gen.regen_kling_scene(scene_idx, screenplay, ts_path)
+            for i in range(n_scenes):
+                scene_gen.regen_kling_scene(i, screenplay, ts_path)
+        else:
+            scene_gen.regen_kling_scene(scene_idx, screenplay, ts_path)
     elif stage == "scene":
         if scene_idx is None:
-            raise ValueError("scene再生成にはscene_idxが必要")
-        scene_gen.regen_scene_video(scene_idx, screenplay, ts_path)
+            for i in range(n_scenes):
+                scene_gen.regen_scene_video(i, screenplay, ts_path)
+        else:
+            scene_gen.regen_scene_video(scene_idx, screenplay, ts_path)
     elif stage == "overlay":
         run_overlay(screenplay, ts_path)
     else:

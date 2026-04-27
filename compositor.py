@@ -136,7 +136,13 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str) -> str:
             text = line["text"].strip()
             tf = _write_textfile(temp_dir, f"sub_{s_idx:03d}_{l_idx:03d}", text)
             tf_esc = _escape_fontfile(tf)
-            sub_y = H - config.SUBTITLE_Y_FROM_BOTTOM
+            # screenplay 側に override があればそちらを優先 (UI で調整可能)
+            sub_y_from_bottom = int(
+                screenplay.get("subtitle_y_from_bottom")
+                if screenplay.get("subtitle_y_from_bottom") is not None
+                else config.SUBTITLE_Y_FROM_BOTTOM
+            )
+            sub_y = H - sub_y_from_bottom
             out = next_tag()
             filters.append(
                 f"[{cur_in}]drawtext=fontfile='{font}':textfile='{tf_esc}':"
