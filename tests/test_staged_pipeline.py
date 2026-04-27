@@ -93,7 +93,6 @@ def test_run_next_stage_advances_step_by_step(
         staged_pipeline.scene_gen, "assemble_scene_videos",
         lambda screenplay, td: [],
     )
-
     executed = staged_pipeline.run_next_stage(sp, "demo", ts_path)
     assert executed == "script"
     assert progress_store.next_stage(ts_path) is None  # 未承認でブロック

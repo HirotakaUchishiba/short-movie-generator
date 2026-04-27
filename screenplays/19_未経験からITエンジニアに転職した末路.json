@@ -20,41 +20,14 @@
   "scenes": [
     {
       "animation_prompt": "Young woman lying face down on carpet slowly lifts her head and squints at her phone in shock, subtle handheld camera",
-      "background_prompt": "リビングのカーペットの上にうつ伏せで寝そべる若い女性、傍らにスマートフォン、奥にレザーソファと窓、朝の柔らかい自然光、single moment in time, cinematic lighting, shallow depth of field, warm morning tones",
-      "bgm": {
-        "mood": "コミカルで軽快",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 90,
-        "volume_db": -20
-      },
+      "background_prompt": "スマートフォンのアラームを止めながら布団から半身を起こす若い女性、ベッドサイドにスマートフォン画面で8:50表示、急いで身支度を始めようとしている軽い慌ただしさ、奥にカーテンと窓のあるベッドルーム",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "ベージュのリブニットセーター、ライトブルーのニットパンツ",
           "role": "narrator"
         }
       ],
       "duration": 3,
-      "facial_expression": "細目で寝起き顔→スマホを見て驚いて目を見開く",
-      "hand_gesture": "床のスマホを覗き込む",
-      "inserts": [
-        {
-          "end": 2.4,
-          "position": "center",
-          "start": 0.5,
-          "style": "白文字に黒縁取り、ポップに出現",
-          "text": "8時50分!?",
-          "type": "popup_text"
-        },
-        {
-          "end": 3,
-          "position": "center",
-          "start": 2,
-          "style": "白文字に黒縁取り、力なく表示",
-          "text": "あと5分",
-          "type": "popup_text"
-        }
-      ],
       "label": "起床",
       "lines": [
         {
@@ -71,6 +44,7 @@
             "8時50分": "ハチジゴジュップン"
           },
           "rate": "+25%",
+          "silence_after_ms": 0,
           "speaker": "主人公",
           "start": 0.4,
           "text": "8時50分！？",
@@ -104,73 +78,19 @@
       ],
       "time": "8:50",
       "wardrobe": {
-        "accessories": "なし",
-        "bottom": "ライトブルーのニットパンツ",
-        "hair": "ナチュラルロングヘア、寝起きで少し乱れている",
-        "identifier": "loungewear_A",
-        "top": "ベージュのリブニットセーター"
+        "identifier": "loungewear_A"
       }
     },
     {
       "animation_prompt": "Young woman in glasses rushes to desk and opens silver MacBook with both hands then exhales in relief, dynamic handheld",
-      "background_prompt": "ホームオフィスのデスクに駆け込みノートPCを開けようとする女性、奥にアート絵画と窓から青空、明るく清潔な部屋、single moment in time, cinematic lighting, bright airy interior",
-      "bgm": {
-        "mood": "コミカルで軽快",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 90,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスのデスクに駆け込みノートPCを開けようとする女性、奥にアート絵画と",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 4.5,
-      "facial_expression": "焦った顔→PCを開けて笑顔でほっと安堵",
-      "hand_gesture": "両手でMacBookを慌てて開く→胸に手を当てる",
-      "inserts": [
-        {
-          "end": 0.8,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁、震えるように表示",
-          "text": "やばいやばい",
-          "type": "popup_text"
-        },
-        {
-          "end": 1.8,
-          "position": "center",
-          "start": 0.9,
-          "style": "白文字黒縁",
-          "text": "寝過ぎた",
-          "type": "popup_text"
-        },
-        {
-          "end": 3.2,
-          "position": "center",
-          "start": 1.9,
-          "style": "白文字黒縁、軽快に",
-          "text": "『業務開始します』っと",
-          "type": "popup_text"
-        },
-        {
-          "end": 4.5,
-          "position": "center",
-          "start": 3.3,
-          "style": "白文字黒縁、ホッとした表示",
-          "text": "セーフ",
-          "type": "popup_text"
-        },
-        {
-          "end": 3.7,
-          "sfx_label": "ポップ",
-          "start": 3.3,
-          "text": "ホッ",
-          "type": "sound_effect"
-        }
-      ],
       "label": "始業",
       "lines": [
         {
@@ -187,7 +107,7 @@
           "rate": "+15%",
           "speaker": "主人公",
           "start": 0,
-          "text": "やばいやばい寝過ぎた",
+          "text": "やばいやばい寝過ぎた！",
           "silence_after_ms": 0
         },
         {
@@ -220,86 +140,24 @@
           "pause_before": 0.2,
           "speaker": "主人公",
           "start": 3.2,
-          "text": "ふうー間に合った セーフ"
+          "text": "ふうー間に合った セーフ！"
         }
       ],
       "time": "9:00",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
       }
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop frowning then her expression brightens into a relieved smile as a chat bubble appears, subtle zoom in",
-      "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめてチャットを確認する女性、明るい窓と青空が背景、ミニマルな北欧風インテリア、single moment in time, cinematic lighting, soft natural daylight",
-      "bgm": {
-        "mood": "緊張から解放されるコミカル",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 90,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめてチャットを確認する女性、ミニマルな北欧風インテリア",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 9.5,
-      "facial_expression": "心配そうな眉→チャットを見て驚き→満面の笑み",
-      "hand_gesture": "PCに向かってタイピング→胸に手を当てて喜ぶ",
-      "inserts": [
-        {
-          "end": 1.8,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁、不安げ",
-          "text": "これ納期間に合うかな〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 3.2,
-          "position": "center",
-          "start": 1.9,
-          "style": "白文字黒縁",
-          "text": "クライアントからだ",
-          "type": "popup_text"
-        },
-        {
-          "end": 7.5,
-          "position": "upper_third",
-          "start": 3.3,
-          "style": "薄ブルーの角丸吹き出し、影付き、絵文字付き",
-          "text": "弊社都合で受け入れテストを1ヶ月延期させて頂きたいです🙇‍♀️💦",
-          "type": "chat_bubble"
-        },
-        {
-          "end": 8.5,
-          "position": "center",
-          "start": 7.6,
-          "style": "白文字黒縁、弾むように表示",
-          "text": "やった〜〜！",
-          "type": "popup_text"
-        },
-        {
-          "end": 9.5,
-          "position": "center",
-          "start": 8.5,
-          "style": "白文字黒縁、テンション高め",
-          "text": "今日飲み\n行っちゃおうかな〜！",
-          "type": "popup_text"
-        },
-        {
-          "end": 3.6,
-          "sfx_label": "ピコン",
-          "start": 3.3,
-          "text": "ピコン",
-          "type": "sound_effect"
-        }
-      ],
       "label": "チャット",
       "lines": [
         {
@@ -372,66 +230,19 @@
       ],
       "time": "10:30",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
       }
     },
     {
       "animation_prompt": "Young woman in glasses sits at desk speaking calmly to camera while gesturing to an e-learning graphic that pops up beside her, subtle zoom",
-      "background_prompt": "ホームオフィスで姿勢を正してノートPCに向かい話す女性、奥にアート絵画と青空の窓、明るく開放的なワークスペース、single moment in time, cinematic lighting, soft daylight",
-      "bgm": {
-        "mood": "前向きで爽やか",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 90,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスで姿勢を正してノートPCに向かい話す女性、奥にアート絵画と青空の窓、明るく開放的なワークスペース",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 7.5,
-      "facial_expression": "少し困り顔→安心したような前向きな笑顔",
-      "hand_gesture": "両手でe-learning画像を提示するジェスチャー",
-      "inserts": [
-        {
-          "end": 0.9,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁",
-          "text": "おっと",
-          "type": "popup_text"
-        },
-        {
-          "end": 2.5,
-          "position": "center",
-          "start": 1,
-          "style": "白文字黒縁",
-          "text": "今日研修も受けないとか",
-          "type": "popup_text"
-        },
-        {
-          "end": 4.6,
-          "position": "center",
-          "start": 2.6,
-          "style": "白文字黒縁",
-          "text": "IT未経験で不安だったけど",
-          "type": "popup_text"
-        },
-        {
-          "end": 7.4,
-          "image_path": "assets/elearning_banner.png",
-          "position": "center",
-          "start": 4.7,
-          "style": "青いE-LEARNINGバナー画像、角丸",
-          "type": "banner_image"
-        }
-      ],
       "label": "研修",
       "lines": [
         {
@@ -449,7 +260,7 @@
           },
           "speaker": "主人公",
           "start": 0,
-          "text": "おっと、今日研修も受けないとか"
+          "text": "おっと、今日研修も受けないと！"
         },
         {
           "acoustic": {
@@ -486,63 +297,28 @@
           },
           "speaker": "主人公",
           "start": 4.5,
-          "text": "eラーニングとか研修制度も充実してるから安心だな"
+          "text": "eラーニングとか研修制度も充実してるから安心だなあ！"
         }
       ],
       "time": "11:00",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
+      },
+      "emotion_cue_overrides": {
+        "facial": "concentrating",
+        "tone": "professional_composed"
       }
     },
     {
       "animation_prompt": "Young woman in glasses stands at a standing desk speaking to camera then puts a hand on her lower back, slight handheld",
-      "background_prompt": "明るい部屋で立った姿勢でラップトップに向かう女性、後ろに本棚と山岳写真のアート、観葉植物、北欧モダンインテリア、single moment in time, cinematic lighting, airy daylight",
-      "bgm": {
-        "mood": "ゆるやかでリラックス",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 88,
-        "volume_db": -20
-      },
+      "background_prompt": "明るい部屋で立った姿勢でラップトップに向かう女性、後ろに本棚と山岳写真のアート、観葉植物、北欧モダンインテリア",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 4.7,
-      "facial_expression": "満足げな笑み→腰を気にする困り顔",
-      "hand_gesture": "立ってPC操作→腰に手を当てる",
-      "inserts": [
-        {
-          "end": 0.5,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁",
-          "text": "あ〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 2.3,
-          "position": "center",
-          "start": 0.5,
-          "style": "白文字黒縁",
-          "text": "スタンドデスクまじで便利〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 4.6,
-          "position": "center",
-          "start": 2.4,
-          "style": "白文字黒縁",
-          "text": "ずっと座ってると\n腰痛くなるからな〜",
-          "type": "popup_text"
-        }
-      ],
       "label": "立ち仕事",
       "lines": [
         {
@@ -582,66 +358,19 @@
       ],
       "time": "11:30",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
       }
     },
     {
       "animation_prompt": "Young woman in glasses looks at laptop and leans back with a happy smile thinking about lunch, subtle zoom in",
-      "background_prompt": "ホームオフィスのデスクに座り少し前のめりに話す女性、ノートPCを前に、奥にアートと青空の窓、明るく整ったワークスペース、single moment in time, cinematic lighting, soft daylight",
-      "bgm": {
-        "mood": "和やかでハッピー",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 90,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスのデスクに座り少し前のめりに話す女性、ノートPCを前に、奥にアートと青空の窓、明るく整ったワークスペース",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 4.1,
-      "facial_expression": "ハッと気づく顔→楽しそうな笑顔",
-      "hand_gesture": "胸の前で軽くガッツポーズ",
-      "inserts": [
-        {
-          "end": 0.5,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁",
-          "text": "あ",
-          "type": "popup_text"
-        },
-        {
-          "end": 1.7,
-          "position": "center",
-          "start": 0.5,
-          "style": "白文字黒縁",
-          "text": "もうお昼ご飯か",
-          "type": "popup_text"
-        },
-        {
-          "end": 3,
-          "position": "center",
-          "start": 1.8,
-          "style": "白文字黒縁",
-          "text": "一旦スーパー行って",
-          "type": "popup_text"
-        },
-        {
-          "end": 4,
-          "position": "center",
-          "start": 3,
-          "style": "白文字黒縁",
-          "text": "晩御飯も作っちゃうか！",
-          "type": "popup_text"
-        }
-      ],
       "label": "昼食",
       "lines": [
         {
@@ -682,58 +411,22 @@
       ],
       "time": "12:00",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
+      },
+      "emotion_cue_overrides": {
+        "tone": "energetic_upbeat"
       }
     },
     {
       "animation_prompt": "Young woman in glasses stands on a crosswalk looking at her phone then smiles proudly toward camera, gentle wind in hair, subtle handheld",
-      "background_prompt": "晴れた青空の下、住宅街の横断歩道に立つ女性のバストショット、街路樹と電柱、爽やかな屋外、single moment in time, cinematic lighting, bright outdoor daylight",
-      "bgm": {
-        "mood": "爽やかで誇らしい",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 92,
-        "volume_db": -20
-      },
+      "background_prompt": "晴れた青空の下、住宅街の横断歩道に立つ女性のバストショット、街路樹と電柱、爽やかな屋外",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 5.2,
-      "facial_expression": "嬉しそうにはにかむ笑顔",
-      "hand_gesture": "両手を胸の前で軽く合わせる",
-      "inserts": [
-        {
-          "end": 1.4,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁",
-          "text": "この道案内のアプリ",
-          "type": "popup_text"
-        },
-        {
-          "end": 3,
-          "position": "center",
-          "start": 1.5,
-          "style": "白文字黒縁、得意げ",
-          "text": "私がちょっと\n作ったんだよな〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 5.1,
-          "position": "center",
-          "start": 3.1,
-          "style": "白文字黒縁",
-          "text": "街中で見ると\nなんだか嬉しいな〜",
-          "type": "popup_text"
-        }
-      ],
       "label": "道中",
       "lines": [
         {
@@ -749,6 +442,7 @@
           "pronunciation_hints": {
             "道案内": "みちあんない"
           },
+          "silence_after_ms": 875,
           "speaker": "主人公",
           "start": 0,
           "text": "この道案内のアプリ私がちょっと作ったんだよな"
@@ -773,58 +467,19 @@
       ],
       "time": "12:15",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
       }
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes as a chat bubble appears then sits back looking thoughtful, subtle zoom",
-      "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情でチャット画面を見る女性、奥にアートと青空の窓、明るいワークスペース、single moment in time, cinematic lighting, soft daylight",
-      "bgm": {
-        "mood": "意外性のある柔らかさ",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 88,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情でチャット画面を見る女性、奥にアートと青空の窓、明るいワークスペース",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 6.3,
-      "facial_expression": "驚いて目を見開く→納得しつつ感心した表情",
-      "hand_gesture": "PCを覗き込む→口元に手を当てる",
-      "inserts": [
-        {
-          "end": 4,
-          "position": "upper_third",
-          "start": 0,
-          "style": "薄ブルーの角丸吹き出し、影付き、絵文字付き",
-          "text": "俺転職するわ！笑\n今のクライアントからの引き抜きで\n年収200万上がったよ😎  15:29",
-          "type": "chat_bubble"
-        },
-        {
-          "end": 5.5,
-          "position": "center",
-          "start": 4.1,
-          "style": "白文字黒縁",
-          "text": "お客さんからの\n引き抜きの誘いって",
-          "type": "popup_text"
-        },
-        {
-          "end": 6.3,
-          "position": "center",
-          "start": 5.5,
-          "style": "白文字黒縁、しみじみ",
-          "text": "まじであるんだ…",
-          "type": "popup_text"
-        }
-      ],
       "label": "上司の退職",
       "lines": [
         {
@@ -843,7 +498,7 @@
           },
           "speaker": "主人公",
           "start": 0,
-          "text": "山根さん転職するんだ"
+          "text": "山根さん転職するんだ！"
         },
         {
           "acoustic": {
@@ -861,7 +516,7 @@
           },
           "speaker": "主人公",
           "start": 1.8,
-          "text": "え年収200万アップ！？"
+          "text": "え 年収200万アップ！？"
         },
         {
           "acoustic": {
@@ -879,87 +534,30 @@
           },
           "speaker": "主人公",
           "start": 3.6,
-          "text": "お客さんからの引き抜きの誘いってまじであるんだ"
+          "text": "お客さんからの引き抜きの誘いってまじであるんだ！"
         }
       ],
       "time": "15:30",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
-      }
+        "identifier": "loungewear_A"
+      },
+      "emotion_cue_overrides": {
+        "tone": "energetic_upbeat"
+      },
+      "tags": [
+        "home_office"
+      ]
     },
     {
       "animation_prompt": "Young woman in glasses closes laptop with both hands then stretches arms up and smiles at camera with hands clasped under chin, warm cinematic feel",
-      "background_prompt": "ホームオフィスのデスクでノートPCを閉じて満足げに微笑む女性、奥にアートと青空の窓、明るくおしゃれな部屋、single moment in time, cinematic lighting, golden hour glow",
-      "bgm": {
-        "mood": "解放感と幸福感",
-        "style": "明るいローファイヒップホップ",
-        "tempo_bpm": 92,
-        "volume_db": -20
-      },
+      "background_prompt": "ホームオフィスのデスクでノートPCを閉じて満足げに微笑む女性、奥にアートと青空の窓、明るくおしゃれな部屋",
       "characters": [
         {
           "name": "主人公",
-          "outfit": "グレーのリブ編みハーフジップニット、黒パンツ、丸メガネ",
           "role": "narrator"
         }
       ],
       "duration": 6.6,
-      "facial_expression": "満足げな笑顔→大きく伸びをする爽やかな笑み→愛おしむような微笑み",
-      "hand_gesture": "PCを閉じる→両手を上に伸ばす→両手を顎の下で組む",
-      "inserts": [
-        {
-          "end": 0.4,
-          "position": "center",
-          "start": 0,
-          "style": "白文字黒縁",
-          "text": "よし",
-          "type": "popup_text"
-        },
-        {
-          "end": 1.8,
-          "position": "center",
-          "start": 0.4,
-          "style": "白文字黒縁",
-          "text": "今日も終わった〜〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 3,
-          "position": "center",
-          "start": 1.9,
-          "style": "白文字黒縁",
-          "text": "お風呂入ろ〜〜",
-          "type": "popup_text"
-        },
-        {
-          "end": 4.2,
-          "position": "center",
-          "start": 3.1,
-          "style": "白文字黒縁",
-          "text": "在宅ワークだし",
-          "type": "popup_text"
-        },
-        {
-          "end": 5.2,
-          "position": "center",
-          "start": 4.2,
-          "style": "白文字黒縁",
-          "text": "手に職つくし",
-          "type": "popup_text"
-        },
-        {
-          "end": 6.6,
-          "position": "center",
-          "start": 5.2,
-          "style": "白文字黒縁、強調大きめ",
-          "text": "ITエンジニア\n最高すぎる〜〜！",
-          "type": "popup_text"
-        }
-      ],
       "label": "退勤",
       "lines": [
         {
@@ -991,7 +589,7 @@
           },
           "speaker": "主人公",
           "start": 1.8,
-          "text": "お風呂入ろう"
+          "text": "お風呂入ろう！"
         },
         {
           "acoustic": {
@@ -1016,11 +614,7 @@
       ],
       "time": "18:00",
       "wardrobe": {
-        "accessories": "クリアフレームの丸メガネ、赤リップ",
-        "bottom": "黒のパンツ",
-        "hair": "ロングストレート",
-        "identifier": "workwear_A",
-        "top": "グレーのリブ編みハーフジップニット"
+        "identifier": "loungewear_A"
       }
     }
   ],
