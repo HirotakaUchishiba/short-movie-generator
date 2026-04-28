@@ -2,6 +2,7 @@ import hashlib
 import json
 import logging
 import os
+import threading
 from datetime import datetime
 
 import config
@@ -12,6 +13,22 @@ from post_captions_gen import generate_post_captions
 from screenplay_validator import validate_screenplay
 
 logger = logging.getLogger(__name__)
+
+
+# screenplay JSON への書き込みを直列化する per-name Lock。
+# preview_server (REST patch) と scene_gen (TTS regen 後の duration 永続化) の
+# 両方から取得して共有する。同時アクセスで disk 上の書き込みが混ざらないように。
+_screenplay_locks: dict[str, threading.Lock] = {}
+_screenplay_locks_guard = threading.Lock()
+
+
+def screenplay_lock(name: str) -> threading.Lock:
+    with _screenplay_locks_guard:
+        lk = _screenplay_locks.get(name)
+        if lk is None:
+            lk = threading.Lock()
+            _screenplay_locks[name] = lk
+        return lk
 
 
 def screenplay_path(name: str) -> str:

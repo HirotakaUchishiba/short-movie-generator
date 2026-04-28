@@ -28,8 +28,13 @@ def _ensure_key() -> None:
 
 
 def _pick_duration(audio_duration: float) -> int:
-    """Kling V3 standard は 5 または 10 秒のみ受理するためsnapする。"""
-    if audio_duration <= 5.0:
+    """Kling V3 standard は 5 または 10 秒のみ受理するためsnapする。
+
+    config.KLING_DURATION_TOLERANCE_RATIO までは 5s クリップで吸収し、
+    超過分は下流で slow_mo 延長する (5.01s で即 10s 切替を防いでコスト最適化)。
+    """
+    tol = float(config.KLING_DURATION_TOLERANCE_RATIO)
+    if audio_duration <= 5.0 * tol:
         return 5
     return 10
 

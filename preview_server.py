@@ -33,18 +33,9 @@ OUTPUT_DIR = config.OUTPUT_DIR
 
 _jobs: dict[str, dict] = {}
 _jobs_lock = threading.Lock()
-# screenplay disk write の serialize 用 (per-name)
-_screenplay_locks: dict[str, threading.Lock] = {}
-_screenplay_locks_guard = threading.Lock()
-
-
-def _screenplay_lock(name: str) -> threading.Lock:
-    with _screenplay_locks_guard:
-        lk = _screenplay_locks.get(name)
-        if lk is None:
-            lk = threading.Lock()
-            _screenplay_locks[name] = lk
-        return lk
+# screenplay disk write の serialize 用 (per-name) は staged_pipeline に移動。
+# 同じ Lock を REST patch ハンドラと TTS regen 後の永続化が共有する。
+_screenplay_lock = staged_pipeline.screenplay_lock
 
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
