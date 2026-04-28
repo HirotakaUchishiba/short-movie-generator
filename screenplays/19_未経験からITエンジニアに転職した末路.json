@@ -79,7 +79,8 @@
       "time": "8:50",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "bedroom"
     },
     {
       "animation_prompt": "Young woman in glasses rushes to desk and opens silver MacBook with both hands then exhales in relief, dynamic handheld",
@@ -146,7 +147,8 @@
       "time": "9:00",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop frowning, eyes searching the screen, then her posture shifts as her expression brightens into a relieved smile and she leans back exhaling, subtle zoom in",
@@ -231,7 +233,8 @@
       "time": "10:30",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses sits at desk speaking calmly to camera, hand opens in a warm explanatory gesture, gaze steady, subtle zoom",
@@ -307,7 +310,8 @@
       "emotion_cue_overrides": {
         "facial": "concentrating",
         "tone": "professional_composed"
-      }
+      },
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses stands at a standing desk speaking to camera then puts a hand on her lower back, slight handheld",
@@ -359,7 +363,8 @@
       "time": "11:30",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses looks at laptop and leans back with a happy smile thinking about lunch, subtle zoom in",
@@ -415,7 +420,8 @@
       },
       "emotion_cue_overrides": {
         "tone": "energetic_upbeat"
-      }
+      },
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses stands on a crosswalk looking at her phone then smiles proudly toward camera, gentle wind in hair, subtle handheld",
@@ -468,7 +474,8 @@
       "time": "12:15",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "street"
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes, breath caught for a moment, then sits back, gaze drifting away thoughtfully, subtle zoom",
@@ -544,7 +551,8 @@
       "emotion_cue_overrides": {
         "tone": "energetic_upbeat"
       },
-      "tags": ["home_office"]
+      "tags": ["home_office"],
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "Young woman in glasses closes laptop with both hands then stretches arms up and smiles at camera with hands clasped under chin, warm cinematic feel",
@@ -613,12 +621,36 @@
       "time": "18:00",
       "wardrobe": {
         "identifier": "loungewear_A"
-      }
+      },
+      "location_ref": "home_office"
     }
   ],
   "title_overlay": "未経験から\nITエンジニアに転職した末路",
   "wardrobe_continuity": {
     "loungewear_A": "ベージュのリブニットセーター、ライトブルーのニットパンツ、ナチュラルロングヘア、ノーメイク風",
     "workwear_A": "グレーのリブ編みハーフジップニット、黒のパンツ、丸メガネ（クリアフレーム）、赤リップ、ロングヘア"
+  },
+  "location_continuity": {
+    "home_office": {
+      "decor": "ミニマル北欧風のホームオフィス、ナチュラルウッドのデスクと椅子、観葉植物、白壁、奥にアート絵画と青空の窓、本棚",
+      "lighting": "柔らかい自然光、暖色系、窓からの逆光気味の朝〜昼の光",
+      "color_palette": "白基調、ベージュとライトウッド、グリーンのアクセント",
+      "props": "シルバーのMacBook、白いマグカップ、革のノート (PC画面は反射のみで内容は描かない)",
+      "camera_distance": "medium-close"
+    },
+    "bedroom": {
+      "decor": "ナチュラルトーンのベッドルーム、淡いベージュのシーツ、白壁",
+      "lighting": "朝の柔らかい自然光、淡い色温度",
+      "color_palette": "白とベージュ基調、淡いブルーのアクセント",
+      "props": "スマートフォン (画面は控えめ)、ベッドサイドの小物",
+      "camera_distance": "medium-close"
+    },
+    "street": {
+      "decor": "住宅街の横断歩道、街路樹と電柱、晴れた青空",
+      "lighting": "晴天の自然光、コントラスト中程度",
+      "color_palette": "青空ブルー、新緑グリーン、白",
+      "props": "なし",
+      "camera_distance": "medium"
+    }
   }
 }

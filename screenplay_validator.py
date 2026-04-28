@@ -56,6 +56,40 @@ SCHEMA: dict = {
             "additionalProperties": {"type": "string"},
             "description": "衣装識別子→説明 のマップ。scenes[].wardrobe.identifier と紐付け、Imagenプロンプトに自動展開",
         },
+        "location_continuity": {
+            "type": "object",
+            "description": (
+                "ロケーション識別子→属性辞書のマップ。"
+                "scenes[].location_ref と紐付けて、同一動画内でロケの装飾・ライティング・"
+                "色味・小道具・カメラ距離を一貫させる。各属性は background_prompt の先頭に注入される"
+            ),
+            "additionalProperties": {
+                "type": "object",
+                "additionalProperties": False,
+                "properties": {
+                    "decor": {
+                        "type": "string",
+                        "description": "家具・壁・床・建材などのレイアウト記述",
+                    },
+                    "lighting": {
+                        "type": "string",
+                        "description": "光源・色温度・影の質感",
+                    },
+                    "color_palette": {
+                        "type": "string",
+                        "description": "全体の配色トーン",
+                    },
+                    "props": {
+                        "type": "string",
+                        "description": "小道具 (PC, マグカップ, 書類 等)",
+                    },
+                    "camera_distance": {
+                        "type": "string",
+                        "description": "推奨カメラ距離 (close-up / medium-close / medium / wide 等)",
+                    },
+                },
+            },
+        },
         "scoped_augmentations": {
             "type": "array",
             "description": (
@@ -118,6 +152,14 @@ SCHEMA: dict = {
                         "type": "string",
                         "minLength": 1,
                         "description": "Imagenに渡す背景プロンプト（被写体=日本語+スタイル修飾=英語）",
+                    },
+                    "location_ref": {
+                        "type": "string",
+                        "description": (
+                            "root.location_continuity のキーを参照。"
+                            "ロケの装飾・ライティング・色味・小道具・カメラ距離が"
+                            "background_prompt の先頭に自動注入される"
+                        ),
                     },
                     "animation_prompt": {
                         "type": "string",
@@ -309,6 +351,23 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
     return errors
 
 
+def _check_location_refs(screenplay: dict) -> list[str]:
+    """scenes[].location_ref が root.location_continuity に存在するか検証。"""
+    errors: list[str] = []
+    locations = screenplay.get("location_continuity") or {}
+    for s_idx, scene in enumerate(screenplay.get("scenes", [])):
+        ref = scene.get("location_ref")
+        if ref is None:
+            continue
+        if ref not in locations:
+            keys = ", ".join(sorted(locations.keys())) or "(空)"
+            errors.append(
+                f"scenes/{s_idx}/location_ref: '{ref}' は location_continuity に未定義 "
+                f"(定義済み: {keys})"
+            )
+    return errors
+
+
 def validate_screenplay(screenplay: dict, strict: bool = True) -> list[str]:
     errors: list[str] = []
 
@@ -317,6 +376,7 @@ def validate_screenplay(screenplay: dict, strict: bool = True) -> list[str]:
         errors.append(f"{path}: {err.message}")
 
     errors.extend(_check_line_bounds(screenplay))
+    errors.extend(_check_location_refs(screenplay))
 
     if strict and errors:
         raise ValueError(
