@@ -150,7 +150,7 @@
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop frowning, eyes searching the screen, then her posture shifts as her expression brightens into a relieved smile and she leans back exhaling, subtle zoom in",
-      "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめてチャットを確認する女性、ミニマルな北欧風インテリア",
+      "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめる女性、画面は暗めで反射のみ、ミニマルな北欧風インテリア",
       "characters": [
         {
           "name": "主人公",
@@ -472,7 +472,7 @@
     },
     {
       "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes, breath caught for a moment, then sits back, gaze drifting away thoughtfully, subtle zoom",
-      "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情でチャット画面を見る女性、奥にアートと青空の窓、明るいワークスペース",
+      "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情を見せる女性、画面は暗めで反射のみ、奥にアートと青空の窓、明るいワークスペース",
       "characters": [
         {
           "name": "主人公",
