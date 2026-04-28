@@ -437,6 +437,7 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
     """Imagen 用 background prompt を合成する (SSOT準拠)。
 
     入力は SSOT のみ:
+      - scene.location_ref → root.location_continuity[ref] で動画内ロケ一貫性
       - scene.background_prompt (シーン固有のベース文)
       - scene.wardrobe.identifier → root.wardrobe_continuity[id] で1回だけ展開
       - lines[].emotion (per-line) → EMOTION_VISUAL_CUES (lighting/facial/tone)
@@ -445,7 +446,24 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
     廃止フィールド (scene.wardrobe.{top,bottom,accessories,hair} /
     scene.facial_expression / hand_gesture / characters[].outfit) は読まない。
     """
-    parts: list[str] = [scene.get("background_prompt", "")]
+    # 動画スコープのロケ一貫性: シーン固有 prompt の前に置く (= 大枠 → 詳細の順)
+    loc_parts: list[str] = []
+    loc = {}
+    loc_ref = scene.get("location_ref")
+    if loc_ref and screenplay:
+        loc = (screenplay.get("location_continuity") or {}).get(loc_ref) or {}
+        for label, key in [
+            ("location decor (consistent across scenes)", "decor"),
+            ("location lighting", "lighting"),
+            ("location color palette", "color_palette"),
+            ("location props", "props"),
+            ("location camera distance", "camera_distance"),
+        ]:
+            v = loc.get(key)
+            if v:
+                loc_parts.append(f"{label}: {v}")
+
+    parts: list[str] = loc_parts + [scene.get("background_prompt", "")]
 
     # 服装: identifier から wardrobe_continuity を1度だけ参照 (SSOT)
     wardrobe = scene.get("wardrobe") or {}
@@ -468,8 +486,13 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
         "camera": "camera",
         "motion": None,  # animation_prompt 側で扱う
     }
+    # ロケ側で lighting / color_palette を指定している場合は、
+    # emotion 由来の lighting cue を抑制してロケ整合性を優先する
+    suppressed = set()
+    if loc.get("lighting") or loc.get("color_palette"):
+        suppressed.add("lighting")
     for cat, label in _CUE_LABEL.items():
-        if not label:
+        if not label or cat in suppressed:
             continue
         v = dom_cues.get(cat)
         if v:

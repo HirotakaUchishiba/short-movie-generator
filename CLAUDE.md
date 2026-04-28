@@ -74,12 +74,22 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
   "wardrobe_continuity": {
     "office_outfit": "グレーのリブニット + ブラックパンツ + 眼鏡 + ロングヘア"
   },
+  "location_continuity": {
+    "home_office": {
+      "decor": "ミニマル北欧風、ナチュラルウッドのデスク、観葉植物、白壁、奥にアートと窓",
+      "lighting": "柔らかい自然光、暖色系",
+      "color_palette": "白基調、ベージュ、グリーンのアクセント",
+      "props": "シルバーのMacBook、白いマグカップ (PC画面は反射のみで内容は描かない)",
+      "camera_distance": "medium-close"
+    }
+  },
   "scenes": [
     {
       "time": "9:00",
       "label": "始業",
       "duration": 5.0,
-      "background_prompt": "モダンなオフィスで駆け寄るエンジニア cinematic lighting, shallow depth of field",
+      "location_ref": "home_office",
+      "background_prompt": "デスクに駆け寄るエンジニア cinematic lighting, shallow depth of field",
       "animation_prompt": "subject rushes to desk, opens laptop, leans back relieved",
       "character_refs": ["female_engineer"],
       "characters": [
@@ -129,7 +139,8 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 | `time`              | 画面下部の大文字時刻（例 `"8:50"`）                                                                                    |
 | `label`             | 時刻の下の日本語ラベル（例 `"起床"`）                                                                                  |
 | `duration`          | シーン秒数（3以上）。Klingは5/10sで生成し台本値にtrim                                                                  |
-| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語                                                                              |
+| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される         |
+| `location_ref`      | `root.location_continuity` のキー。同一動画内のロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                      |
 | `animation_prompt`  | Kling V3用（英語推奨）。シーン全体の動きを1文で                                                                        |
 | `character_refs`    | `characters/<名前>.png`を参照。既定は`config.DEFAULT_CHARACTER_REFS` (= `["female_engineer"]`)。キャラ無しは`[]`を明示 |
 | `lipsync`           | 既定true。silent時は無視                                                                                               |
@@ -157,11 +168,24 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 | `facial_expression` | シーン主役の表情。Imagen + Kling プロンプトに自動展開                                |
 | `hand_gesture`      | シーン主役の手の動き。同上                                                           |
 
-| ルート拡張            | 説明                                                                  |
-| --------------------- | --------------------------------------------------------------------- |
-| `bgm_path`            | 全編に流すBGM音声ファイル絶対パス。指定時はvoiceの下に低音量で自動mix |
-| `bgm_volume_db`       | BGMの相対音量dB。既定 -18                                             |
-| `wardrobe_continuity` | 衣装識別子→説明 のマップ。`scenes[].wardrobe.identifier` と紐付け     |
+| ルート拡張            | 説明                                                                                              |
+| --------------------- | ------------------------------------------------------------------------------------------------- |
+| `bgm_path`            | 全編に流すBGM音声ファイル絶対パス。指定時はvoiceの下に低音量で自動mix                             |
+| `bgm_volume_db`       | BGMの相対音量dB。既定 -18                                                                         |
+| `wardrobe_continuity` | 衣装識別子→説明 のマップ。`scenes[].wardrobe.identifier` と紐付け                                 |
+| `location_continuity` | ロケ識別子→属性辞書のマップ。`scenes[].location_ref` と紐付け、同一動画内で背景の一貫性を自動確保 |
+
+### `location_continuity` のフィールド
+
+| 属性              | 説明                                                        |
+| ----------------- | ----------------------------------------------------------- |
+| `decor`           | 家具・壁・床・建材などのレイアウト記述                      |
+| `lighting`        | 光源・色温度・影の質感 (指定時は emotion 由来を抑止)        |
+| `color_palette`   | 全体の配色トーン                                            |
+| `props`           | 小道具 (PC, マグカップ, 書類 等)                            |
+| `camera_distance` | 推奨カメラ距離 (close-up / medium-close / medium / wide 等) |
+
+各属性は `background_prompt` の **先頭** に "location decor: ..." 等のラベル付きで自動注入される。シーンごとの `background_prompt` は被写体の動作・表情のみ書き、装飾はロケに寄せると一貫性が保てる。動画ごとに `location_continuity` を自由に再定義してよい (ディレクトリ事前生成不要)。
 
 ## 参考動画から台本を自動生成する
 
