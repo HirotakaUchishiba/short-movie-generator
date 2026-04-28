@@ -6,6 +6,9 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 FAL_API_KEY = os.getenv("FAL_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+DOMOAI_API_KEY = os.getenv("DOMOAI_API_KEY")
+# Sync.so 公式 SDK と同じ SYNC_API_KEY を優先、後方互換で SYNCSO_API_KEY も受ける
+SYNCSO_API_KEY = os.getenv("SYNC_API_KEY") or os.getenv("SYNCSO_API_KEY")
 
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
@@ -691,10 +694,29 @@ ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
 
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
-LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "fal-sync")
-LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")
-LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")
+# fal-sync (= sync.so の lipsync-1.9.0-beta) は顎が伸びる等の崩れが多いため、
+# 既定を Sync.so 公式 API + lipsync-2 に切替。SYNC_API_KEY を .env に入れる
+# だけで動作する。
+LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "syncso")
+LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")  # fal-sync 用
+LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")     # 各 provider 共通
 LIPSYNC_COST_PER_SECOND = 0.05
+
+# DomoAI talking-avatar 用
+DOMOAI_BASE_URL = os.getenv("DOMOAI_BASE_URL", "https://api.domoai.com/v1")
+DOMOAI_LIPSYNC_MODEL = os.getenv("DOMOAI_LIPSYNC_MODEL", "talking-avatar-v1")
+DOMOAI_POLL_INTERVAL_SEC = float(os.getenv("DOMOAI_POLL_INTERVAL_SEC", "3.0"))
+DOMOAI_POLL_TIMEOUT_SEC = float(os.getenv("DOMOAI_POLL_TIMEOUT_SEC", "1800"))
+DOMOAI_MAX_DURATION_SEC = 60
+
+# Sync.so 用 (POST /v2/generate multipart, GET /v2/generate/{id} polling)
+# モデル: lipsync-2 (汎用), lipsync-2-pro (高品質), lipsync-1.9.0-beta (高速),
+# react-1 (短尺・感情豊か), sync-3
+SYNCSO_BASE_URL = os.getenv("SYNCSO_BASE_URL", "https://api.sync.so/v2")
+SYNCSO_LIPSYNC_MODEL = os.getenv("SYNCSO_LIPSYNC_MODEL", "lipsync-2")
+SYNCSO_POLL_INTERVAL_SEC = float(os.getenv("SYNCSO_POLL_INTERVAL_SEC", "3.0"))
+SYNCSO_POLL_TIMEOUT_SEC = float(os.getenv("SYNCSO_POLL_TIMEOUT_SEC", "1800"))
+SYNCSO_MAX_FILE_MB = 20
 
 MIN_SEGMENT_CHARS = 15
 MAX_MERGED_CHARS_PER_GROUP = 105
