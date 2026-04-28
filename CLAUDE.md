@@ -223,6 +223,19 @@ screenplay ルートに `bgm_path` があれば `compose_video` 最終段で voi
 
 `logging` モジュール経由で出力される。`LOG_LEVEL` 環境変数でレベル変更、`LOG_FILE` でファイル出力可。
 
+## リップシンクプロバイダー
+
+`config.LIPSYNC_PROVIDER` で切替。既定は `domoai` (顎の崩れが少ない)。
+
+| provider   | API key          | モデル                      | エンドポイント                                   |
+| ---------- | ---------------- | --------------------------- | ------------------------------------------------ |
+| `domoai`   | `DOMOAI_API_KEY` | `talking-avatar-v1` (既定)  | `https://api.domoai.com/v1/video/talking-avatar` |
+| `fal-sync` | `FAL_KEY`        | `lipsync-1.9.0-beta` (既定) | `fal-ai/sync-lipsync`                            |
+
+DomoAI に切替えるだけなら `.env` に `DOMOAI_API_KEY=<key>` を入れるだけで動作する。プロバイダ自体を変えたい場合は `LIPSYNC_PROVIDER=fal-sync` を `.env` に追加。
+
+DomoAI の制約: 出力動画は **1〜60s**。シーン音声が 60s を超える場合は 60s に clamp して送信される (warning ログ)。
+
 ## 分析基盤（Analytics）
 
 SQLiteベースの台本×動画×投稿×メトリクス管理基盤。`data/analytics.db` に保存。

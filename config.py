@@ -6,6 +6,7 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 FAL_API_KEY = os.getenv("FAL_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
+DOMOAI_API_KEY = os.getenv("DOMOAI_API_KEY")
 
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
@@ -680,10 +681,19 @@ ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
 
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
-LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "fal-sync")
-LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")
-LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")
+# fal-sync は顎が伸びるなど崩れることが多いため、既定を domoai に切替。
+# DOMOAI_API_KEY を .env に入れるだけで動作する。
+LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "domoai")
+LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")  # fal-sync 用
+LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")     # fal-sync 用
 LIPSYNC_COST_PER_SECOND = 0.05
+
+# DomoAI talking-avatar 用
+DOMOAI_BASE_URL = os.getenv("DOMOAI_BASE_URL", "https://api.domoai.com/v1")
+DOMOAI_LIPSYNC_MODEL = os.getenv("DOMOAI_LIPSYNC_MODEL", "talking-avatar-v1")
+DOMOAI_POLL_INTERVAL_SEC = float(os.getenv("DOMOAI_POLL_INTERVAL_SEC", "3.0"))
+DOMOAI_POLL_TIMEOUT_SEC = float(os.getenv("DOMOAI_POLL_TIMEOUT_SEC", "1800"))
+DOMOAI_MAX_DURATION_SEC = 60
 
 MIN_SEGMENT_CHARS = 15
 MAX_MERGED_CHARS_PER_GROUP = 105
