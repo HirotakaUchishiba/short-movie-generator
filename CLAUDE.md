@@ -225,16 +225,22 @@ screenplay ルートに `bgm_path` があれば `compose_video` 最終段で voi
 
 ## リップシンクプロバイダー
 
-`config.LIPSYNC_PROVIDER` で切替。既定は `domoai` (顎の崩れが少ない)。
+`config.LIPSYNC_PROVIDER` で切替。既定は `syncso` (Sync.so 公式 lipsync-2)。
 
-| provider   | API key          | モデル                      | エンドポイント                                   |
-| ---------- | ---------------- | --------------------------- | ------------------------------------------------ |
-| `domoai`   | `DOMOAI_API_KEY` | `talking-avatar-v1` (既定)  | `https://api.domoai.com/v1/video/talking-avatar` |
-| `fal-sync` | `FAL_KEY`        | `lipsync-1.9.0-beta` (既定) | `fal-ai/sync-lipsync`                            |
+| provider   | API key          | モデル                      | エンドポイント                                                              |
+| ---------- | ---------------- | --------------------------- | --------------------------------------------------------------------------- |
+| `syncso`   | `SYNC_API_KEY`   | `lipsync-2` (既定)          | `https://api.sync.so/v2/generate` (multipart) + `/v2/generate/{id}` polling |
+| `domoai`   | `DOMOAI_API_KEY` | `talking-avatar-v1` (既定)  | `https://api.domoai.com/v1/video/talking-avatar`                            |
+| `fal-sync` | `FAL_KEY`        | `lipsync-1.9.0-beta` (既定) | `fal-ai/sync-lipsync`                                                       |
 
-DomoAI に切替えるだけなら `.env` に `DOMOAI_API_KEY=<key>` を入れるだけで動作する。プロバイダ自体を変えたい場合は `LIPSYNC_PROVIDER=fal-sync` を `.env` に追加。
+Sync.so 既定で動かすなら `.env` に `SYNC_API_KEY=<key>` を入れるだけ。プロバイダを変える場合は `LIPSYNC_PROVIDER=domoai` か `fal-sync` を追加。
 
-DomoAI の制約: 出力動画は **1〜60s**。シーン音声が 60s を超える場合は 60s に clamp して送信される (warning ログ)。
+Sync.so のモデル切替: `SYNCSO_LIPSYNC_MODEL` で `lipsync-2` / `lipsync-2-pro` (高品質) / `lipsync-1.9.0-beta` (高速) / `react-1` (短尺感情) / `sync-3` から選択。
+
+### 制約
+
+- **Sync.so**: multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
+- **DomoAI**: 出力 1〜60s。60s 超えは clamp (warning ログ)
 
 ## 分析基盤（Analytics）
 
