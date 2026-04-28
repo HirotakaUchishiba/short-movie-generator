@@ -19,7 +19,7 @@
   "caption": "未経験からITエンジニアに転職した1日のリアル\n在宅ワークで自由な働き方が叶った\n#IT転職 #未経験エンジニア #在宅ワーク #転職",
   "scenes": [
     {
-      "animation_prompt": "Young woman lying face down on carpet slowly lifts her head and squints at her phone in shock, subtle handheld camera",
+      "animation_prompt": "Young woman in loose loungewear lying in a rumpled bed She jolts upright from the pillow with eyes flying wide open and jaw dropping, spine snapping straight as her head whips sharply upward toward the light, then her shoulders instantly slump, eyelids droop heavy, and she slowly curls back down into the blanket with her cheek sinking onto the pillow and a long exhale softening her whole body., quick pull-back on the bolt upright then gentle slow drift inward as she sinks back down, startled collapse",
       "background_prompt": "スマートフォンのアラームを止めながら布団から半身を起こす若い女性、ベッドサイドにスマートフォン画面で8:50表示、急いで身支度を始めようとしている軽い慌ただしさ、奥にカーテンと窓のあるベッドルーム",
       "characters": [
         {
@@ -83,7 +83,7 @@
       "location_ref": "bedroom"
     },
     {
-      "animation_prompt": "Young woman in glasses rushes to desk and opens silver MacBook with both hands then exhales in relief, dynamic handheld",
+      "animation_prompt": "Young woman in loungewear, bedhead hair, seated at a home-office desk She jolts upright with eyes wide and mouth open in a sharp gasp, shoulders shooting up and torso lurching forward at high speed; she then snaps her posture straight, lifts her chin and presses her lips together in a stiff composed expression, hands planting firmly on the desk; finally she exhales a long visible breath, shoulders dropping, head tilting slightly back, and a slow smile spreads across her face as her body settles into a relieved, satisfied lean, quick handheld push-in that steadies into a locked mid-shot by the final beat, breathless relief",
       "background_prompt": "ホームオフィスのデスクに駆け込みノートPCを開けようとする女性、奥にアート絵画と",
       "characters": [
         {
@@ -151,7 +151,7 @@
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses leans toward laptop frowning, eyes searching the screen, then her posture shifts as her expression brightens into a relieved smile and she leans back exhaling, subtle zoom in",
+      "animation_prompt": "Young Japanese woman in loungewear at a home-office desk She slumps forward with a slow exhale, shoulders dropping and brow furrowing as she mutters under her breath; her eyes widen and she snaps upright, chin lifting sharply as she gasps; she leans in toward the desk, lips moving steadily as she reads aloud with a flat, measured gaze tracking side to side; then she jolts back, mouth breaking into a wide grin, fists pumping once in the air as she tilts her head back with a bright, rising laugh and lets her shoulders bounce with relief, slight push-in during the anxious mumble, hold steady through the reading, then a brief pull-back as she bursts upright in celebration, anxious dread blooming into giddy relief",
       "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめる女性、画面は暗めで反射のみ、ミニマルな北欧風インテリア",
       "characters": [
         {
@@ -237,7 +237,7 @@
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses sits at desk speaking calmly to camera, hand opens in a warm explanatory gesture, gaze steady, subtle zoom",
+      "animation_prompt": "Young Japanese woman in casual loungewear at a home desk She jolts upright with wide eyes and a sharp intake of breath, snapping her gaze forward and pressing a hand briefly to her cheek in sudden realization; she then settles back slightly, exhales softly, and tilts her head downward with a pensive but calm expression as her shoulders relax; finally she lifts her chin with a warm, bright smile, leans gently forward toward the desk, and nods with light, buoyant energy, her posture open and relieved, slight push-in from mid-shot to medium close-up, then holds steady, flustered relief blooming into warm reassurance",
       "background_prompt": "ホームオフィスで姿勢を正してノートPCに向かい話す女性、奥にアート絵画と青空の窓、明るく開放的なワークスペース",
       "characters": [
         {
@@ -314,7 +314,7 @@
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses stands at a standing desk speaking to camera then puts a hand on her lower back, slight handheld",
+      "animation_prompt": "Young woman in loungewear standing at a raised desk in a home office She stands upright with a satisfied smile, nodding slowly and letting her gaze lift as her lips stretch into a pleased expression, then her posture softens mid-arc as she tilts her torso slightly forward, one hand drifting down to rest against her lower back, gently pressing and rubbing there while she exhales through a tired smile and her chin dips briefly before her eyes drift upward again with quiet relief, slow pull-back from mid-shot to wider shot, then steady, contented fatigue",
       "background_prompt": "明るい部屋で立った姿勢でラップトップに向かう女性、後ろに本棚と山岳写真のアート、観葉植物、北欧モダンインテリア",
       "characters": [
         {
@@ -367,7 +367,7 @@
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses looks at laptop and leans back with a happy smile thinking about lunch, subtle zoom in",
+      "animation_prompt": "Young woman in loungewear sitting at a home-office desk She glances up sharply from her work, eyes widening as her chin lifts with a quick inhale, then a bright smile spreads across her face as she straightens her spine, claps both palms lightly on the desk, and pushes herself upright with a buoyant forward lean toward the camera, slight push-in during the glance-up, then steady as she rises, cheerful spontaneity",
       "background_prompt": "ホームオフィスのデスクに座り少し前のめりに話す女性、ノートPCを前に、奥にアートと青空の窓、明るく整ったワークスペース",
       "characters": [
         {
@@ -424,7 +424,7 @@
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses stands on a crosswalk looking at her phone then smiles proudly toward camera, gentle wind in hair, subtle handheld",
+      "animation_prompt": "Young woman in casual loungewear walking on a street She strides forward with a lifted chin and a small proud smirk, chest slightly puffed out as she glances sideways with bright eyes and a quick tilt of her head — then her pace slows, shoulders soften, lips curve into a warm full smile, and she exhales gently through her nose as her gaze settles ahead with quiet, glowing satisfaction, gentle follow shot from slight front-angle, easing to a soft steady hold, quiet pride melting into warmth",
       "background_prompt": "晴れた青空の下、住宅街の横断歩道に立つ女性のバストショット、街路樹と電柱、爽やかな屋外",
       "characters": [
         {
@@ -478,7 +478,7 @@
       "location_ref": "street"
     },
     {
-      "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes, breath caught for a moment, then sits back, gaze drifting away thoughtfully, subtle zoom",
+      "animation_prompt": "Young Japanese woman in casual loungewear sitting at a home desk She sits upright and her eyes fly wide open as her chin lifts sharply upward with a quick inhale at the first revelation; her hand slaps lightly over her mouth and her shoulders jerk upward as her voice cracks with a second gasp at the salary figure; she then leans slightly forward with eyebrows furrowed, tilting her head to one side and exhaling slowly through parted lips, hands settling open on the desk as she shakes her head in stunned disbelief, slow push-in from mid-shot to close-up, holding steady at the final lean, electric disbelief",
       "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情を見せる女性、画面は暗めで反射のみ、奥にアートと青空の窓、明るいワークスペース",
       "characters": [
         {
@@ -551,11 +551,13 @@
       "emotion_cue_overrides": {
         "tone": "energetic_upbeat"
       },
-      "tags": ["home_office"],
+      "tags": [
+        "home_office"
+      ],
       "location_ref": "home_office"
     },
     {
-      "animation_prompt": "Young woman in glasses closes laptop with both hands then stretches arms up and smiles at camera with hands clasped under chin, warm cinematic feel",
+      "animation_prompt": "Young woman in casual loungewear at a home office desk She slaps both palms on the desk and springs upright with a wide grin, arms punching briefly into the air; then she rises fully, arches her back in a full-body stretch with both arms sweeping overhead and chin lifting skyward; finally she sinks back into her chair with a satisfied exhale, props one cheek lazily on her fist, eyelids softening and lips curling into a dreamy smile as she gazes slightly upward., starts on a medium shot then pulls back slightly during the stretch, settling into a gentle slow zoom-in on her face for the final line, blissful liberation",
       "background_prompt": "ホームオフィスのデスクでノートPCを閉じて満足げに微笑む女性、奥にアートと青空の窓、明るくおしゃれな部屋",
       "characters": [
         {
