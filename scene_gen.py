@@ -708,7 +708,8 @@ def _replace_audio(video_path: str, audio_path: str, output_path: str) -> None:
 
 
 def _augment_animation_prompt(base_prompt: str, kling_duration: float) -> str:
-    """Klingの後半が静止するよう、動作を前半に集中させる指示を末尾に追加する。"""
+    """Klingの後半が静止するよう、動作を前半に集中させる指示と、
+    UI hallucination 抑止 negative 文を末尾に追加する。冪等。"""
     settle_pct = int(config.ACTION_FRONTLOAD_RATIO * 100)
     settle_at = kling_duration * config.ACTION_FRONTLOAD_RATIO
     addon = (
@@ -716,9 +717,17 @@ def _augment_animation_prompt(base_prompt: str, kling_duration: float) -> str:
         f"(by approximately {settle_at:.1f}s). In the remaining time, hold the final "
         f"pose with minimal movement so the clip can be cleanly trimmed at the end."
     )
-    if "Complete all major actions" in base_prompt:
-        return base_prompt
-    return base_prompt + addon
+
+    out = base_prompt
+    if "Complete all major actions" not in out:
+        out = out + addon
+
+    neg = config.KLING_NEGATIVE_CONSTRAINT
+    # 既に同じ negative 文があれば二重追加しない (冪等)
+    if neg and neg not in out:
+        out = out + ". " + neg
+
+    return out
 
 
 def _generate_kling(bg_path: str, animation_prompt: str, scene_duration: float,
