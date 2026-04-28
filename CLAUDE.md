@@ -214,6 +214,36 @@ python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-sho
 
 手動で細かく制御したい場合は `voice_overrides` で個別に上書き。
 
+## animation_prompt の自動生成 (lines → Claude Sonnet)
+
+`scenes[].animation_prompt` を空にしておけば、Stage 4 (Kling) 実行時に `auto_animation_prompt.py` が `lines[]` (text / emotion / delivery / acoustic) と `location_ref` / `wardrobe` から **Claude Sonnet 4.6 で animation_prompt を自動生成**する。出力は `subject / action_sequence / camera / mood` の構造化フォーマットで、UI 誘発語 (chat bubble / notification 等) を含むと自動でリジェクトする。
+
+### 優先順位
+
+1. **手書き `scene.animation_prompt`** があれば最優先で採用 (LLM は呼ばない)
+2. それ以外で `AUTO_ANIMATION_PROMPT_ENABLED=true` (既定) かつ `lines[]` があれば LLM 生成
+3. 生成不可の場合は `background_prompt` をベースにフォールバック
+
+### キャッシュ
+
+入力ハッシュ (lines / emotion / delivery / acoustic / duration / location*ref 等) で判定し、同じ入力なら `temp/<TS>/auto_prompts/scene*<i>.json` から再利用。Stage 4 を何度実行しても LLM は最初の 1 回だけ呼ばれる。
+
+### UI ワークフロー
+
+Stage 4 のシーンカードに「自動生成 / 再生成 / 採用」パネルがあり:
+
+- **自動生成 / 再生成**: LLM を呼んで結果をキャッシュ (生成中は手書き欄を変更しない)
+- **表示**: 構造化 (subject / action / camera / mood) と composed prompt を確認
+- **採用**: 自動生成 prompt を `scene.animation_prompt` に書き戻す (= 以降は手書き優先扱い)
+
+### 重複注入の抑止
+
+LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等) と `audio_dynamics` の追加注入を抑止する (LLM 入力で既に消費済みのため二重にならない)。
+
+### コスト
+
+Claude Sonnet 4.6 で 1 シーンあたり約 $0.005、9 シーン台本で約 $0.05。キャッシュが効くため再実行コストは 0。
+
 ## 自動活用される音響メタデータ
 
 `acoustic` の各値は scene_gen で以下のように自動消費される:

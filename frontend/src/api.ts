@@ -131,6 +131,45 @@ export const api = {
       background_prompt: string;
       animation_prompt: string;
     }>(`/api/projects/${ts}/scenes/${sceneIdx}/composed-prompts`),
+  getAutoAnimationPrompt: (ts: string, sceneIdx: number) =>
+    http<{
+      scene_idx: number;
+      manual: string | null;
+      auto: string | null;
+      structured: {
+        subject: string;
+        action_sequence: string;
+        camera: string;
+        mood: string;
+      } | null;
+      cached: boolean;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/auto-animation-prompt`),
+  regenAutoAnimationPrompt: (ts: string, sceneIdx: number) =>
+    http<{
+      scene_idx: number;
+      manual: string | null;
+      auto: string;
+      structured: {
+        subject: string;
+        action_sequence: string;
+        camera: string;
+        mood: string;
+      };
+      cached: boolean;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/auto-animation-prompt`, {
+      method: "POST",
+      body: JSON.stringify({ action: "regenerate" }),
+    }),
+  adoptAutoAnimationPrompt: (ts: string, sceneIdx: number) =>
+    http<{
+      scene_idx: number;
+      manual: string;
+      auto: string;
+      adopted: boolean;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/auto-animation-prompt`, {
+      method: "POST",
+      body: JSON.stringify({ action: "adopt" }),
+    }),
   job: (id: string) => http<JobStatus>(`/api/jobs/${id}`),
 };
 

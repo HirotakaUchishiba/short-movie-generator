@@ -7,6 +7,7 @@ GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 FAL_API_KEY = os.getenv("FAL_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 DOMOAI_API_KEY = os.getenv("DOMOAI_API_KEY")
+ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 # Sync.so 公式 SDK と同じ SYNC_API_KEY を優先、後方互換で SYNCSO_API_KEY も受ける
 SYNCSO_API_KEY = os.getenv("SYNC_API_KEY") or os.getenv("SYNCSO_API_KEY")
 
@@ -692,6 +693,22 @@ TEMPO_TEXT_LONG_THRESHOLD = 50
 ACTION_FRONTLOAD_RATIO = 0.7
 ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
+
+# セリフ・感情・delivery・acoustic から Claude Sonnet で animation_prompt を
+# 自動生成する機能。手書き scene.animation_prompt があればそちら優先、
+# 無ければ自動生成 → scene.animation_prompt_auto に保存する。
+AUTO_ANIMATION_PROMPT_ENABLED = (
+    os.getenv("AUTO_ANIMATION_PROMPT_ENABLED", "true").lower() == "true"
+)
+AUTO_ANIMATION_PROMPT_MODEL = os.getenv(
+    "AUTO_ANIMATION_PROMPT_MODEL", "claude-sonnet-4-6"
+)
+AUTO_ANIMATION_PROMPT_MAX_TOKENS = int(
+    os.getenv("AUTO_ANIMATION_PROMPT_MAX_TOKENS", "500")
+)
+# キャッシュは temp/<TS>/auto_prompts/scene_<i>.json に保存し、
+# 入力ハッシュが一致すれば再呼出ししない (Stage 4 を何度走らせても安定)。
+AUTO_ANIMATION_PROMPT_CACHE_SUBDIR = "auto_prompts"
 
 # Kling V3 は 5s と 10s しか生成できない。TTS が 5.0 を僅かに超えただけで
 # 10s クリップ ($0.84) に切り替わるとコスパが悪いため、許容比率を導入する。
