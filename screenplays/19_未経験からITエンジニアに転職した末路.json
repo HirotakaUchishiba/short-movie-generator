@@ -19,7 +19,7 @@
   "caption": "未経験からITエンジニアに転職した1日のリアル\n在宅ワークで自由な働き方が叶った\n#IT転職 #未経験エンジニア #在宅ワーク #転職",
   "scenes": [
     {
-      "animation_prompt": "Young woman in loose loungewear lying in a rumpled bed She jolts upright from the pillow with eyes flying wide open and jaw dropping, spine snapping straight as her head whips sharply upward toward the light, then her shoulders instantly slump, eyelids droop heavy, and she slowly curls back down into the blanket with her cheek sinking onto the pillow and a long exhale softening her whole body., quick pull-back on the bolt upright then gentle slow drift inward as she sinks back down, startled collapse",
+      "animation_prompt": "Young woman in casual loungewear lying in bed She jolts upright from the pillow, eyes flying wide and mouth dropping open in a sharp gasp, spine snapping straight as both hands grip the bedsheet — then the tension melts just as quickly, shoulders sagging, eyelids drooping heavy, and she slowly topples face-first back into the pillow with a drowsy exhale, pulling the blanket over her cheek, quick snap to alert close-up, then gentle pull-back to relaxed wide as she sinks back down, startled surrender",
       "background_prompt": "スマートフォンのアラームを止めながら布団から半身を起こす若い女性、ベッドサイドにスマートフォン画面で8:50表示、急いで身支度を始めようとしている軽い慌ただしさ、奥にカーテンと窓のあるベッドルーム",
       "characters": [
         {
@@ -62,8 +62,8 @@
             "rms_peak": 0.35,
             "wpm": 160
           },
-          "delivery": "甘えるように低くつぶやく",
-          "emotion": "落胆",
+          "delivery": "眠そうに、二度寝しようと布団に顔を埋めながら甘えるようにつぶやく",
+          "emotion": "中立",
           "end": 2.6,
           "pronunciation_hints": {
             "5分": "ゴフン"
