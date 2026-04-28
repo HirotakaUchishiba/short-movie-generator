@@ -115,3 +115,36 @@ def test_augment_animation_prompt_idempotent() -> None:
     assert once == twice
 
 
+def test_augment_animation_prompt_appends_negative_constraint() -> None:
+    """UI hallucination 抑止 negative 文が末尾に追加されること。"""
+    out = scene_gen._augment_animation_prompt("subject walks forward", 5.0)
+    assert scene_gen.config.KLING_NEGATIVE_CONSTRAINT in out
+    assert "no UI overlays" in out
+    assert "no chat bubbles" in out
+
+
+def test_augment_animation_prompt_negative_idempotent() -> None:
+    """negative 文が既にあれば二重追加しないこと (冪等)。"""
+    base = "subject walks"
+    once = scene_gen._augment_animation_prompt(base, 5.0)
+    # 2 回目: 同じ入力なら同じ出力 (settle / negative どちらも重複なし)
+    twice = scene_gen._augment_animation_prompt(once, 5.0)
+    assert once == twice
+    # 同じ negative 文が 1 回しか出現しない
+    assert once.count(scene_gen.config.KLING_NEGATIVE_CONSTRAINT) == 1
+
+
+def test_augment_animation_prompt_negative_skipped_if_empty(monkeypatch) -> None:
+    """KLING_NEGATIVE_CONSTRAINT が空なら追加しない。"""
+    monkeypatch.setattr(scene_gen.config, "KLING_NEGATIVE_CONSTRAINT", "")
+    out = scene_gen._augment_animation_prompt("subject walks", 5.0)
+    assert "no UI overlays" not in out
+
+
+def test_augment_animation_prompt_preserves_user_text() -> None:
+    """ユーザーが書いた本文部分は改変されない。"""
+    base = "Young woman leans toward laptop, eyes searching, then exhales"
+    out = scene_gen._augment_animation_prompt(base, 5.0)
+    assert out.startswith(base)
+
+

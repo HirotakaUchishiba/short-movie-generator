@@ -153,6 +153,17 @@ EMOTION_VISUAL_CUES: dict[str, dict] = {
 }
 
 
+# Kling V3 が PC やスマホ操作シーンで勝手にチャット UI / 通知ポップアップ /
+# テキスト吹き出し / グラフィック等を hallucinate するのを抑止する negative 文。
+# scene_gen._augment_animation_prompt で全シーンの prompt 末尾に冪等付加される。
+# 台本の animation_prompt に "chat bubble", "notification", "graphic that pops up"
+# 等の UI 誘発語を直接書くと打ち消せないので、台本側でも書かないこと。
+KLING_NEGATIVE_CONSTRAINT = (
+    "no UI overlays, no chat bubbles, no notifications, no on-screen text, "
+    "no smartphone popups, no infographics, no floating graphics"
+)
+
+
 # ─────────────────────────────────────────────────────────
 # 視覚演出の preset ライブラリ
 #

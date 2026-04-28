@@ -149,7 +149,7 @@
       }
     },
     {
-      "animation_prompt": "Young woman in glasses leans toward laptop frowning then her expression brightens into a relieved smile as a chat bubble appears, subtle zoom in",
+      "animation_prompt": "Young woman in glasses leans toward laptop frowning, eyes searching the screen, then her posture shifts as her expression brightens into a relieved smile and she leans back exhaling, subtle zoom in",
       "background_prompt": "ホームオフィスでノートPCに向かい眉をひそめてチャットを確認する女性、ミニマルな北欧風インテリア",
       "characters": [
         {
@@ -234,7 +234,7 @@
       }
     },
     {
-      "animation_prompt": "Young woman in glasses sits at desk speaking calmly to camera while gesturing to an e-learning graphic that pops up beside her, subtle zoom",
+      "animation_prompt": "Young woman in glasses sits at desk speaking calmly to camera, hand opens in a warm explanatory gesture, gaze steady, subtle zoom",
       "background_prompt": "ホームオフィスで姿勢を正してノートPCに向かい話す女性、奥にアート絵画と青空の窓、明るく開放的なワークスペース",
       "characters": [
         {
@@ -471,7 +471,7 @@
       }
     },
     {
-      "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes as a chat bubble appears then sits back looking thoughtful, subtle zoom",
+      "animation_prompt": "Young woman in glasses leans toward laptop with wide eyes, breath caught for a moment, then sits back, gaze drifting away thoughtfully, subtle zoom",
       "background_prompt": "ホームオフィスでノートPCに向かい驚いた表情でチャット画面を見る女性、奥にアートと青空の窓、明るいワークスペース",
       "characters": [
         {
@@ -544,9 +544,7 @@
       "emotion_cue_overrides": {
         "tone": "energetic_upbeat"
       },
-      "tags": [
-        "home_office"
-      ]
+      "tags": ["home_office"]
     },
     {
       "animation_prompt": "Young woman in glasses closes laptop with both hands then stretches arms up and smiles at camera with hands clasped under chin, warm cinematic feel",
