@@ -62,6 +62,35 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 ## 台本JSONの仕様
 
+### 保存先と canonical / drafts 分離
+
+台本は **2 層構造**:
+
+| 層        | パス                             | git 管理 | 用途                                     |
+| --------- | -------------------------------- | -------- | ---------------------------------------- |
+| canonical | `screenplays/<名前>.json`        | 追跡     | 確定版。コードレビュー / 動画投稿の根拠  |
+| drafts    | `screenplays/drafts/<名前>.json` | ignore   | UI / preview_server が編集を保存する WIP |
+
+**読み込み順 (`staged_pipeline.screenplay_path`)**: `drafts/<名前>.json` があれば最優先、無ければ canonical。これにより UI の編集中状態が動画生成にそのまま反映される。**書き込み (`staged_pipeline.save_screenplay`)** は常に drafts/。`drafts/` は `.gitignore` で追跡対象外なので、UI 編集を繰り返しても working tree は汚れない。drafts ディレクトリは無ければ初回 save 時に自動生成。
+
+**確定版に昇格** (drafts → canonical) させたい時は手動コピー後 commit:
+
+```bash
+cp screenplays/drafts/<名前>.json screenplays/<名前>.json
+git add screenplays/<名前>.json
+git commit -m "content(<id>): ..."
+```
+
+drafts を捨てて canonical の状態に戻したい時は:
+
+```bash
+rm screenplays/drafts/<名前>.json
+```
+
+`scripts/analyze_video.py` などのスクリプトは canonical 直下に書き出す (= 新規台本として人間レビュー前提)。
+
+### スキーマ
+
 `screenplays/<名前>.json` は次のスキーマで記述する（`scenes[].lines[]` 構造、リッチメタデータ完全版）:
 
 ```json

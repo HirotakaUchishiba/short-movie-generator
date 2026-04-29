@@ -51,6 +51,64 @@ def test_save_screenplay_writes_back(fake_screenplays_dir) -> None:
     assert sp2["caption"] == "updated"
 
 
+def test_save_screenplay_writes_to_drafts_not_canonical(
+    fake_screenplays_dir,
+) -> None:
+    """UI 編集の保存先は drafts/。canonical は不変なので working tree が汚れない。"""
+    canonical_path = _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
+    canonical_before = open(canonical_path).read()
+
+    sp = staged_pipeline.load_screenplay("demo")
+    sp["caption"] = "edited"
+    staged_pipeline.save_screenplay("demo", sp)
+
+    # canonical は触られていない
+    assert open(canonical_path).read() == canonical_before
+    # drafts に新規ファイルが出来ている
+    drafts_path = os.path.join(fake_screenplays_dir, "drafts", "demo.json")
+    assert os.path.exists(drafts_path)
+    with open(drafts_path) as f:
+        assert json.load(f)["caption"] == "edited"
+
+
+def test_load_screenplay_prefers_drafts_over_canonical(
+    fake_screenplays_dir,
+) -> None:
+    """drafts/<name>.json があれば canonical を上書きして優先する。"""
+    canonical = _minimal_sp()
+    canonical["caption"] = "canonical"
+    _write_sp(fake_screenplays_dir, "demo.json", canonical)
+
+    drafts_dir = os.path.join(fake_screenplays_dir, "drafts")
+    os.makedirs(drafts_dir)
+    draft = _minimal_sp()
+    draft["caption"] = "from drafts"
+    _write_sp(drafts_dir, "demo.json", draft)
+
+    assert staged_pipeline.load_screenplay("demo")["caption"] == "from drafts"
+
+
+def test_load_screenplay_falls_back_to_canonical_when_no_draft(
+    fake_screenplays_dir,
+) -> None:
+    """drafts/ に同名がなければ canonical から読む。"""
+    canonical = _minimal_sp()
+    canonical["caption"] = "canonical only"
+    _write_sp(fake_screenplays_dir, "demo.json", canonical)
+
+    assert staged_pipeline.load_screenplay("demo")["caption"] == "canonical only"
+
+
+def test_save_screenplay_creates_drafts_dir(fake_screenplays_dir) -> None:
+    """drafts/ が存在しなくても save 時に自動生成される。"""
+    _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
+    drafts_dir = os.path.join(fake_screenplays_dir, "drafts")
+    assert not os.path.exists(drafts_dir)
+
+    staged_pipeline.save_screenplay("demo", _minimal_sp())
+    assert os.path.isdir(drafts_dir)
+
+
 def test_run_script_marks_progress(fake_screenplays_dir, tmp_path) -> None:
     _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
     sp = staged_pipeline.load_screenplay("demo")
