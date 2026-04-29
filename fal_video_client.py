@@ -8,6 +8,7 @@ import requests
 from PIL import Image
 
 import config
+from fal_runner import FalJobTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -40,6 +41,10 @@ def _pick_duration(audio_duration: float) -> int:
 
 
 def _classify_error(exc: BaseException) -> str:
+    # 自前 watchdog タイムアウトは retry (fal の stuck job ならリトライで解決する可能性)
+    if isinstance(exc, FalJobTimeoutError):
+        return "retry"
+
     status = getattr(exc, "status_code", None)
     if status is None:
         resp = getattr(exc, "response", None)
@@ -71,16 +76,20 @@ def generate_video(image_path: str, prompt: str, output_path: str,
     last_exc: BaseException | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            result = fal_client.subscribe(
-                MODEL_ID,
-                arguments={
-                    "start_image_url": image_url,
-                    "prompt": prompt,
-                    "duration": str(duration),
-                    "generate_audio": False,
-                },
-                with_logs=True,
-                on_queue_update=lambda update: None,
+            result = run_with_timeout(
+                lambda: fal_client.subscribe(
+                    MODEL_ID,
+                    arguments={
+                        "start_image_url": image_url,
+                        "prompt": prompt,
+                        "duration": str(duration),
+                        "generate_audio": False,
+                    },
+                    with_logs=True,
+                    on_queue_update=lambda update: None,
+                ),
+                timeout_sec=config.FAL_KLING_TIMEOUT_SEC,
+                name=f"kling-attempt{attempt + 1}",
             )
 
             video_url = result["video"]["url"]

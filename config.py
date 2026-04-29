@@ -701,6 +701,13 @@ ACTION_IDLE_MIN_DURATION = 0.3
 # slow_mo ratio が 1.2x 以下に収まるため知覚的に自然。
 KLING_DURATION_TOLERANCE_RATIO = 1.2
 
+# fal_client.subscribe() は完了まで内部で永久にポーリングする。
+# fal.ai 側の stuck job (= 6 時間 202 が続く等) で無限待機しないよう、
+# クライアント側で総ジョブ尺をタイムアウトする (案 A: threading watchdog)。
+# 期限超過で TimeoutError 相当を投げ、上位の MAX_RETRIES ループで停止する。
+FAL_KLING_TIMEOUT_SEC = float(os.getenv("FAL_KLING_TIMEOUT_SEC", "600"))     # 10 min
+FAL_LIPSYNC_TIMEOUT_SEC = float(os.getenv("FAL_LIPSYNC_TIMEOUT_SEC", "600"))  # 10 min
+
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
 # fal-sync (= sync.so の lipsync-1.9.0-beta) は顎が伸びる等の崩れが多いため、
 # 既定を Sync.so 公式 API + lipsync-2 に切替。SYNC_API_KEY を .env に入れる
