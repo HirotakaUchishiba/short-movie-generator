@@ -1,0 +1,166 @@
+"""analyze ジョブを別 thread で実行する runner。
+
+- threading.Semaphore(_MAX_CONCURRENT) で同時実行数を制限し、
+  demucs / faster-whisper / Claude のメモリ衝突を物理的に回避
+- 各フェーズ境界で SQLite の analyze_phases に状態と所要時間を記録
+- progress.publish() で SSE subscriber に event を push
+- コストゲート: Claude 呼び出し直前に awaiting_confirm に遷移し、
+  ユーザー confirm or cancel を polling で待つ
+"""
+import logging
+import threading
+import time
+
+from analyze import cost, job, pipeline, progress
+from analyze.pipeline import AnalyzeCancelled, AnalyzeOptions, default_output_path
+
+logger = logging.getLogger(__name__)
+
+# 同時実行数の上限
+_MAX_CONCURRENT = 1
+_CONCURRENT = threading.Semaphore(_MAX_CONCURRENT)
+
+# コストゲート confirm 待ちの polling 間隔と timeout
+CONFIRM_POLL_INTERVAL_SEC = 0.5
+CONFIRM_TIMEOUT_SEC = 1800  # 30 分待っても confirm が来なければ自動 cancel
+
+
+def start(job_id: str) -> threading.Thread:
+    """ジョブを daemon thread で起動する。"""
+    t = threading.Thread(
+        target=_run_job, args=(job_id,),
+        name=f"analyze-{job_id}", daemon=True,
+    )
+    t.start()
+    return t
+
+
+def _run_job(job_id: str) -> None:
+    try:
+        with _CONCURRENT:
+            _run_job_impl(job_id)
+    except Exception as e:
+        logger.exception("analyze job %s failed in runner", job_id)
+        try:
+            job.transition_status(job_id, "failed", error=str(e))
+            progress.publish(job_id, "failed",
+                              {"error": str(e), "phase": "runner"})
+        except Exception:
+            logger.exception("post-error update failed for %s", job_id)
+
+
+def _run_job_impl(job_id: str) -> None:
+    j = job.get_job(job_id)
+    video_path = job.reference_video_path(j.video_sha256)
+    if video_path is None:
+        raise FileNotFoundError(
+            f"reference video not found: sha256={j.video_sha256}"
+        )
+
+    options = AnalyzeOptions.from_dict(j.options)
+
+    job.transition_status(job_id, "running")
+    progress.publish(job_id, "started",
+                      {"job_id": job_id, "video_sha256": j.video_sha256})
+
+    phase_start_times: dict[str, float] = {}
+
+    def on_progress(event: str, data: dict) -> None:
+        phase = data.get("phase")
+        if event == "phase_start" and phase:
+            phase_start_times[phase] = time.time()
+            try:
+                job.start_phase(job_id, phase)
+            except Exception:
+                logger.exception("start_phase failed: %s/%s", job_id, phase)
+        elif event == "phase_complete" and phase:
+            started = phase_start_times.get(phase)
+            duration_ms = int((time.time() - started) * 1000) if started else None
+            try:
+                job.complete_phase(job_id, phase, duration_ms=duration_ms)
+            except Exception:
+                logger.exception("complete_phase failed: %s/%s", job_id, phase)
+        progress.publish(job_id, event, data)
+
+    def cancel_token() -> bool:
+        return job.is_cancellation_requested(job_id)
+
+    def cost_gate(frame_count: int, transcript: dict,
+                   shot_count: int, known_furigana_count: int) -> bool:
+        """Claude 呼び出し直前。awaiting_confirm に遷移して confirm を待つ。
+
+        confirm = job.transition_status(job_id, "running")
+        cancel  = job.request_cancellation(job_id)
+        """
+        estimate = cost.estimate(
+            frame_count=frame_count,
+            transcript=transcript,
+            shot_count=shot_count,
+            known_furigana_count=known_furigana_count,
+        )
+        job.transition_status(
+            job_id, "awaiting_confirm",
+            estimated_cost_usd=estimate["cost_usd"],
+        )
+        progress.publish(job_id, "dryrun_complete", {
+            "frame_count": frame_count,
+            **estimate,
+        })
+
+        deadline = time.time() + CONFIRM_TIMEOUT_SEC
+        while time.time() < deadline:
+            j2 = job.get_job(job_id)
+            if j2.cancellation_requested:
+                return False
+            if j2.status == "running":
+                return True
+            time.sleep(CONFIRM_POLL_INTERVAL_SEC)
+
+        # timeout -> 自動 cancel 扱い
+        progress.publish(job_id, "failed",
+                          {"error": "confirm timeout",
+                           "phase": "cost_gate"})
+        return False
+
+    try:
+        screenplay = pipeline.run(
+            video_path=video_path,
+            options=options,
+            on_progress=on_progress,
+            cancel_token=cancel_token,
+            on_cost_gate=cost_gate,
+        )
+        job.touch_reference_video(j.video_sha256)
+
+        out_path = default_output_path(video_path)
+        # 実 cost は build_screenplay の usage ログ出力にあるが、
+        # screenplay.json には保存されないため概算 (estimated) を再利用する
+        finished = job.transition_status(
+            job_id, "completed",
+            screenplay_path=out_path,
+            actual_cost_usd=job.get_job(job_id).estimated_cost_usd,
+        )
+        progress.publish(job_id, "completed", {
+            "output_path": out_path,
+            "scenes": len(screenplay.get("scenes", [])),
+            "lines": sum(len(s.get("lines") or [])
+                          for s in screenplay.get("scenes", [])),
+        })
+    except AnalyzeCancelled:
+        job.transition_status(job_id, "cancelled")
+        progress.publish(job_id, "cancelled", {})
+
+
+def confirm(job_id: str) -> None:
+    """awaiting_confirm 状態のジョブを running に遷移させる (Claude 続行)。"""
+    j = job.get_job(job_id)
+    if j.status != "awaiting_confirm":
+        raise ValueError(
+            f"job {job_id} is not awaiting_confirm (current: {j.status})"
+        )
+    job.transition_status(job_id, "running")
+
+
+def cancel(job_id: str) -> None:
+    """ジョブのキャンセルを要求する (cooperative)。"""
+    job.request_cancellation(job_id)

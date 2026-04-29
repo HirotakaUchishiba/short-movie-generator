@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import uuid
-from flask import Flask, jsonify, request, send_file, abort, send_from_directory
+from flask import Flask, jsonify, request, send_file, abort, send_from_directory, Response
 from flask_cors import CORS
 
 import config
@@ -21,6 +21,8 @@ import progress_store
 import scene_gen
 import staged_pipeline
 from analyze import job as analyze_job
+from analyze import progress as analyze_progress
+from analyze import runner as analyze_runner
 from analyze.cache import file_sha256
 
 log_setup.setup()
@@ -807,6 +809,133 @@ def api_delete_reference_video(sha):
         "sha256": sha, "deleted": True,
         "warning": "DB row deleted but file not found",
     }), 200
+
+
+# ───────────────── analyze ジョブ ─────────────────
+
+_JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
+_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _job_to_dict(j) -> dict:
+    return {
+        "id": j.id,
+        "video_sha256": j.video_sha256,
+        "options": json.loads(j.options_json),
+        "status": j.status,
+        "current_phase": j.current_phase,
+        "error": j.error,
+        "estimated_cost_usd": j.estimated_cost_usd,
+        "actual_cost_usd": j.actual_cost_usd,
+        "screenplay_path": j.screenplay_path,
+        "created_at": j.created_at,
+        "started_at": j.started_at,
+        "finished_at": j.finished_at,
+        "cancellation_requested": bool(j.cancellation_requested),
+    }
+
+
+@app.route("/api/screenplay/analyze", methods=["POST"])
+def api_create_analyze_job():
+    """analyze ジョブを作成し、別 thread で起動する。"""
+    data = request.get_json(force=True) or {}
+    sha = data.get("video_sha256") or ""
+    if not _SHA256_RE.match(sha):
+        return jsonify({"error": "video_sha256 (64 hex chars) required"}), 400
+    if not analyze_job.get_reference_video(sha):
+        return jsonify({"error": f"reference video not found: {sha}"}), 404
+
+    raw_options = data.get("options") or {}
+    allowed = {"fps", "instructions", "no_bgm_extract", "no_shots"}
+    options = {k: v for k, v in raw_options.items() if k in allowed}
+
+    j = analyze_job.create_job(sha, options)
+    analyze_runner.start(j.id)
+    return jsonify({"job_id": j.id}), 201
+
+
+@app.route("/api/screenplay/analyze", methods=["GET"])
+def api_list_analyze_jobs():
+    items = [_job_to_dict(j) for j in analyze_job.list_jobs()]
+    return jsonify({"jobs": items})
+
+
+@app.route("/api/screenplay/analyze/<job_id>", methods=["GET"])
+def api_analyze_job_detail(job_id):
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        j = analyze_job.get_job(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    phases = analyze_job.get_phases(job_id)
+    return jsonify({**_job_to_dict(j), "phases": phases})
+
+
+@app.route("/api/screenplay/analyze/<job_id>/events", methods=["GET"])
+def api_analyze_job_events(job_id):
+    """SSE で event をストリーミング配信する。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        snapshot = _job_to_dict(analyze_job.get_job(job_id))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+
+    terminal_events = ("completed", "failed", "cancelled")
+    is_terminal = snapshot["status"] in terminal_events
+    # 既に終端状態でなければ、state event を yield する**前に** subscribe して
+    # queue を確保する (state yield 中に publish された event を取りこぼさない)。
+    sub_iter = None if is_terminal else analyze_progress.subscribe(job_id)
+
+    def gen():
+        try:
+            yield (
+                "event: state\n"
+                f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            )
+            if is_terminal:
+                return
+            for event, data in sub_iter:
+                payload = json.dumps(data, ensure_ascii=False, default=str)
+                yield f"event: {event}\ndata: {payload}\n\n"
+                if event in terminal_events:
+                    break
+        finally:
+            if sub_iter is not None:
+                sub_iter.close()
+
+    return Response(gen(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.route("/api/screenplay/analyze/<job_id>/confirm", methods=["POST"])
+def api_confirm_analyze_job(job_id):
+    """awaiting_confirm 状態のジョブを running に遷移させて Claude 続行。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        analyze_runner.confirm(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/screenplay/analyze/<job_id>", methods=["DELETE"])
+def api_cancel_analyze_job(job_id):
+    """ジョブのキャンセルを要求 (各フェーズ境界で読まれて中断)。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        analyze_job.get_job(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    analyze_runner.cancel(job_id)
+    return jsonify({"ok": True}), 202
 
 
 # ───────────────── 静的設定 ─────────────────

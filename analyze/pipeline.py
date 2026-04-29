@@ -39,6 +39,8 @@ DEFAULT_FPS = 2.0  # 0.5秒刻み
 
 ProgressCallback = Callable[[str, dict[str, Any]], None]
 CancelToken = Callable[[], bool]
+# (frame_count, transcript, shot_count, known_furigana_count) -> proceed_with_claude
+CostGate = Callable[[int, dict, int, int], bool]
 
 
 class AnalyzeCancelled(Exception):
@@ -140,6 +142,7 @@ def run(
     keep_tmp: bool = False,
     on_progress: ProgressCallback | None = None,
     cancel_token: CancelToken | None = None,
+    on_cost_gate: CostGate | None = None,
     use_cache: bool = True,
 ) -> dict:
     """参考動画から screenplay JSON を生成する。
@@ -324,8 +327,20 @@ def run(
                 })
             _check_cancel(cancel_token)
 
-        # ─── Phase: claude (cache 対象外、毎回呼ぶ) ──────
+        # ─── Cost gate (Phase 5 で SSE 経由ユーザー confirm 待ち) ──
         known_furigana = furigana_store.load()
+        if on_cost_gate is not None:
+            proceed = on_cost_gate(
+                len(frame_paths),
+                transcript,
+                len(shot_boundaries),
+                len(known_furigana),
+            )
+            if not proceed:
+                raise AnalyzeCancelled()
+            _check_cancel(cancel_token)
+
+        # ─── Phase: claude (cache 対象外、毎回呼ぶ) ──────
         _emit(on_progress, "phase_start", {
             "phase": "claude",
             "frame_count": len(frame_paths),
