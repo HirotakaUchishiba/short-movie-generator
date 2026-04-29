@@ -3,6 +3,7 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { bgAssetUrl, api } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import EmotionCueOverridePanel from "../EmotionCueOverridePanel";
+import PromptRevisePanel from "../PromptRevisePanel";
 import ScopedAugmentationsPanel from "../ScopedAugmentationsPanel";
 import SceneTtsRow from "../SceneTtsRow";
 import type { Scene } from "../../types";
@@ -159,6 +160,15 @@ function BGCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
               sceneIdx={sIdx}
               field="background_prompt"
               version={ctx.detail.progress.stages.bg.regen_count}
+            />
+            <PromptRevisePanel
+              ts={ctx.detail.timestamp}
+              sceneIdx={sIdx}
+              field="background_prompt"
+              onApplied={async (revised) => {
+                setPrompt(revised);
+                await ctx.reload();
+              }}
             />
             <EmotionCueOverridePanel scene={scene} sIdx={sIdx} />
             <div className="flex justify-end gap-2">

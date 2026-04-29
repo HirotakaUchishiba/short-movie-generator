@@ -354,6 +354,83 @@ def api_auto_animation_prompt(ts, scene_idx):
     return jsonify({"error": f"未知のaction: {action}"}), 400
 
 
+# 日本語の修正指示で background_prompt / animation_prompt を書き換える。
+# action="preview" → 修正後 prompt を返すだけ (保存しない、UI で diff 確認用)
+# action="apply"   → 修正後 prompt を screenplay に保存 (regen は呼出側 UI で実施)
+@app.route("/api/projects/<ts>/scenes/<int:scene_idx>/revise-prompt",
+            methods=["POST"])
+def api_revise_prompt(ts, scene_idx):
+    _validate_ts(ts)
+    if not os.path.isdir(_ts_path(ts)):
+        return jsonify({"error": "プロジェクトが存在しません"}), 404
+    sp, name = _load_screenplay_for_project(ts)
+    scenes = sp.get("scenes") or []
+    if scene_idx >= len(scenes):
+        return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+
+    body = request.get_json(silent=True) or {}
+    field = body.get("field")
+    instruction_ja = body.get("instruction_ja")
+    action = body.get("action", "preview")
+    if field not in ("background_prompt", "animation_prompt"):
+        return jsonify({"error": "field は background_prompt または animation_prompt"}), 400
+    if not isinstance(instruction_ja, str) or not instruction_ja.strip():
+        return jsonify({"error": "instruction_ja (日本語の修正指示) が必要"}), 400
+
+    if action == "preview":
+        scene = scenes[scene_idx]
+        if field == "background_prompt":
+            current = scene_gen._build_background_prompt(
+                scene, sp, ts_path=_ts_path(ts), s_idx=scene_idx)
+        else:
+            current = scene_gen._get_animation_prompt(
+                scene, ts_path=_ts_path(ts), s_idx=scene_idx)
+
+        import prompt_revise
+        try:
+            result = prompt_revise.revise(
+                current_prompt=current,
+                instruction_ja=instruction_ja,
+                field=field,
+            )
+        except (ValueError, RuntimeError) as e:
+            return jsonify({"error": str(e)}), 400
+        except Exception as e:
+            logger.exception("prompt_revise failed")
+            return jsonify({"error": f"修正生成失敗: {e}"}), 500
+        return jsonify({
+            "scene_idx": scene_idx,
+            "field": field,
+            "previous": current,
+            "revised": result["revised"],
+            "model": result["model"],
+        })
+
+    if action == "apply":
+        revised = body.get("revised")
+        if not isinstance(revised, str) or not revised.strip():
+            return jsonify({"error": "revised (適用する prompt) が必要"}), 400
+        from screenplay_validator import validate_screenplay
+        with _screenplay_lock(name):
+            disk_sp = staged_pipeline.load_screenplay(name)
+            disk_scenes = disk_sp.get("scenes") or []
+            if scene_idx >= len(disk_scenes):
+                return jsonify({"error": "scene_idx範囲外"}), 400
+            disk_scenes[scene_idx][field] = revised
+            errors = validate_screenplay(disk_sp, strict=False)
+            if errors:
+                return jsonify({"error": "validator失敗", "details": errors}), 400
+            staged_pipeline.save_screenplay(name, disk_sp)
+        return jsonify({
+            "scene_idx": scene_idx,
+            "field": field,
+            "applied": True,
+            "revised": revised,
+        })
+
+    return jsonify({"error": f"未知のaction: {action}"}), 400
+
+
 @app.route("/api/projects/<ts>/progress", methods=["GET"])
 def api_project_progress(ts):
     _validate_ts(ts)

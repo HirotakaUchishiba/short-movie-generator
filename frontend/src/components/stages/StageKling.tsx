@@ -3,6 +3,7 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { klingAssetUrl, sceneTrimAssetUrl, api } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import EmotionCueOverridePanel from "../EmotionCueOverridePanel";
+import PromptRevisePanel from "../PromptRevisePanel";
 import SceneTtsRow from "../SceneTtsRow";
 import AutoAnimationPromptPanel from "../AutoAnimationPromptPanel";
 import type { Scene } from "../../types";
@@ -198,6 +199,15 @@ function KlingCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
         sceneIdx={sIdx}
         onAdopted={() => {
           ctx.reload();
+        }}
+      />
+      <PromptRevisePanel
+        ts={ctx.detail.timestamp}
+        sceneIdx={sIdx}
+        field="animation_prompt"
+        onApplied={async (revised) => {
+          setPrompt(revised);
+          await ctx.reload();
         }}
       />
       <EmotionCueOverridePanel scene={scene} sIdx={sIdx} />

@@ -289,6 +289,15 @@ LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等)
 
 キャッシュが効くため再実行コストは 0 (bg を再生成しない限り)。
 
+## 日本語修正案でプロンプトを書き換える (Stage 3 / Stage 4)
+
+Stage 3 (背景) と Stage 4 (Kling) のシーンカードに「日本語で修正案を入力」パネルがあり、日本語の修正指示 (例: "もっとカメラを引いて、机にマグカップ追加") を Claude Sonnet に渡して **既存の `background_prompt` / `animation_prompt` を最小差分で書き換える**。
+
+- **preview**: LLM を呼んで diff を表示。変更前/変更後を見比べ、変更後はテキスト編集可能
+- **適用**: 採用した prompt を screenplay の該当フィールドに書き戻す (= 以降は手書き扱いで Stage 実行に使われる)
+
+UI 誘発語 (chat bubble / notification 等) が出力に含まれていたら自動でリジェクトする。LLM モデルは `PROMPT_REVISE_MODEL` (既定 `claude-sonnet-4-6`) で切替可能。
+
 ## 自動活用される音響メタデータ
 
 `acoustic` の各値は scene_gen で以下のように自動消費される:

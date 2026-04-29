@@ -170,6 +170,47 @@ export const api = {
       method: "POST",
       body: JSON.stringify({ action: "adopt" }),
     }),
+  previewRevisePrompt: (
+    ts: string,
+    sceneIdx: number,
+    field: "background_prompt" | "animation_prompt",
+    instructionJa: string,
+  ) =>
+    http<{
+      scene_idx: number;
+      field: "background_prompt" | "animation_prompt";
+      previous: string;
+      revised: string;
+      model: string;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/revise-prompt`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "preview",
+        field,
+        instruction_ja: instructionJa,
+      }),
+    }),
+  applyRevisePrompt: (
+    ts: string,
+    sceneIdx: number,
+    field: "background_prompt" | "animation_prompt",
+    revised: string,
+    instructionJa: string,
+  ) =>
+    http<{
+      scene_idx: number;
+      field: "background_prompt" | "animation_prompt";
+      applied: boolean;
+      revised: string;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/revise-prompt`, {
+      method: "POST",
+      body: JSON.stringify({
+        action: "apply",
+        field,
+        revised,
+        instruction_ja: instructionJa,
+      }),
+    }),
   job: (id: string) => http<JobStatus>(`/api/jobs/${id}`),
 };
 

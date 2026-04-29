@@ -725,6 +725,11 @@ AUTO_ANIMATION_PROMPT_MAX_TOKENS = int(
 # 入力ハッシュが一致すれば再呼出ししない (Stage 4 を何度走らせても安定)。
 AUTO_ANIMATION_PROMPT_CACHE_SUBDIR = "auto_prompts"
 
+# UI から日本語の修正指示で background_prompt / animation_prompt を書き換える機能。
+# 既存プロンプトを最小差分で書き換える Claude モデル。
+PROMPT_REVISE_MODEL = os.getenv("PROMPT_REVISE_MODEL", "claude-sonnet-4-6")
+PROMPT_REVISE_MAX_TOKENS = int(os.getenv("PROMPT_REVISE_MAX_TOKENS", "600"))
+
 # Kling V3 は 5s と 10s しか生成できない。TTS が 5.0 を僅かに超えただけで
 # 10s クリップ ($0.84) に切り替わるとコスパが悪いため、許容比率を導入する。
 # - target ≤ 5.0 * KLING_DURATION_TOLERANCE_RATIO → 5s クリップ + slow_mo
