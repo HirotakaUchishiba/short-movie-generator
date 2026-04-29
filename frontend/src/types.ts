@@ -18,7 +18,6 @@ export interface Progress {
 }
 
 export interface Acoustic {
-  pitch_hz_mean?: number;
   pitch_trend?: string;
   rms_peak?: number;
   wpm?: number;
@@ -51,9 +50,6 @@ export interface Line {
   acoustic?: Acoustic;
   voice_overrides?: VoiceOverrides;
   pronunciation_hints?: Record<string, string>;
-  pause_before?: number;
-  breath_before?: boolean;
-  speaker?: string;
   silence_after_ms?: number;
   subtitles?: SubtitleChunk[];
 }
@@ -74,7 +70,6 @@ export interface Wardrobe {
 }
 
 export interface Scene {
-  time?: string;
   label?: string;
   duration: number;
   background_prompt?: string;
@@ -98,7 +93,6 @@ export interface ScopedAugmentation {
 
 export interface Screenplay {
   caption?: string;
-  title_overlay?: string;
   audio_mode?: "voiced" | "silent";
   bgm_path?: string;
   bgm_volume_db?: number;

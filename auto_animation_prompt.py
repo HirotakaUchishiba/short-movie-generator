@@ -114,9 +114,6 @@ def _input_signature(scene: dict, screenplay: dict | None,
                 "emotion_intensity": l.get("emotion_intensity"),
                 "delivery": l.get("delivery"),
                 "acoustic": l.get("acoustic"),
-                "speaker": l.get("speaker"),
-                "pause_before": l.get("pause_before"),
-                "breath_before": l.get("breath_before"),
             }
             for l in lines
         ],
@@ -175,9 +172,6 @@ def _build_user_payload(scene: dict, screenplay: dict | None) -> str:
                 "emotion_intensity": l.get("emotion_intensity"),
                 "delivery": l.get("delivery"),
                 "acoustic": l.get("acoustic"),
-                "speaker": l.get("speaker"),
-                "pause_before": l.get("pause_before"),
-                "breath_before": l.get("breath_before"),
                 "start": l.get("start"),
             }
             for l in lines

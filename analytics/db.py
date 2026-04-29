@@ -91,8 +91,8 @@ def upsert_screenplay(path: str) -> str:
         conn.execute(
             """INSERT INTO screenplays
                (id, path, name, sha256, created_at, raw_json, caption,
-                title_overlay, audio_mode, scene_count, line_count, total_duration)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                audio_mode, scene_count, line_count, total_duration)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 sp_id,
                 full_path,
@@ -101,7 +101,6 @@ def upsert_screenplay(path: str) -> str:
                 _now(),
                 raw_json,
                 sp.get("caption"),
-                sp.get("title_overlay"),
                 sp.get("audio_mode"),
                 len(scenes),
                 line_count,
