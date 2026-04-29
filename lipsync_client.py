@@ -9,6 +9,7 @@ import fal_client
 import requests
 
 import config
+from fal_runner import FalJobTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)
 
@@ -29,6 +30,10 @@ def _ensure_key() -> None:
 
 
 def _classify_error(exc: BaseException) -> str:
+    # 自前 watchdog タイムアウトは retry
+    if isinstance(exc, FalJobTimeoutError):
+        return "retry"
+
     status = getattr(exc, "status_code", None)
     if status is None:
         resp = getattr(exc, "response", None)
@@ -59,16 +64,20 @@ def _apply_fal_sync(video_path: str, audio_path: str, output_path: str) -> None:
     last_exc: BaseException | None = None
     for attempt in range(MAX_RETRIES):
         try:
-            result = fal_client.subscribe(
-                _FAL_MODEL_ID,
-                arguments={
-                    "video_url": video_url,
-                    "audio_url": audio_url,
-                    "model": config.LIPSYNC_MODEL,
-                    "sync_mode": config.LIPSYNC_SYNC_MODE,
-                },
-                with_logs=True,
-                on_queue_update=lambda update: None,
+            result = run_with_timeout(
+                lambda: fal_client.subscribe(
+                    _FAL_MODEL_ID,
+                    arguments={
+                        "video_url": video_url,
+                        "audio_url": audio_url,
+                        "model": config.LIPSYNC_MODEL,
+                        "sync_mode": config.LIPSYNC_SYNC_MODE,
+                    },
+                    with_logs=True,
+                    on_queue_update=lambda update: None,
+                ),
+                timeout_sec=config.FAL_LIPSYNC_TIMEOUT_SEC,
+                name=f"lipsync-attempt{attempt + 1}",
             )
             result_url = result["video"]["url"]
             resp = requests.get(result_url)
