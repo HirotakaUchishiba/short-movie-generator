@@ -508,3 +508,259 @@ def test_build_overlay_chunk_timings_consecutive(tmp_path, monkeypatch) -> None:
     # 連続性: 各 chunk の end が次の start と一致
     for i in range(len(matches) - 1):
         assert abs(float(matches[i][1]) - float(matches[i + 1][0])) < 1e-3
+
+
+# ───────────────── 手動チャンク (lines[].subtitles) ─────────────────
+
+
+def test_manual_subtitles_skip_auto_split(tmp_path, monkeypatch) -> None:
+    """lines[].subtitles を指定すると _split_into_chunks は呼ばれず、
+    指定通りのチャンク数 / 時間 / テキストで drawtext が生成される。"""
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_ENABLED", True)
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_MAX_CHARS", 4)
+
+    def boom(*_a, **_kw):
+        raise AssertionError("auto split が呼ばれている")
+
+    monkeypatch.setattr(compositor, "_split_into_chunks", boom)
+
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "(無視されるはずの本文)",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "subtitles": [
+                            {"text": "やばい",   "start": 0.0, "end": 1.2},
+                            {"text": "セーフ", "start": 1.2, "end": 4.0},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    assert "between(t,0.000,1.200)" in f
+    assert "between(t,1.200,4.000)" in f
+    sub_files = sorted(
+        x for x in os.listdir(tmp_path) if x.startswith("drawtext_sub_"))
+    assert len(sub_files) == 2
+    contents = []
+    for x in sub_files:
+        with open(os.path.join(tmp_path, x)) as fh:
+            contents.append(fh.read())
+    assert contents == ["やばい", "セーフ"]
+
+
+def test_manual_subtitles_rescaled_with_real_duration(
+    tmp_path, monkeypatch,
+) -> None:
+    """scene_videos が渡されたら subtitles[].start/end も実尺比でリスケール。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "subtitles": [
+                            {"text": "A", "start": 0.0, "end": 2.0},
+                            {"text": "B", "start": 2.0, "end": 4.0},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    durations = {"a.mp4": 7.5}  # ratio 1.5
+    monkeypatch.setattr(
+        compositor, "_get_duration",
+        lambda p: durations[os.path.basename(p)])
+    paths = [str(tmp_path / "a.mp4")]
+    f = compositor._build_overlay_filter(sp, str(tmp_path), scene_videos=paths)
+    # A: 0 - 2 → 0 - 3.0、B: 2 - 4 → 3.0 - 6.0
+    assert "between(t,0.000,3.000)" in f
+    assert "between(t,3.000,6.000)" in f
+
+
+def test_manual_subtitles_offset_by_previous_scene(tmp_path) -> None:
+    """前シーンの duration ぶん絶対時刻が後ろにシフトする。"""
+    sp = {
+        "scenes": [
+            {"duration": 3.0, "background_prompt": "bg",
+              "lines": [{"text": "a", "start": 0.0, "end": 1.0}]},
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "subtitles": [
+                            {"text": "M", "start": 1.0, "end": 2.5},
+                        ],
+                    }
+                ],
+            },
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    # offset 3.0 + 1.0 = 4.0、3.0 + 2.5 = 5.5
+    assert "between(t,4.000,5.500)" in f
+
+
+def test_resolve_timings_all_auto_proportional() -> None:
+    """全 chunk の start/end が無いとき、line 範囲を文字数比例で埋める。"""
+    items = [{"text": "AB"}, {"text": "CDEF"}]  # 2 + 4 = 6
+    out = compositor._resolve_subtitle_timings(items, 0.0, 6.0)
+    assert len(out) == 2
+    assert abs(out[0][0] - 0.0) < 1e-6
+    assert abs(out[0][1] - 2.0) < 1e-6
+    assert abs(out[1][0] - 2.0) < 1e-6
+    assert abs(out[1][1] - 6.0) < 1e-6
+
+
+def test_resolve_timings_all_fixed_passthrough() -> None:
+    """全 chunk が固定値のときはそのまま返る。"""
+    items = [
+        {"text": "A", "start": 0.0, "end": 1.0},
+        {"text": "B", "start": 1.0, "end": 3.0},
+    ]
+    out = compositor._resolve_subtitle_timings(items, 0.0, 5.0)
+    assert out == [(0.0, 1.0), (1.0, 3.0)]
+
+
+def test_resolve_timings_mixed_uses_anchors() -> None:
+    """中央のみ固定。前後の auto chunks は line 端と固定境界の間で配分。"""
+    items = [
+        {"text": "AAAA"},                            # auto: 0.0 - 4.0 (固定境界まで)
+        {"text": "BB", "start": 4.0, "end": 6.0},    # 固定
+        {"text": "CCCC"},                            # auto: 6.0 - 10.0
+    ]
+    out = compositor._resolve_subtitle_timings(items, 0.0, 10.0)
+    assert abs(out[0][0] - 0.0) < 1e-6
+    assert abs(out[0][1] - 4.0) < 1e-6
+    assert out[1] == (4.0, 6.0)
+    assert abs(out[2][0] - 6.0) < 1e-6
+    assert abs(out[2][1] - 10.0) < 1e-6
+
+
+def test_resolve_timings_two_autos_in_segment_split_by_chars() -> None:
+    """連続 auto chunks は前後の確定境界の間で文字数比例で配分。"""
+    items = [
+        {"text": "AB"},                                # auto
+        {"text": "CDEF"},                              # auto (合計 6 chars in 0-6 range)
+        {"text": "G", "start": 6.0, "end": 7.0},
+    ]
+    out = compositor._resolve_subtitle_timings(items, 0.0, 7.0)
+    # 0-6 を 2:4 で配分 → 0-2, 2-6
+    assert abs(out[0][1] - 2.0) < 1e-6
+    assert abs(out[1][0] - 2.0) < 1e-6
+    assert abs(out[1][1] - 6.0) < 1e-6
+    assert out[2] == (6.0, 7.0)
+
+
+def test_resolve_timings_zero_chars_falls_back_to_even() -> None:
+    """文字数 0 の auto chunks は均等割で埋める。"""
+    items = [{"text": ""}, {"text": ""}, {"text": ""}]
+    out = compositor._resolve_subtitle_timings(items, 0.0, 6.0)
+    # 均等 2.0 ずつ
+    assert abs(out[0][1] - 2.0) < 1e-6
+    assert abs(out[1][0] - 2.0) < 1e-6
+    assert abs(out[1][1] - 4.0) < 1e-6
+    assert abs(out[2][1] - 6.0) < 1e-6
+
+
+def test_resolve_timings_empty_returns_empty() -> None:
+    assert compositor._resolve_subtitle_timings([], 0.0, 5.0) == []
+
+
+def test_manual_subtitles_text_only_auto_distributes(
+    tmp_path,
+) -> None:
+    """手動チャンクで text だけ書けば line 範囲を文字数比例で配分する。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 6.0,
+                        "subtitles": [
+                            {"text": "AB"},     # 2 chars
+                            {"text": "CDEF"},   # 4 chars (合計 6)
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    # 0-6 を 2:4 配分 → 0-2, 2-6
+    assert "between(t,0.000,2.000)" in f
+    assert "between(t,2.000,6.000)" in f
+
+
+def test_manual_subtitles_mixed_auto_and_fixed(tmp_path) -> None:
+    """一部だけ動画タイムで打ち込み、残りは自動配分。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 10.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 10.0,
+                        "subtitles": [
+                            {"text": "AAAA"},
+                            {"text": "BB", "start": 4.0, "end": 6.0},
+                            {"text": "CCCC"},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    assert "between(t,0.000,4.000)" in f
+    assert "between(t,4.000,6.000)" in f
+    assert "between(t,6.000,10.000)" in f
+
+
+def test_manual_subtitles_empty_text_skipped(tmp_path) -> None:
+    """空文字 text の subtitle は drawtext を生成しない。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "subtitles": [
+                            {"text": "",      "start": 0.0, "end": 1.0},
+                            {"text": "あり", "start": 1.0, "end": 2.0},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    assert "between(t,1.000,2.000)" in f
+    assert "between(t,0.000,1.000)" not in f

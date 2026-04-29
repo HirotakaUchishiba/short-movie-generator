@@ -346,3 +346,86 @@ def test_scoped_augmentations_missing_required_fields_rejected() -> None:
     sp["scoped_augmentations"] = [{"scope": {"tag": "home_office"}}]  # elements missing
     with pytest.raises(ValueError):
         screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_array_passes_validation() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "やばい", "start": 0.0, "end": 1.0},
+        {"text": "セーフ", "start": 1.0, "end": 3.0},
+    ]
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_text_only_passes() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "やばい"},
+        {"text": "セーフ"},
+    ]
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_only_start_rejected() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "やばい", "start": 0.0},
+    ]
+    with pytest.raises(ValueError, match="片方だけ"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_only_end_rejected() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "やばい", "end": 1.0},
+    ]
+    with pytest.raises(ValueError, match="片方だけ"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_missing_text_rejected() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"start": 0.0, "end": 1.0},
+    ]
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_unknown_property_rejected() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "x", "start": 0.0, "end": 1.0, "color": "#FFFFFF"},
+    ]
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_end_before_start_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "x", "start": 2.0, "end": 1.0},
+    ]
+    with pytest.raises(ValueError, match="end"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_start_beyond_scene_duration_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["duration"] = 5.0
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "x", "start": 6.0, "end": 6.5},
+    ]
+    with pytest.raises(ValueError, match="シーン長"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_subtitles_empty_text_rejected() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["subtitles"] = [
+        {"text": "", "start": 0.0, "end": 1.0},
+    ]
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
