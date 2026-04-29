@@ -2,7 +2,6 @@
 """生成した動画(output/reels_<TS>.mp4)をAnalytics DBに登録する。
 
 使い方:
-    python3 scripts/ingest_video.py 20260425_123456
     python3 scripts/ingest_video.py 20260425_123456 --cost 18.3
 """
 import argparse
@@ -39,7 +38,7 @@ def _ffprobe_duration(path: str) -> float | None:
 def main() -> int:
     parser = argparse.ArgumentParser(description="生成動画をDBに登録")
     parser.add_argument("timestamp", help="生成時のtimestamp (例 20260425_123456)")
-    parser.add_argument("--cost", type=float, help="生成コスト USD (省略時はreportから自動取得)")
+    parser.add_argument("--cost", type=float, help="生成コスト USD")
     args = parser.parse_args()
 
     ts = args.timestamp
@@ -62,17 +61,6 @@ def main() -> int:
     sp_id = db.upsert_screenplay(str(screenplay_path))
 
     cost = args.cost
-    if cost is None:
-        history_path = Path(config.COST_HISTORY_PATH)
-        if history_path.exists():
-            for line in history_path.read_text().splitlines():
-                try:
-                    entry = json.loads(line)
-                    if entry.get("ts") == ts:
-                        cost = entry.get("actual", {}).get("total_cost")
-                        break
-                except json.JSONDecodeError:
-                    continue
 
     duration = _ffprobe_duration(str(output_path))
 

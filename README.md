@@ -139,12 +139,10 @@ tensyoku_movie_generator/
 ├── post_captions_gen.py      # SNS投稿キャプション生成
 ├── keyword_extractor.py      # 日本語キーワード抽出（カタカナ/漢字）
 ├── screenplay_validator.py   # jsonschema ベースの台本バリデータ
-├── cost_estimator.py         # コスト・時間見積もり + 実績記録
 ├── imagen_client.py          # Gemini画像API
 ├── fal_video_client.py       # fal.ai Kling V3 API（exponential backoff）
 ├── elevenlabs_client.py      # ElevenLabs TTS API
 ├── preview_server.py         # Flask Preview UI
-├── job_store.py              # Redoジョブの永続化
 ├── log_setup.py              # logging 共通セットアップ
 ├── config.py                 # プロジェクト設定
 ├── views/                    # Flask HTMLテンプレート
