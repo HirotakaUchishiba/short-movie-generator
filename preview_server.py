@@ -24,9 +24,15 @@ from analyze import job as analyze_job
 from analyze import progress as analyze_progress
 from analyze import runner as analyze_runner
 from analyze.cache import file_sha256
+from analytics import db as _analytics_db
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
+
+# 起動時に analytics DB schema を最新化する。
+# analyze_jobs / analyze_phases / reference_videos テーブルが含まれていない
+# 古い DB でも CREATE TABLE IF NOT EXISTS で安全に追加される。
+_analytics_db.init_db()
 
 app = Flask(__name__, static_folder=None)
 # 動画アップロード上限 (1GB、analyze 用 reference video)。
