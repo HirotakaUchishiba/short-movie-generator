@@ -328,6 +328,38 @@ SCHEMA: dict = {
                                     "type": "string",
                                     "description": "発話者（複数キャラの場合）。scenes[].characters[].name と対応",
                                 },
+                                "subtitles": {
+                                    "type": "array",
+                                    "description": (
+                                        "字幕の手動チャンク指定。各要素は {text} が必須、"
+                                        "{start, end} は optional (両方指定 or 両方省略)。"
+                                        "省略時は line.start - line.end の範囲を文字数比例で"
+                                        "自動配分。指定するとこの line に対する自動分割を"
+                                        "完全にスキップする"
+                                    ),
+                                    "items": {
+                                        "type": "object",
+                                        "required": ["text"],
+                                        "additionalProperties": False,
+                                        "properties": {
+                                            "text": {
+                                                "type": "string",
+                                                "minLength": 1,
+                                                "description": "字幕テキスト (改行は \\n)",
+                                            },
+                                            "start": {
+                                                "type": "number",
+                                                "minimum": 0,
+                                                "description": "シーン内相対秒で字幕表示開始 (省略可)",
+                                            },
+                                            "end": {
+                                                "type": "number",
+                                                "exclusiveMinimum": 0,
+                                                "description": "シーン内相対秒で字幕消去 (省略可)",
+                                            },
+                                        },
+                                    },
+                                },
                             },
                         },
                     },
@@ -357,6 +389,28 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
             if (isinstance(start, (int, float)) and isinstance(end, (int, float))
                     and end <= start):
                 errors.append(f"{path}: end({end}) <= start({start})")
+            for sub_idx, sub in enumerate(line.get("subtitles", []) or []):
+                sub_path = f"{path}/subtitles/{sub_idx}"
+                has_start = "start" in sub
+                has_end = "end" in sub
+                if has_start != has_end:
+                    errors.append(
+                        f"{sub_path}: start と end は両方指定するか両方省略してください "
+                        f"(片方だけ指定は不可)"
+                    )
+                s_start = sub.get("start")
+                s_end = sub.get("end")
+                if isinstance(s_start, (int, float)) and s_start > duration:
+                    errors.append(
+                        f"{sub_path}/start: start={s_start}がシーン長{duration}を超えています"
+                    )
+                if isinstance(s_end, (int, float)) and s_end > duration + 0.01:
+                    errors.append(
+                        f"{sub_path}/end: end={s_end}がシーン長{duration}を超えています"
+                    )
+                if (isinstance(s_start, (int, float)) and isinstance(s_end, (int, float))
+                        and s_end <= s_start):
+                    errors.append(f"{sub_path}: end({s_end}) <= start({s_start})")
     return errors
 
 

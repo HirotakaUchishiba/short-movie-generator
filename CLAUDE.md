@@ -62,6 +62,35 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 ## 台本JSONの仕様
 
+### 保存先と canonical / drafts 分離
+
+台本は **2 層構造**:
+
+| 層        | パス                             | git 管理 | 用途                                     |
+| --------- | -------------------------------- | -------- | ---------------------------------------- |
+| canonical | `screenplays/<名前>.json`        | 追跡     | 確定版。コードレビュー / 動画投稿の根拠  |
+| drafts    | `screenplays/drafts/<名前>.json` | ignore   | UI / preview_server が編集を保存する WIP |
+
+**読み込み順 (`staged_pipeline.screenplay_path`)**: `drafts/<名前>.json` があれば最優先、無ければ canonical。これにより UI の編集中状態が動画生成にそのまま反映される。**書き込み (`staged_pipeline.save_screenplay`)** は常に drafts/。`drafts/` は `.gitignore` で追跡対象外なので、UI 編集を繰り返しても working tree は汚れない。drafts ディレクトリは無ければ初回 save 時に自動生成。
+
+**確定版に昇格** (drafts → canonical) させたい時は手動コピー後 commit:
+
+```bash
+cp screenplays/drafts/<名前>.json screenplays/<名前>.json
+git add screenplays/<名前>.json
+git commit -m "content(<id>): ..."
+```
+
+drafts を捨てて canonical の状態に戻したい時は:
+
+```bash
+rm screenplays/drafts/<名前>.json
+```
+
+`scripts/analyze_video.py` などのスクリプトは canonical 直下に書き出す (= 新規台本として人間レビュー前提)。
+
+### スキーマ
+
 `screenplays/<名前>.json` は次のスキーマで記述する（`scenes[].lines[]` 構造、リッチメタデータ完全版）:
 
 ```json
@@ -284,6 +313,25 @@ LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等)
 最終動画には **字幕 (lines[].text) のみ** を焼き込む。タイトル帯/時刻表示/ラベル/インサート画像/ポップアップなどのオーバーレイは廃止。
 
 `title_overlay` / `scenes[].time` / `scenes[].label` フィールドは残しているが画面には描画されない。台本のメタ情報（分析DB保存・参考動画解析時のフック表現）として活用される。
+
+### 字幕の手動チャンク制御
+
+各 line に `subtitles: [{text, start?, end?}]` を指定すると、その line に対する自動分割 (`_split_into_chunks`) を **完全にスキップ** し、ここに書かれた通りのチャンクで字幕を焼き込む。`start` / `end` (シーン内相対秒) は **両方 optional** で、両方指定 (= 手打ち) または両方省略 (= auto) のいずれか。片方だけは validator で reject。`scene_videos` の実尺と `duration` が乖離している場合 (slow_mo 等) は line と同じく ratio 比でリスケールされる。
+
+| chunk の time   | 動作                                                                                             |
+| --------------- | ------------------------------------------------------------------------------------------------ |
+| 両方省略 (auto) | line.start - line.end の中で、前後の固定境界 (= 手打ち time or line 端) との間を文字数比例で配分 |
+| 両方指定        | その値を絶対の境界として使用 (隣接 auto chunks のアンカーになる)                                 |
+
+`compositor._resolve_subtitle_timings` がアンカー方式で混在ケースを解決する: line 端 + 手打ち start/end を境界として固定し、間に挟まる auto chunks を文字数比例で埋める。文字数 0 の auto chunks は均等割にフォールバック。
+
+Stage 7 UI (`StageOverlay.tsx`) では:
+
+- line 行で「手動に切替」: subtitles[] を `[{text: line.text}]` で初期化 (時刻は auto)
+- 各チャンクの「分割」「+ チャンク追加」「× 削除」でチャンク構造を編集 (text だけで OK)
+- **動画プレイヤーの再生位置をスナップ**: 各チャンクの「⏱→start」「⏱→end」ボタンで `video.currentTime - sceneOffsets[sIdx]` をその場でセット。微調整したい境界だけ動画と同期できる
+- 「auto に戻す」: そのチャンクの time を削除して文字数比例配分に戻す
+- 「自動に戻す」: subtitles 自体を削除して `_split_into_chunks` 経路に戻す
 
 ## BGM ミックス
 

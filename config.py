@@ -40,6 +40,21 @@ LABEL_Y_FROM_BOTTOM = 410
 SUBTITLE_FONT_SIZE = 76
 SUBTITLE_Y_FROM_BOTTOM = 950
 SUBTITLE_LINE_GAP = 14
+# 字幕 1 行の最大文字数。これを超えるテキストは compositor._wrap_subtitle_text で
+# 句読点・助詞境界を優先して自動改行される。
+# 1080px 幅 + fontsize 76 だと安全に収まるのは ~17 文字。
+SUBTITLE_MAX_CHARS_PER_LINE = 17
+
+# 字幕を「短いテロップが次々に切り替わる」TikTok 風表示にする。
+# True の場合、各 line.text を SUBTITLE_CHUNK_MAX_CHARS 文字以内の chunks に
+# 自動分割し、line.start - line.end の間で文字数比例で時刻を割り当てる。
+# False の場合は 1 line = 1 字幕表示 (従来動作)。
+#
+# MAX_CHARS は「許容上限」であって目標ではない。短いほうが視認しやすいが、
+# 「です/ます」のような活用形末尾の途中分断を絶対に避けるため探索余裕が必要。
+# 12 文字程度あれば日本語の自然な助詞・句読点境界がほぼ常に見つかる。
+SUBTITLE_CHUNK_ENABLED = True
+SUBTITLE_CHUNK_MAX_CHARS = 12
 
 ELEVENLABS_VOICE_ID = "0ptCJp0xgdabdcpVtCB5"
 ELEVENLABS_VOICE_STABILITY = 0.5

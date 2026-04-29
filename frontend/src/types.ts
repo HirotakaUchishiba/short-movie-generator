@@ -32,6 +32,12 @@ export interface VoiceOverrides {
   rate_pct?: number;
 }
 
+export interface SubtitleChunk {
+  text: string;
+  start?: number;
+  end?: number;
+}
+
 export interface Line {
   text: string;
   tts_text?: string;
@@ -49,6 +55,7 @@ export interface Line {
   breath_before?: boolean;
   speaker?: string;
   silence_after_ms?: number;
+  subtitles?: SubtitleChunk[];
 }
 
 export interface CharacterDef {

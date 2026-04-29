@@ -1,7 +1,7 @@
-import { useState } from "react";
+import { useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { overlayAssetUrl, api } from "../../api";
-import type { Screenplay, Line } from "../../types";
+import type { Screenplay, Line, SubtitleChunk } from "../../types";
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
@@ -11,12 +11,147 @@ export default function StageOverlay() {
   );
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [expanded, setExpanded] = useState<Record<string, boolean>>({});
+  const videoRef = useRef<HTMLVideoElement | null>(null);
+
+  const sceneOffsets: number[] = [];
+  let acc = 0;
+  for (const s of sp.scenes) {
+    sceneOffsets.push(acc);
+    acc += s.duration;
+  }
+
+  // 動画 element の currentTime をシーン内相対秒に変換。
+  // overlaid.mp4 の絶対時刻 - sceneOffsets[sIdx] を返す。
+  const sceneRelNow = (sIdx: number): number | null => {
+    const v = videoRef.current;
+    if (!v) return null;
+    const rel = v.currentTime - sceneOffsets[sIdx];
+    if (rel < 0) return null;
+    return Math.round(rel * 100) / 100;
+  };
 
   const updateLine = (sIdx: number, lIdx: number, patch: Partial<Line>) => {
     setDraft((d) => {
       const next = JSON.parse(JSON.stringify(d)) as Screenplay;
       const line = next.scenes[sIdx].lines![lIdx];
       next.scenes[sIdx].lines![lIdx] = { ...line, ...patch };
+      return next;
+    });
+  };
+
+  const enableManual = (sIdx: number, lIdx: number) => {
+    const line = draft.scenes[sIdx].lines![lIdx];
+    // 初期: 1 chunk = line 全文 (時刻は未指定 = auto)
+    const initial: SubtitleChunk[] = [{ text: line.text }];
+    updateLine(sIdx, lIdx, { subtitles: initial });
+    setExpanded((e) => ({ ...e, [`${sIdx}-${lIdx}`]: true }));
+  };
+
+  const disableManual = (sIdx: number, lIdx: number) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const line = next.scenes[sIdx].lines![lIdx];
+      delete line.subtitles;
+      return next;
+    });
+  };
+
+  const writeChunk = (
+    sIdx: number,
+    lIdx: number,
+    cIdx: number,
+    mutator: (c: SubtitleChunk) => void,
+  ) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
+      mutator(subs[cIdx]);
+      return next;
+    });
+  };
+
+  const setChunkText = (
+    sIdx: number,
+    lIdx: number,
+    cIdx: number,
+    text: string,
+  ) =>
+    writeChunk(sIdx, lIdx, cIdx, (c) => {
+      c.text = text;
+    });
+
+  const setChunkTime = (
+    sIdx: number,
+    lIdx: number,
+    cIdx: number,
+    field: "start" | "end",
+    value: number | undefined,
+  ) =>
+    writeChunk(sIdx, lIdx, cIdx, (c) => {
+      if (value === undefined) delete c[field];
+      else c[field] = value;
+    });
+
+  // 動画プレイヤーの currentTime をこのチャンクの start / end に反映。
+  // 動画はシーン横断の絶対秒 → sceneOffsets[sIdx] を引いてシーン内相対秒に変換。
+  const snapChunkTime = (
+    sIdx: number,
+    lIdx: number,
+    cIdx: number,
+    field: "start" | "end",
+  ) => {
+    const t = sceneRelNow(sIdx);
+    if (t === null) return;
+    setChunkTime(sIdx, lIdx, cIdx, field, t);
+  };
+
+  const clearChunkTime = (sIdx: number, lIdx: number, cIdx: number) =>
+    writeChunk(sIdx, lIdx, cIdx, (c) => {
+      delete c.start;
+      delete c.end;
+    });
+
+  const splitChunk = (sIdx: number, lIdx: number, cIdx: number) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
+      const c = subs[cIdx];
+      const midText = Math.max(1, Math.floor(c.text.length / 2));
+      const left: SubtitleChunk = { text: c.text.slice(0, midText) };
+      const right: SubtitleChunk = { text: c.text.slice(midText) };
+      // 時刻が両方ある場合のみ中央分割で受け継ぐ。auto なら auto のまま。
+      if (c.start !== undefined && c.end !== undefined) {
+        const midTime = (c.start + c.end) / 2;
+        left.start = c.start;
+        left.end = midTime;
+        right.start = midTime;
+        right.end = c.end;
+      }
+      subs.splice(cIdx, 1, left, right);
+      return next;
+    });
+  };
+
+  const removeChunk = (sIdx: number, lIdx: number, cIdx: number) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
+      subs.splice(cIdx, 1);
+      if (subs.length === 0) {
+        delete next.scenes[sIdx].lines![lIdx].subtitles;
+      }
+      return next;
+    });
+  };
+
+  const appendChunk = (sIdx: number, lIdx: number) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const line = next.scenes[sIdx].lines![lIdx];
+      const subs = line.subtitles ?? [];
+      subs.push({ text: "" });
+      line.subtitles = subs;
       return next;
     });
   };
@@ -35,24 +170,18 @@ export default function StageOverlay() {
     }
   };
 
-  const sceneOffsets: number[] = [];
-  let acc = 0;
-  for (const s of sp.scenes) {
-    sceneOffsets.push(acc);
-    acc += s.duration;
-  }
-
   return (
     <StageGate
       stage="overlay"
       title="Stage 7: 字幕オーバーレイ"
-      description="Stage 5+6 のシーン動画を連結し、字幕 (lines[].text) を焼き込み。字幕の表示タイミング (start/end) のみ編集可。TTS音声は Stage 2 で確定済みなので変更されません。"
+      description="Stage 5+6 のシーン動画を連結し、字幕を焼き込み。各 line を「手動」に切り替えると自動分割を完全にスキップ。チャンクは text だけ書けば line 範囲を文字数比例で自動配分し、動画の現在位置をスナップして個別微調整できます。"
       needsRunFirst
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
           <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded mb-3 max-w-md mx-auto relative">
             <video
+              ref={videoRef}
               key={ctx.detail.progress.stages.overlay.regen_count}
               src={overlayAssetUrl(
                 ctx.detail.timestamp,
@@ -88,82 +217,287 @@ export default function StageOverlay() {
               })
             }
           />
+          <p className="text-[11px] text-slate-500 mt-3 max-w-md mx-auto">
+            動画を再生 → 一時停止して、各チャンクの「⏱→start」「⏱→end」ボタンで
+            現在の再生位置をスナップ。空欄のチャンクは line
+            全体を文字数比例で自動配分。
+          </p>
         </div>
         <div className="card">
           <div className="flex justify-between items-center mb-3">
-            <h3 className="font-semibold">字幕一覧</h3>
+            <h3 className="font-semibold">
+              字幕一覧 (line ごとに自動 / 手動切替)
+            </h3>
             <button className="btn-primary" disabled={saving} onClick={onApply}>
               {saving ? "焼き直し中..." : "保存して焼き直し"}
             </button>
           </div>
-          <p className="text-[11px] text-slate-500 mb-2">
-            字幕の表示タイミング (start/end) のみ編集可。テキストを変えるには
-            Stage 1 (台本) または Stage 2 (TTS) へ。
-          </p>
           {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
-          <div className="max-h-[600px] overflow-auto">
-            <table className="w-full text-xs">
-              <thead className="text-slate-400 sticky top-0 bg-slate-800">
-                <tr>
-                  <th className="text-left p-1">S</th>
-                  <th className="text-left p-1">絶対 開始</th>
-                  <th className="text-left p-1">start</th>
-                  <th className="text-left p-1">end</th>
-                  <th className="text-left p-1">text</th>
-                </tr>
-              </thead>
-              <tbody>
-                {draft.scenes.flatMap((scene, sIdx) =>
-                  (scene.lines ?? []).map((line, lIdx) => (
-                    <tr
-                      key={`${sIdx}-${lIdx}`}
-                      className="border-t border-slate-700"
-                    >
-                      <td className="p-1 text-slate-500">{sIdx + 1}</td>
-                      <td className="p-1 text-slate-500">
-                        {(sceneOffsets[sIdx] + line.start).toFixed(2)}s
-                      </td>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="input text-xs py-1"
-                          value={line.start}
-                          onChange={(e) =>
-                            updateLine(sIdx, lIdx, {
-                              start: Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="p-1">
-                        <input
-                          type="number"
-                          step="0.1"
-                          className="input text-xs py-1"
-                          value={line.end ?? ""}
-                          onChange={(e) =>
-                            updateLine(sIdx, lIdx, {
-                              end:
-                                e.target.value === ""
-                                  ? undefined
-                                  : Number(e.target.value),
-                            })
-                          }
-                        />
-                      </td>
-                      <td className="p-1 text-slate-300 break-words max-w-md">
+          <div className="max-h-[640px] overflow-auto space-y-2">
+            {draft.scenes.flatMap((scene, sIdx) =>
+              (scene.lines ?? []).map((line, lIdx) => {
+                const key = `${sIdx}-${lIdx}`;
+                const isManual = !!line.subtitles;
+                const isExpanded = isManual || expanded[key];
+                return (
+                  <div
+                    key={key}
+                    className="border border-slate-700 rounded p-2 bg-slate-900/40"
+                  >
+                    <div className="flex items-center gap-2">
+                      <span className="text-[10px] text-slate-500 w-10">
+                        S{sIdx + 1}-L{lIdx + 1}
+                      </span>
+                      <span className="text-[10px] text-slate-500 w-16">
+                        {(sceneOffsets[sIdx] + line.start).toFixed(2)}s〜
+                      </span>
+                      <span className="text-xs text-slate-300 flex-1 truncate">
                         {line.text}
-                      </td>
-                    </tr>
-                  )),
-                )}
-              </tbody>
-            </table>
+                      </span>
+                      {isManual ? (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/40 text-amber-200">
+                          手動
+                        </span>
+                      ) : (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
+                          自動
+                        </span>
+                      )}
+                      {isManual ? (
+                        <button
+                          className="btn-ghost text-[10px]"
+                          onClick={() => disableManual(sIdx, lIdx)}
+                          title="手動チャンクを破棄して自動分割に戻す"
+                        >
+                          自動に戻す
+                        </button>
+                      ) : (
+                        <button
+                          className="btn-ghost text-[10px]"
+                          onClick={() => enableManual(sIdx, lIdx)}
+                          title="自動分割を無効化し、この line を手動チャンクで完全制御する"
+                        >
+                          手動に切替
+                        </button>
+                      )}
+                      {!isManual && (
+                        <button
+                          className="btn-ghost text-[10px]"
+                          onClick={() =>
+                            setExpanded((e) => ({ ...e, [key]: !e[key] }))
+                          }
+                        >
+                          {expanded[key] ? "閉じる" : "詳細"}
+                        </button>
+                      )}
+                    </div>
+
+                    {isExpanded && !isManual && (
+                      <div className="mt-2 grid grid-cols-2 gap-2 pl-12">
+                        <label className="text-[10px] text-slate-400">
+                          start (相対秒)
+                          <input
+                            type="number"
+                            step="0.1"
+                            className="input text-xs py-1 mt-0.5"
+                            value={line.start}
+                            onChange={(e) =>
+                              updateLine(sIdx, lIdx, {
+                                start: Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                        <label className="text-[10px] text-slate-400">
+                          end (相対秒)
+                          <input
+                            type="number"
+                            step="0.1"
+                            className="input text-xs py-1 mt-0.5"
+                            value={line.end ?? ""}
+                            placeholder="(次line の start まで)"
+                            onChange={(e) =>
+                              updateLine(sIdx, lIdx, {
+                                end:
+                                  e.target.value === ""
+                                    ? undefined
+                                    : Number(e.target.value),
+                              })
+                            }
+                          />
+                        </label>
+                      </div>
+                    )}
+
+                    {isManual && (
+                      <ManualChunksEditor
+                        sIdx={sIdx}
+                        chunks={line.subtitles!}
+                        onChangeText={(cIdx, text) =>
+                          setChunkText(sIdx, lIdx, cIdx, text)
+                        }
+                        onChangeTime={(cIdx, field, value) =>
+                          setChunkTime(sIdx, lIdx, cIdx, field, value)
+                        }
+                        onSnap={(cIdx, field) =>
+                          snapChunkTime(sIdx, lIdx, cIdx, field)
+                        }
+                        onClearTime={(cIdx) => clearChunkTime(sIdx, lIdx, cIdx)}
+                        onSplit={(cIdx) => splitChunk(sIdx, lIdx, cIdx)}
+                        onRemove={(cIdx) => removeChunk(sIdx, lIdx, cIdx)}
+                        onAppend={() => appendChunk(sIdx, lIdx)}
+                      />
+                    )}
+                  </div>
+                );
+              }),
+            )}
           </div>
         </div>
       </div>
     </StageGate>
+  );
+}
+
+function ManualChunksEditor({
+  sIdx,
+  chunks,
+  onChangeText,
+  onChangeTime,
+  onSnap,
+  onClearTime,
+  onSplit,
+  onRemove,
+  onAppend,
+}: {
+  sIdx: number;
+  chunks: SubtitleChunk[];
+  onChangeText: (cIdx: number, text: string) => void;
+  onChangeTime: (
+    cIdx: number,
+    field: "start" | "end",
+    value: number | undefined,
+  ) => void;
+  onSnap: (cIdx: number, field: "start" | "end") => void;
+  onClearTime: (cIdx: number) => void;
+  onSplit: (cIdx: number) => void;
+  onRemove: (cIdx: number) => void;
+  onAppend: () => void;
+}) {
+  return (
+    <div className="mt-2 ml-12 border-l-2 border-amber-700/40 pl-3">
+      <div className="text-[10px] text-slate-500 mb-1">
+        S{sIdx + 1} — 空欄の時刻は line 範囲を文字数比例で自動配分
+      </div>
+      {chunks.map((c, cIdx) => {
+        const isAuto = c.start === undefined && c.end === undefined;
+        return (
+          <div
+            key={cIdx}
+            className="border-t border-slate-800 py-1.5 flex flex-col gap-1"
+          >
+            <div className="flex items-center gap-2">
+              <span className="text-[10px] text-slate-500 w-4">{cIdx + 1}</span>
+              <input
+                type="text"
+                className="input text-xs py-1 flex-1"
+                value={c.text}
+                placeholder="字幕テキスト"
+                onChange={(e) => onChangeText(cIdx, e.target.value)}
+              />
+              <span
+                className={
+                  "text-[10px] px-1 rounded " +
+                  (isAuto
+                    ? "bg-slate-700 text-slate-400"
+                    : "bg-amber-700/40 text-amber-200")
+                }
+              >
+                {isAuto ? "auto" : "手打ち"}
+              </span>
+              <button
+                className="btn-ghost text-[10px]"
+                onClick={() => onSplit(cIdx)}
+                title="このチャンクを文字数中央で 2 分割"
+              >
+                分割
+              </button>
+              <button
+                className="btn-ghost text-[10px] text-rose-400"
+                onClick={() => onRemove(cIdx)}
+              >
+                ×
+              </button>
+            </div>
+            <div className="flex items-center gap-1.5 pl-6">
+              <TimeField
+                label="start"
+                value={c.start}
+                onChange={(v) => onChangeTime(cIdx, "start", v)}
+                onSnap={() => onSnap(cIdx, "start")}
+              />
+              <TimeField
+                label="end"
+                value={c.end}
+                onChange={(v) => onChangeTime(cIdx, "end", v)}
+                onSnap={() => onSnap(cIdx, "end")}
+              />
+              {!isAuto && (
+                <button
+                  className="btn-ghost text-[10px]"
+                  onClick={() => onClearTime(cIdx)}
+                  title="時刻をクリアして auto (文字数比例配分) に戻す"
+                >
+                  auto に戻す
+                </button>
+              )}
+            </div>
+          </div>
+        );
+      })}
+      <button
+        className="btn-ghost text-[10px] mt-2"
+        onClick={onAppend}
+        title="末尾にチャンクを追加 (時刻は auto)"
+      >
+        + チャンク追加
+      </button>
+    </div>
+  );
+}
+
+function TimeField({
+  label,
+  value,
+  onChange,
+  onSnap,
+}: {
+  label: string;
+  value: number | undefined;
+  onChange: (v: number | undefined) => void;
+  onSnap: () => void;
+}) {
+  return (
+    <div className="flex items-center gap-1">
+      <span className="text-[10px] text-slate-500 w-8">{label}</span>
+      <input
+        type="number"
+        step="0.05"
+        className="input text-[11px] py-0.5 w-20"
+        placeholder="auto"
+        value={value ?? ""}
+        onChange={(e) =>
+          onChange(e.target.value === "" ? undefined : Number(e.target.value))
+        }
+      />
+      <button
+        className="btn-ghost text-[10px]"
+        onClick={onSnap}
+        title={`動画の現在の再生位置を ${label} に反映 (シーン内相対秒)`}
+      >
+        ⏱→{label}
+      </button>
+    </div>
   );
 }
 

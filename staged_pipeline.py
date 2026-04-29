@@ -31,16 +31,29 @@ def screenplay_lock(name: str) -> threading.Lock:
         return lk
 
 
+def _drafts_dir() -> str:
+    return os.path.join(config.SCREENPLAYS_DIR, "drafts")
+
+
 def screenplay_path(name: str) -> str:
-    """台本ファイルの絶対パスを返す（拡張子省略可）。"""
-    p = os.path.join(config.SCREENPLAYS_DIR, name)
-    if os.path.exists(p):
-        return p
-    if not name.endswith(".json"):
-        p2 = os.path.join(config.SCREENPLAYS_DIR, name + ".json")
-        if os.path.exists(p2):
-            return p2
-    raise FileNotFoundError(f"台本が見つかりません: {p}")
+    """台本ファイルの絶対パスを返す（拡張子省略可）。
+
+    解決順は **drafts/ → canonical** で、drafts に同名ファイルがあれば
+    canonical を上書きして優先する (UI 編集中の WIP を反映するため)。
+    drafts は .gitignore で追跡対象外。
+    """
+    bases = (_drafts_dir(), config.SCREENPLAYS_DIR)
+    for base in bases:
+        p = os.path.join(base, name)
+        if os.path.exists(p):
+            return p
+        if not name.endswith(".json"):
+            p2 = os.path.join(base, name + ".json")
+            if os.path.exists(p2):
+                return p2
+    raise FileNotFoundError(
+        f"台本が見つかりません: {os.path.join(config.SCREENPLAYS_DIR, name)}"
+    )
 
 
 def load_screenplay(name: str) -> dict:
@@ -49,9 +62,17 @@ def load_screenplay(name: str) -> dict:
 
 
 def save_screenplay(name: str, screenplay: dict) -> None:
-    """台本をscreenplays/<name>.jsonに直接書き戻す。"""
-    p = screenplay_path(name) if _exists(name) else os.path.join(
-        config.SCREENPLAYS_DIR, name if name.endswith(".json") else f"{name}.json")
+    """台本を screenplays/drafts/<name>.json に書き出す。
+
+    canonical (screenplays/<name>.json) は触らない。UI 編集や preview_server
+    からの保存はすべて drafts に向く。drafts は .gitignore で追跡されないので
+    UI 編集で working tree が汚れることはない。canonical に昇格させたい場合は
+    `cp screenplays/drafts/<name>.json screenplays/<name>.json` 後に commit。
+    """
+    drafts = _drafts_dir()
+    os.makedirs(drafts, exist_ok=True)
+    fname = name if name.endswith(".json") else f"{name}.json"
+    p = os.path.join(drafts, fname)
     with open(p, "w") as f:
         json.dump(screenplay, f, ensure_ascii=False, indent=2)
 
@@ -148,7 +169,8 @@ def run_overlay(screenplay: dict, ts_path: str) -> None:
     overlaid = os.path.join(ts_path, "overlaid.mp4")
     if os.path.exists(overlaid):
         os.remove(overlaid)
-    _apply_overlays(merged, screenplay, ts_path, overlaid, silent)
+    _apply_overlays(merged, screenplay, ts_path, overlaid, silent,
+                      scene_videos=scene_videos)
     progress_store.mark_generated(ts_path, "overlay")
     logger.info("[Stage 7] 字幕焼き込み完了")
 
