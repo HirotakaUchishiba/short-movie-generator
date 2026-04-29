@@ -199,44 +199,85 @@ def _break_score_at(text: str, i: int) -> int:
     return 0
 
 
-def _wrap_subtitle_text(text: str, max_chars: int) -> str:
-    """日本語字幕を max_chars 以内に折り返す。
-    句読点・助詞境界・文字種境界を優先し、最終手段として強制改行する。
+def _split_into_chunks(text: str, max_chars: int) -> list[str]:
+    """日本語テキストを最大 max_chars 文字の chunks に分割する。
+
+    句読点・助詞境界・文字種境界を優先 (= _break_score_at の score 順)。
+    自然な break point が見つからない場合は強制位置で切って WARNING ログを出す。
     """
     if max_chars <= 0 or len(text) <= max_chars:
-        return text
+        return [text] if text else []
 
-    lines: list[str] = []
+    chunks: list[str] = []
     rest = text
     while len(rest) > max_chars:
         ideal = max_chars
-        # 探索範囲: ideal-5 〜 ideal+1 (前方優先で best break を探す)
-        lo = max(1, ideal - 5)
+        # 探索範囲: ideal - (ideal/2 程度) 〜 ideal+1
+        # 8 文字制約だと探索幅は ±4 文字
+        search_back = max(2, max_chars // 2)
+        lo = max(1, ideal - search_back)
         hi = min(len(rest) - 1, ideal)
         best_pos: int | None = None
         best_score = 0
-        for i in range(hi, lo - 1, -1):  # 後ろから前へ (= max_chars に近い側を優先)
+        for i in range(hi, lo - 1, -1):
             s = _break_score_at(rest, i)
-            # ideal 位置との距離ペナルティ
+            # ideal からの距離ペナルティ (1 文字につき 3 点)
             s -= abs(i - ideal) * 3
             if s > best_score:
                 best_score = s
                 best_pos = i
 
         if best_pos is None or best_score <= 0:
-            # フォールバック: 強制改行 (=ideal で切る)
             best_pos = ideal
             logger.warning(
-                "[subtitle wrap] 自然な改行点が見つからず ideal=%d で強制改行: %r",
+                "[subtitle chunks] 自然な break point が見つからず ideal=%d で強制分割: %r",
                 ideal, rest[:max_chars * 2],
             )
 
-        lines.append(rest[:best_pos])
+        chunks.append(rest[:best_pos])
         rest = rest[best_pos:]
 
     if rest:
-        lines.append(rest)
-    return "\n".join(lines)
+        chunks.append(rest)
+    return chunks
+
+
+def _wrap_subtitle_text(text: str, max_chars: int) -> str:
+    """日本語字幕を max_chars 以内に折り返す (改行で連結)。
+    内部実装は _split_into_chunks を流用 (= chunk を改行でつなぐだけ)。"""
+    chunks = _split_into_chunks(text, max_chars)
+    return "\n".join(chunks) if chunks else text
+
+
+def _allocate_chunk_timings(
+    chunks: list[str], line_start: float, line_end: float,
+) -> list[tuple[float, float]]:
+    """chunks に line.start - line.end を文字数比例で配分する。
+
+    短い chunk は短く、長い chunk は長く表示される。
+    末尾は浮動小数誤差を避けるため line_end に揃える。
+    """
+    if not chunks:
+        return []
+    total_chars = sum(len(c) for c in chunks)
+    if total_chars <= 0:
+        # フォールバック: 均等分割
+        n = len(chunks)
+        step = (line_end - line_start) / max(1, n)
+        return [(line_start + i * step, line_start + (i + 1) * step)
+                for i in range(n)]
+
+    duration = max(0.0, line_end - line_start)
+    timings: list[tuple[float, float]] = []
+    cursor = line_start
+    for c in chunks:
+        d = duration * (len(c) / total_chars)
+        timings.append((cursor, cursor + d))
+        cursor += d
+    if timings:
+        ls, _ = timings[-1]
+        timings[-1] = (ls, line_end)
+    return timings
 
 
 def _needs_overlay(screenplay: dict) -> bool:
@@ -269,7 +310,9 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
         offsets = _scene_offsets(scenes)
         real_durations = [None] * len(scenes)
 
-    max_chars = int(getattr(config, "SUBTITLE_MAX_CHARS_PER_LINE", 17))
+    line_max_chars = int(getattr(config, "SUBTITLE_MAX_CHARS_PER_LINE", 17))
+    chunk_enabled = bool(getattr(config, "SUBTITLE_CHUNK_ENABLED", True))
+    chunk_max_chars = int(getattr(config, "SUBTITLE_CHUNK_MAX_CHARS", 8))
 
     filters: list[str] = []
     cur_in = "0:v"
@@ -279,6 +322,13 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
         nonlocal tag_idx
         tag_idx += 1
         return f"ov{tag_idx}"
+
+    sub_y_from_bottom = int(
+        screenplay.get("subtitle_y_from_bottom")
+        if screenplay.get("subtitle_y_from_bottom") is not None
+        else config.SUBTITLE_Y_FROM_BOTTOM
+    )
+    sub_y = H - sub_y_from_bottom
 
     for s_idx, scene in enumerate(scenes):
         offset = offsets[s_idx]
@@ -291,29 +341,38 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
             rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
             abs_start = offset + rel_start
             abs_end = offset + rel_end
-            enable_line = f"between(t,{abs_start:.3f},{abs_end:.3f})"
+            text = line["text"].strip()
+            if not text:
+                continue
 
-            text = _wrap_subtitle_text(line["text"].strip(), max_chars)
-            tf = _write_textfile(temp_dir, f"sub_{s_idx:03d}_{l_idx:03d}", text)
-            tf_esc = _escape_fontfile(tf)
-            # screenplay 側に override があればそちらを優先 (UI で調整可能)
-            sub_y_from_bottom = int(
-                screenplay.get("subtitle_y_from_bottom")
-                if screenplay.get("subtitle_y_from_bottom") is not None
-                else config.SUBTITLE_Y_FROM_BOTTOM
-            )
-            sub_y = H - sub_y_from_bottom
-            out = next_tag()
-            filters.append(
-                f"[{cur_in}]drawtext=fontfile='{font}':textfile='{tf_esc}':"
-                f"fontsize={config.SUBTITLE_FONT_SIZE}:"
-                f"fontcolor={config.TIME_TEXT_COLOR}:"
-                f"bordercolor={config.TIME_BORDER_COLOR}:"
-                f"borderw={config.FONT_BORDER_WIDTH}:"
-                f"line_spacing={config.SUBTITLE_LINE_GAP}:text_align=C:"
-                f"x=(w-text_w)/2:y={sub_y}:enable='{enable_line}'[{out}]"
-            )
-            cur_in = out
+            if chunk_enabled:
+                # TikTok 風: 短いテロップが次々切替わる
+                chunks = _split_into_chunks(text, chunk_max_chars)
+                timings = _allocate_chunk_timings(chunks, abs_start, abs_end)
+            else:
+                # 従来: 1 line = 1 字幕。長文は line 内で改行
+                chunks = [_wrap_subtitle_text(text, line_max_chars)]
+                timings = [(abs_start, abs_end)]
+
+            for c_idx, (chunk_text, (c_start, c_end)) in enumerate(zip(chunks, timings)):
+                tf = _write_textfile(
+                    temp_dir,
+                    f"sub_{s_idx:03d}_{l_idx:03d}_{c_idx:02d}",
+                    chunk_text,
+                )
+                tf_esc = _escape_fontfile(tf)
+                enable_chunk = f"between(t,{c_start:.3f},{c_end:.3f})"
+                out = next_tag()
+                filters.append(
+                    f"[{cur_in}]drawtext=fontfile='{font}':textfile='{tf_esc}':"
+                    f"fontsize={config.SUBTITLE_FONT_SIZE}:"
+                    f"fontcolor={config.TIME_TEXT_COLOR}:"
+                    f"bordercolor={config.TIME_BORDER_COLOR}:"
+                    f"borderw={config.FONT_BORDER_WIDTH}:"
+                    f"line_spacing={config.SUBTITLE_LINE_GAP}:text_align=C:"
+                    f"x=(w-text_w)/2:y={sub_y}:enable='{enable_chunk}'[{out}]"
+                )
+                cur_in = out
 
     if not filters:
         return ""

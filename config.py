@@ -45,6 +45,13 @@ SUBTITLE_LINE_GAP = 14
 # 1080px 幅 + fontsize 76 だと安全に収まるのは ~17 文字。
 SUBTITLE_MAX_CHARS_PER_LINE = 17
 
+# 字幕を「短いテロップが次々に切り替わる」TikTok 風表示にする。
+# True の場合、各 line.text を SUBTITLE_CHUNK_MAX_CHARS 文字以内の chunks に
+# 自動分割し、line.start - line.end の間で文字数比例で時刻を割り当てる。
+# False の場合は 1 line = 1 字幕表示 (従来動作)。
+SUBTITLE_CHUNK_ENABLED = True
+SUBTITLE_CHUNK_MAX_CHARS = 8
+
 ELEVENLABS_VOICE_ID = "0ptCJp0xgdabdcpVtCB5"
 ELEVENLABS_VOICE_STABILITY = 0.5
 ELEVENLABS_VOICE_SIMILARITY_BOOST = 0.75

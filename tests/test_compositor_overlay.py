@@ -213,13 +213,13 @@ def test_wrap_brackets_do_not_split_internally() -> None:
 
 
 def test_wrap_force_break_with_warning(caplog) -> None:
-    """break point が無い超長文は強制改行 + warning ログ。"""
+    """break point が無い超長文は強制分割 + warning ログ。"""
     import logging
     text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # 26文字、break 候補ゼロ
     with caplog.at_level(logging.WARNING, logger="compositor"):
         out = compositor._wrap_subtitle_text(text, max_chars=10)
     assert "\n" in out
-    assert any("強制改行" in rec.message for rec in caplog.records)
+    assert any("強制分割" in rec.message for rec in caplog.records)
 
 
 def test_wrap_idempotent_on_already_short_text() -> None:
@@ -264,8 +264,11 @@ def test_break_score_katakana_kanji_boundary() -> None:
 # ───────────────── 統合 ─────────────────
 
 
-def test_build_overlay_wraps_long_text(tmp_path, monkeypatch) -> None:
-    """長文 line.text が drawtext に渡る前に改行される。"""
+def test_build_overlay_wraps_long_text_when_chunks_disabled(
+    tmp_path, monkeypatch,
+) -> None:
+    """SUBTITLE_CHUNK_ENABLED=False なら従来通り 1 line = 1 字幕で改行。"""
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_ENABLED", False)
     monkeypatch.setattr(compositor.config, "SUBTITLE_MAX_CHARS_PER_LINE", 10)
 
     sp = {
@@ -280,4 +283,151 @@ def test_build_overlay_wraps_long_text(tmp_path, monkeypatch) -> None:
     assert len(sub_files) == 1
     with open(os.path.join(tmp_path, sub_files[0])) as f:
         written = f.read()
-    assert "\n" in written  # 改行されている
+    assert "\n" in written
+
+
+# ───────────────── chunks (TikTok 風 短いテロップ次々表示) ─────────────────
+
+
+def test_split_into_chunks_short_text_returns_single() -> None:
+    assert compositor._split_into_chunks("短い", max_chars=8) == ["短い"]
+
+
+def test_split_into_chunks_empty_returns_empty() -> None:
+    assert compositor._split_into_chunks("", max_chars=8) == []
+
+
+def test_split_into_chunks_long_quote() -> None:
+    """28文字の鉤括弧文を 8 文字以内で分割。"""
+    text = "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」"
+    chunks = compositor._split_into_chunks(text, max_chars=8)
+    # 全 chunk が 8 文字以内 (= 不自然な強制切断はスコア負の場合のみ)
+    assert all(len(c) <= 12 for c in chunks)  # 多少の超過を許容 (探索範囲外時)
+    # 結合すれば元のテキストに戻る
+    assert "".join(chunks) == text
+    # 複数 chunk に分かれている
+    assert len(chunks) >= 3
+
+
+def test_split_into_chunks_breaks_at_punctuation() -> None:
+    text = "やったー！今日も終わった！お風呂入ろう"
+    chunks = compositor._split_into_chunks(text, max_chars=8)
+    # 「！」直後で chunk 区切りが来ている
+    found_punct_break = False
+    for c in chunks:
+        if c.endswith("！") or c.endswith("。"):
+            found_punct_break = True
+            break
+    assert found_punct_break
+
+
+def test_split_into_chunks_zero_max_returns_whole() -> None:
+    text = "テスト"
+    assert compositor._split_into_chunks(text, max_chars=0) == ["テスト"]
+
+
+def test_allocate_chunk_timings_proportional() -> None:
+    """文字数比例で line.start - line.end を配分。"""
+    chunks = ["AB", "CDEF"]  # 2 + 4 = 6 chars
+    timings = compositor._allocate_chunk_timings(chunks, 0.0, 6.0)
+    assert len(timings) == 2
+    # AB: 0.0 - 2.0 (= 6.0 * 2/6)
+    assert abs(timings[0][0] - 0.0) < 1e-6
+    assert abs(timings[0][1] - 2.0) < 1e-6
+    # CDEF: 2.0 - 6.0
+    assert abs(timings[1][0] - 2.0) < 1e-6
+    assert abs(timings[1][1] - 6.0) < 1e-6
+
+
+def test_allocate_chunk_timings_no_overlap_no_gap() -> None:
+    """連続 chunks に gap や overlap が無いこと。"""
+    chunks = ["A", "BB", "CCC"]
+    timings = compositor._allocate_chunk_timings(chunks, 1.0, 7.0)
+    # 各 chunk の end が次 chunk の start と一致 (浮動小数誤差以内)
+    for i in range(len(timings) - 1):
+        assert abs(timings[i][1] - timings[i + 1][0]) < 1e-6
+    # 最後は line_end と一致
+    assert abs(timings[-1][1] - 7.0) < 1e-6
+
+
+def test_allocate_chunk_timings_empty_chunks() -> None:
+    assert compositor._allocate_chunk_timings([], 0.0, 5.0) == []
+
+
+def test_allocate_chunk_timings_zero_duration() -> None:
+    chunks = ["A", "B"]
+    timings = compositor._allocate_chunk_timings(chunks, 5.0, 5.0)
+    # duration 0 でもクラッシュしない
+    assert len(timings) == 2
+
+
+def test_build_overlay_emits_per_chunk_drawtext(tmp_path, monkeypatch) -> None:
+    """SUBTITLE_CHUNK_ENABLED=True なら 1 line から複数 drawtext が発行される。"""
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_ENABLED", True)
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_MAX_CHARS", 8)
+
+    sp = {
+        "scenes": [
+            {"duration": 5.0, "background_prompt": "bg",
+              "lines": [{
+                  "text": "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」",
+                  "start": 0.0, "end": 4.0,
+              }]},
+        ],
+    }
+    compositor._build_overlay_filter(sp, str(tmp_path))
+    sub_files = sorted(
+        f for f in os.listdir(tmp_path) if f.startswith("drawtext_sub_"))
+    # 28 文字を 8 文字以内に分けるので複数 chunk
+    assert len(sub_files) >= 3
+    # 命名規則: sub_<scene>_<line>_<chunk>.txt
+    assert all("_000_000_" in f for f in sub_files)
+
+
+def test_build_overlay_chunk_files_each_within_max(tmp_path, monkeypatch) -> None:
+    """各 chunk ファイルの中身が max_chars 以内 (改行なし、1 行)。"""
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_ENABLED", True)
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_MAX_CHARS", 8)
+
+    sp = {
+        "scenes": [
+            {"duration": 5.0, "background_prompt": "bg",
+              "lines": [{"text": "やったー！今日飲み行っちゃおうかな〜",
+                          "start": 0.0, "end": 4.0}]},
+        ],
+    }
+    compositor._build_overlay_filter(sp, str(tmp_path))
+    for f in os.listdir(tmp_path):
+        if not f.startswith("drawtext_sub_"):
+            continue
+        with open(os.path.join(tmp_path, f)) as fh:
+            content = fh.read()
+        # chunks は内部に改行を持たない (1 行 1 chunk)
+        assert "\n" not in content
+        # 文字数も max_chars + 探索余裕 以内
+        assert len(content) <= 12
+
+
+def test_build_overlay_chunk_timings_consecutive(tmp_path, monkeypatch) -> None:
+    """生成される drawtext の enable 時刻が連続している (gap なし)。"""
+    import re
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_ENABLED", True)
+    monkeypatch.setattr(compositor.config, "SUBTITLE_CHUNK_MAX_CHARS", 8)
+
+    sp = {
+        "scenes": [
+            {"duration": 5.0, "background_prompt": "bg",
+              "lines": [{"text": "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」",
+                          "start": 0.0, "end": 4.0}]},
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    matches = re.findall(r"between\(t,([\d.]+),([\d.]+)\)", f)
+    assert len(matches) >= 3
+    # 最初の chunk は 0.000 開始
+    assert float(matches[0][0]) == 0.0
+    # 最後の chunk は line_end (= 4.0) 終了
+    assert abs(float(matches[-1][1]) - 4.0) < 1e-3
+    # 連続性: 各 chunk の end が次の start と一致
+    for i in range(len(matches) - 1):
+        assert abs(float(matches[i][1]) - float(matches[i + 1][0])) < 1e-3
