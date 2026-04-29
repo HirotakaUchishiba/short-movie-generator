@@ -52,6 +52,7 @@ export interface Line {
   pronunciation_hints?: Record<string, string>;
   silence_after_ms?: number;
   subtitles?: SubtitleChunk[];
+  hidden?: boolean;
 }
 
 export interface CharacterDef {

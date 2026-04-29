@@ -431,8 +431,9 @@ def _allocate_chunk_timings(
 
 def _needs_overlay(screenplay: dict) -> bool:
     for sc in screenplay.get("scenes", []):
-        if sc.get("lines"):
-            return True
+        for line in sc.get("lines") or []:
+            if not line.get("hidden"):
+                return True
     return False
 
 
@@ -487,6 +488,9 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
         scene_lines = scene.get("lines") or []
         for l_idx, line in enumerate(scene_lines):
             next_line = scene_lines[l_idx + 1] if l_idx + 1 < len(scene_lines) else None
+
+            if line.get("hidden"):
+                continue
 
             manual_subs = line.get("subtitles") or []
             if manual_subs:

@@ -301,6 +301,10 @@ SCHEMA: dict = {
                                     "additionalProperties": {"type": "string"},
                                     "description": "TTS送信前のテキスト置換（例 {\"IT\": \"アイティー\"}）",
                                 },
+                                "hidden": {
+                                    "type": "boolean",
+                                    "description": "true ならこの line の字幕を焼き込まない (TTS は通常通り)",
+                                },
                                 "subtitles": {
                                     "type": "array",
                                     "description": (
