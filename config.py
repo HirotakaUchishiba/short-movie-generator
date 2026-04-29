@@ -772,12 +772,9 @@ BASE_DIR = os.path.dirname(__file__)
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 TEMP_DIR = os.path.join(BASE_DIR, "temp")
 SCREENPLAYS_DIR = os.path.join(BASE_DIR, "screenplays")
-REPORTS_DIR = os.path.join(BASE_DIR, "reports")
 POST_CAPTIONS_DIR = os.path.join(BASE_DIR, "post_captions")
 CHARACTERS_DIR = os.path.join(BASE_DIR, "characters")
 DEFAULT_CHARACTER_REFS: list[str] = ["female_engineer"]
-JOBS_DIR = os.path.join(REPORTS_DIR, "jobs")
-COST_HISTORY_PATH = os.path.join(REPORTS_DIR, "cost_history.jsonl")
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")
