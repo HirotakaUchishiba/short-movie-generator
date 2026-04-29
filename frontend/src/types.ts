@@ -180,3 +180,83 @@ export interface JobStatus {
   elapsed: number;
   error: string | null;
 }
+
+// ─── Analyze pipeline (参考動画から台本JSON生成) ─────────
+
+export interface AnalyzeOptions {
+  fps?: number;
+  instructions?: string | null;
+  no_bgm_extract?: boolean;
+  no_shots?: boolean;
+}
+
+export interface ReferenceVideo {
+  sha256: string;
+  original_name: string;
+  size_bytes: number;
+  duration_sec: number | null;
+  uploaded_at: string;
+  last_used_at: string | null;
+}
+
+export interface ReferenceVideoUploadResult extends ReferenceVideo {
+  deduplicated: boolean;
+}
+
+export type AnalyzeStatus =
+  | "pending"
+  | "dryrunning"
+  | "awaiting_confirm"
+  | "running"
+  | "completed"
+  | "failed"
+  | "cancelled";
+
+export type AnalyzePhase =
+  | "frames"
+  | "audio"
+  | "whisper"
+  | "acoustic"
+  | "bgm_detect"
+  | "shots"
+  | "bgm_separate"
+  | "claude"
+  | "save";
+
+export interface AnalyzePhaseRecord {
+  phase: AnalyzePhase;
+  status: "pending" | "running" | "completed" | "failed" | "skipped";
+  started_at: string | null;
+  finished_at: string | null;
+  duration_ms: number | null;
+  cost_usd: number | null;
+  error: string | null;
+}
+
+export interface AnalyzeJob {
+  id: string;
+  video_sha256: string;
+  options: AnalyzeOptions;
+  status: AnalyzeStatus;
+  current_phase: AnalyzePhase | null;
+  error: string | null;
+  estimated_cost_usd: number | null;
+  actual_cost_usd: number | null;
+  screenplay_path: string | null;
+  created_at: string;
+  started_at: string | null;
+  finished_at: string | null;
+  cancellation_requested: boolean;
+}
+
+export interface AnalyzeJobDetail extends AnalyzeJob {
+  phases: AnalyzePhaseRecord[];
+}
+
+export interface DryrunCompleteEvent {
+  frame_count: number;
+  input_tokens: number;
+  output_tokens: number;
+  cost_usd: number;
+  cost_breakdown: Record<string, number>;
+}

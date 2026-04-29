@@ -1,7 +1,12 @@
 import type {
+  AnalyzeJob,
+  AnalyzeJobDetail,
+  AnalyzeOptions,
   ProjectDetail,
   ProjectListItem,
   Progress,
+  ReferenceVideo,
+  ReferenceVideoUploadResult,
   Screenplay,
   ServerConfig,
   StageName,
@@ -173,6 +178,63 @@ export const api = {
       }),
     }),
   job: (id: string) => http<JobStatus>(`/api/jobs/${id}`),
+
+  // ─── reference videos (analyze 用) ──────────────
+  listReferenceVideos: () =>
+    http<{ reference_videos: ReferenceVideo[] }>("/api/reference_videos"),
+  uploadReferenceVideo: (
+    file: File,
+    onProgress?: (pct: number) => void,
+  ): Promise<ReferenceVideoUploadResult> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append("file", file);
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(e.loaded / e.total);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
+        } else {
+          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("network error"));
+      xhr.open("POST", `${API_BASE}/api/reference_videos`);
+      xhr.send(fd);
+    });
+  },
+  deleteReferenceVideo: (sha256: string) =>
+    http<{ sha256: string; deleted: boolean }>(
+      `/api/reference_videos/${sha256}`,
+      { method: "DELETE" },
+    ),
+
+  // ─── analyze ジョブ ─────────────────────────────
+  createAnalyzeJob: (video_sha256: string, options: AnalyzeOptions = {}) =>
+    http<{ job_id: string }>("/api/screenplay/analyze", {
+      method: "POST",
+      body: JSON.stringify({ video_sha256, options }),
+    }),
+  listAnalyzeJobs: () =>
+    http<{ jobs: AnalyzeJob[] }>("/api/screenplay/analyze"),
+  getAnalyzeJob: (id: string) =>
+    http<AnalyzeJobDetail>(`/api/screenplay/analyze/${id}`),
+  confirmAnalyzeJob: (id: string) =>
+    http<{ ok: true }>(`/api/screenplay/analyze/${id}/confirm`, {
+      method: "POST",
+    }),
+  cancelAnalyzeJob: (id: string) =>
+    http<{ ok: true }>(`/api/screenplay/analyze/${id}`, { method: "DELETE" }),
+  analyzeJobEventSource: (id: string): EventSource =>
+    new EventSource(`${API_BASE}/api/screenplay/analyze/${id}/events`),
 };
 
 function withVersion(url: string, v?: number | string): string {
