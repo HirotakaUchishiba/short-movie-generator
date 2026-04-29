@@ -27,10 +27,6 @@ SCHEMA: dict = {
             "minLength": 1,
             "description": "SNS投稿用キャプション本文（ハッシュタグ含む）",
         },
-        "title_overlay": {
-            "type": "string",
-            "description": "動画上部に全編固定表示する黄色帯タイトル（改行は \\n）",
-        },
         "audio_mode": {
             "enum": ["voiced", "silent"],
             "description": "voiced=TTS+リップシンク、silent=無音。既定 voiced",
@@ -121,11 +117,6 @@ SCHEMA: dict = {
                 },
             },
         },
-        "_analysis": {
-            "type": "object",
-            "additionalProperties": True,
-            "description": "analyze_video.py が書く解析メタデータ (analytics 用、再生成パイプには影響しない)",
-        },
         "scenes": {
             "type": "array",
             "minItems": 1,
@@ -135,13 +126,9 @@ SCHEMA: dict = {
                 # SSOT 強制: 未定義のキーは拒否 (廃止フィールドの再混入を防ぐ)
                 "additionalProperties": False,
                 "properties": {
-                    "time": {
-                        "type": "string",
-                        "description": "画面下部に大きく表示する時刻（例 \"8:50\"）",
-                    },
                     "label": {
                         "type": "string",
-                        "description": "時刻の下に表示するシーンラベル（例 \"起床\"）",
+                        "description": "シーンの日本語ラベル（例 \"起床\"）。動画には焼き込まれず、UI/LLM 補助情報として使用",
                     },
                     "duration": {
                         "type": "number",
@@ -283,7 +270,6 @@ SCHEMA: dict = {
                                     "type": "object",
                                     "additionalProperties": True,
                                     "properties": {
-                                        "pitch_hz_mean": {"type": "number"},
                                         "pitch_trend": {"type": "string"},
                                         "rms_peak": {"type": "number"},
                                         "wpm": {"type": "number"},
@@ -305,19 +291,6 @@ SCHEMA: dict = {
                                     "type": "object",
                                     "additionalProperties": {"type": "string"},
                                     "description": "TTS送信前のテキスト置換（例 {\"IT\": \"アイティー\"}）",
-                                },
-                                "pause_before": {
-                                    "type": "number",
-                                    "minimum": 0,
-                                    "description": "このline直前に挿入する無音秒数",
-                                },
-                                "breath_before": {
-                                    "type": "boolean",
-                                    "description": "true なら短い吸気音を挿入",
-                                },
-                                "speaker": {
-                                    "type": "string",
-                                    "description": "発話者（複数キャラの場合）。scenes[].characters[].name と対応",
                                 },
                                 "hidden": {
                                     "type": "boolean",

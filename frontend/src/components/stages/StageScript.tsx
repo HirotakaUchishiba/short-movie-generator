@@ -41,10 +41,6 @@ export default function StageScript() {
         <div className="card col-span-2">
           <div className="label">caption</div>
           <pre className="whitespace-pre-wrap text-sm">{sp.caption}</pre>
-          <div className="label mt-3">title_overlay</div>
-          <pre className="whitespace-pre-wrap text-sm">
-            {sp.title_overlay ?? "(なし)"}
-          </pre>
         </div>
         <div className="card">
           <div className="label">audio_mode</div>
@@ -66,8 +62,6 @@ export default function StageScript() {
           <thead className="text-slate-400">
             <tr className="text-left">
               <th>#</th>
-              <th>time</th>
-              <th>label</th>
               <th>duration</th>
               <th>lines</th>
               <th>背景プロンプト (抜粋)</th>
@@ -77,8 +71,6 @@ export default function StageScript() {
             {sp.scenes.map((s, i) => (
               <tr key={i} className="border-t border-slate-700">
                 <td className="py-2">{i + 1}</td>
-                <td>{s.time ?? "-"}</td>
-                <td>{s.label ?? "-"}</td>
                 <td>{s.duration}s</td>
                 <td>{s.lines?.length ?? 0}</td>
                 <td className="truncate max-w-md" title={s.background_prompt}>

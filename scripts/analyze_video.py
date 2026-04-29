@@ -29,9 +29,6 @@ import shot_detector  # noqa: E402
 from audio_features import (  # noqa: E402
     extract_phrase_features,
     wpm_from_text,
-    detect_pauses,
-    detect_breath_before,
-    voice_profile,
     has_background_music,
 )
 from video_analyzer import build_screenplay  # noqa: E402
@@ -138,8 +135,6 @@ def main() -> int:
 
         transcript: dict = {"text": "", "segments": [], "words": [], "duration": 0.0}
         phrase_features: list[dict] = []
-        pauses: list[dict] = []
-        vp_info: dict | None = None
         bgm_info: dict | None = None
 
         has_audio = _has_audio_stream(video_path)
@@ -153,17 +148,7 @@ def main() -> int:
             for seg in transcript["segments"]:
                 feat = extract_phrase_features(audio_path, seg["start"], seg["end"])
                 feat["wpm"] = wpm_from_text(seg["text"], seg["end"] - seg["start"])
-                feat["breath_before"] = detect_breath_before(audio_path, seg["start"])
                 phrase_features.append(feat)
-
-            pauses = detect_pauses(audio_path, min_pause=0.3)
-            logger.info("無音区間: %d", len(pauses))
-
-            vp_info = voice_profile(audio_path)
-            logger.info("voice_profile: pitch_med=%.0fHz gender=%s age=%s",
-                        vp_info.get("pitch_hz_median", 0),
-                        vp_info.get("estimated_gender"),
-                        vp_info.get("estimated_age_range"))
 
             bgm_info = has_background_music(audio_path)
             logger.info("BGM存在判定: present=%s confidence=%.2f",
@@ -197,8 +182,6 @@ def main() -> int:
             extra_instructions=args.instructions,
             frame_interval_sec=frame_interval_sec,
             shot_boundaries=shot_boundaries,
-            pauses=pauses,
-            voice_profile_info=vp_info,
             bgm_info=bgm_info,
             known_furigana=known_furigana,
         )
@@ -207,8 +190,6 @@ def main() -> int:
         if new_hints:
             furigana_store.merge(new_hints)
 
-        if vp_info:
-            screenplay.setdefault("_analysis", {})["voice_profile"] = vp_info
         if bgm_kept_path:
             screenplay["bgm_path"] = bgm_kept_path
             screenplay.setdefault("bgm_volume_db", -18)
@@ -226,13 +207,6 @@ def main() -> int:
                     len(screenplay.get("scenes", [])),
                     sum(len(s.get("lines") or []) for s in screenplay.get("scenes", [])),
                     sum(s.get("duration", 0) for s in screenplay.get("scenes", [])))
-
-        ana = screenplay.get("_analysis", {})
-        if ana.get("input_tokens"):
-            cost_usd = (ana["input_tokens"] * 15.0 / 1_000_000
-                        + ana.get("output_tokens", 0) * 75.0 / 1_000_000)
-            logger.info("Claude消費: input=%d output=%d ≈ $%.3f",
-                        ana["input_tokens"], ana.get("output_tokens", 0), cost_usd)
 
         return 0
     finally:

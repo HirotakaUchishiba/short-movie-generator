@@ -53,8 +53,7 @@ def test_build_screenplay_parses_response(tmp_path) -> None:
         )
 
     assert result["caption"] == "test"
-    assert result["_analysis"]["source_video"] == "/tmp/ref.mov"
-    assert result["_analysis"]["input_tokens"] == 100_000
+    assert result["scenes"][0]["duration"] == 5.0
 
 
 def test_build_screenplay_strips_code_fence(tmp_path) -> None:

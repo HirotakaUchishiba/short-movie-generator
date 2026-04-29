@@ -16,7 +16,6 @@ def isolated_db(tmp_path, monkeypatch):
 def sample_screenplay_file(tmp_path) -> str:
     sp = {
         "caption": "テスト",
-        "title_overlay": "タイトル",
         "audio_mode": "voiced",
         "scenes": [
             {
