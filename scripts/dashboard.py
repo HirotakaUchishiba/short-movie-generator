@@ -33,6 +33,32 @@ def load_screenplays() -> pd.DataFrame:
     return pd.DataFrame(db.list_screenplays())
 
 
+@st.cache_data(ttl=30)
+def load_analyze_jobs() -> pd.DataFrame:
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            """SELECT j.*,
+                      r.original_name AS video_name,
+                      r.duration_sec AS video_duration_sec,
+                      r.size_bytes   AS video_size_bytes
+               FROM analyze_jobs j
+               LEFT JOIN reference_videos r ON j.video_sha256 = r.sha256
+               ORDER BY j.created_at DESC"""
+        ).fetchall()
+    return pd.DataFrame([dict(r) for r in rows])
+
+
+@st.cache_data(ttl=30)
+def load_analyze_phases() -> pd.DataFrame:
+    with db.get_connection() as conn:
+        rows = conn.execute(
+            """SELECT job_id, phase, status, duration_ms, cost_usd,
+                      started_at, finished_at, error
+               FROM analyze_phases"""
+        ).fetchall()
+    return pd.DataFrame([dict(r) for r in rows])
+
+
 def overview_tab(perf: pd.DataFrame) -> None:
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("登録台本数", int(perf["screenplay_id"].nunique()) if not perf.empty else 0)
@@ -137,13 +163,103 @@ def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
         st.text(sp_row.get("raw_json") or "")
 
 
+PHASE_ORDER = (
+    "frames", "audio", "whisper", "acoustic", "bgm_detect",
+    "shots", "bgm_separate", "claude", "save",
+)
+
+
+def analyze_jobs_tab(jobs: pd.DataFrame, phases: pd.DataFrame) -> None:
+    if jobs.empty:
+        st.info("まだ analyze ジョブはありません。"
+                "UIの「参考動画から台本を生成」から実行してください。")
+        return
+
+    col1, col2, col3, col4 = st.columns(4)
+    col1.metric("総ジョブ数", len(jobs))
+    col2.metric("完了", int((jobs["status"] == "completed").sum()))
+    col3.metric("失敗", int((jobs["status"] == "failed").sum()))
+
+    cost_series = jobs.get("actual_cost_usd")
+    if cost_series is None:
+        cost_series = pd.Series(dtype=float)
+    if "estimated_cost_usd" in jobs.columns:
+        cost_series = cost_series.fillna(jobs["estimated_cost_usd"])
+    total_cost = float(cost_series.fillna(0).sum())
+    col4.metric("累計コスト (USD)", f"${total_cost:.3f}")
+
+    st.subheader("ジョブ一覧")
+    show_cols = [c for c in [
+        "id", "video_name", "status", "current_phase",
+        "estimated_cost_usd", "actual_cost_usd",
+        "created_at", "started_at", "finished_at", "error",
+    ] if c in jobs.columns]
+    st.dataframe(jobs[show_cols], use_container_width=True)
+
+    if phases.empty:
+        return
+
+    completed_phases = phases[phases["status"] == "completed"].copy()
+    if completed_phases.empty:
+        return
+
+    st.subheader("フェーズ別所要時間 (完了済みのみ)")
+    stats = completed_phases.groupby("phase").agg(
+        n=("duration_ms", "count"),
+        mean_ms=("duration_ms", "mean"),
+        median_ms=("duration_ms", "median"),
+        max_ms=("duration_ms", "max"),
+    ).reset_index()
+    stats["order"] = stats["phase"].map(
+        {p: i for i, p in enumerate(PHASE_ORDER)}
+    )
+    stats = stats.sort_values("order").drop(columns=["order"])
+    stats["mean_sec"] = (stats["mean_ms"] / 1000).round(2)
+    stats["median_sec"] = (stats["median_ms"] / 1000).round(2)
+    stats["max_sec"] = (stats["max_ms"] / 1000).round(2)
+    st.dataframe(
+        stats[["phase", "n", "mean_sec", "median_sec", "max_sec"]],
+        use_container_width=True,
+    )
+    chart_df = stats.set_index("phase")[["mean_sec"]]
+    if not chart_df.empty:
+        st.bar_chart(chart_df)
+
+    failure_phases = phases[phases["status"] == "failed"]
+    if not failure_phases.empty:
+        st.subheader("失敗フェーズ")
+        st.dataframe(
+            failure_phases[["job_id", "phase", "error", "finished_at"]],
+            use_container_width=True,
+        )
+
+    cost_data = jobs.copy()
+    cost_data["effective_cost"] = (
+        cost_data.get("actual_cost_usd", pd.Series(dtype=float))
+        .fillna(cost_data.get("estimated_cost_usd", pd.Series(dtype=float)))
+    )
+    cost_data = cost_data.dropna(subset=["started_at", "effective_cost"])
+    if not cost_data.empty:
+        st.subheader("日別コスト推移")
+        cost_data["date"] = pd.to_datetime(
+            cost_data["started_at"], utc=True, errors="coerce",
+        ).dt.date
+        daily = cost_data.groupby("date").agg(
+            cost_usd=("effective_cost", "sum"),
+            jobs=("id", "count"),
+        ).reset_index()
+        st.line_chart(daily.set_index("date")[["cost_usd"]])
+
+
 def main() -> None:
     st.title("Tensyoku Movie Analytics")
 
     perf = load_performance()
     screenplays = load_screenplays()
+    analyze_jobs = load_analyze_jobs()
+    analyze_phases = load_analyze_phases()
 
-    tabs = st.tabs(["概要", "フック別", "感情別", "台本詳細"])
+    tabs = st.tabs(["概要", "フック別", "感情別", "台本詳細", "分析ジョブ"])
     with tabs[0]:
         overview_tab(perf)
     with tabs[1]:
@@ -152,6 +268,8 @@ def main() -> None:
         emotion_tab(perf)
     with tabs[3]:
         detail_tab(perf, screenplays)
+    with tabs[4]:
+        analyze_jobs_tab(analyze_jobs, analyze_phases)
 
 
 if __name__ == "__main__":
