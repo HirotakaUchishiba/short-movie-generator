@@ -20,11 +20,15 @@ import log_setup
 import progress_store
 import scene_gen
 import staged_pipeline
+from analyze import job as analyze_job
+from analyze.cache import file_sha256
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
 
 app = Flask(__name__, static_folder=None)
+# 動画アップロード上限 (1GB、analyze 用 reference video)。
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024
 CORS(app)
 
 TEMP_DIR = config.TEMP_DIR
@@ -716,6 +720,93 @@ def asset_character(name):
     if os.path.exists(p):
         return send_file(p, mimetype="image/png")
     return "", 404
+
+
+# ───────────────── reference videos (analyze 用) ─────────────────
+
+@app.route("/api/reference_videos", methods=["POST"])
+def api_upload_reference_video():
+    """multipart で動画をアップロードし、content-addressed (sha256) で保存する。
+
+    既存 sha256 と一致する場合は dedup され既存メタを返す (HTTP 200)。
+    新規なら 201。
+    """
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "file required (multipart 'file' field)"}), 400
+
+    name = f.filename or "video"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in analyze_job.ALLOWED_VIDEO_EXTS:
+        return jsonify({
+            "error": f"unsupported extension: {ext}",
+            "allowed": list(analyze_job.ALLOWED_VIDEO_EXTS),
+        }), 400
+
+    ref_dir = analyze_job.reference_videos_dir()
+    tmp = ref_dir / f".tmp_{uuid.uuid4().hex}{ext}"
+    try:
+        f.save(str(tmp))
+        sha = file_sha256(str(tmp))
+        size = os.path.getsize(tmp)
+
+        existing = analyze_job.get_reference_video(sha)
+        if existing:
+            tmp.unlink(missing_ok=True)
+            analyze_job.touch_reference_video(sha)
+            return jsonify({
+                "sha256": sha,
+                "size_bytes": existing["size_bytes"],
+                "duration_sec": existing["duration_sec"],
+                "original_name": existing["original_name"],
+                "deduplicated": True,
+            }), 200
+
+        final_path = ref_dir / f"{sha}{ext}"
+        tmp.replace(final_path)
+
+        duration = _ffprobe_duration(str(final_path))
+        original = os.path.basename(name)
+        analyze_job.upsert_reference_video(
+            sha, original_name=original,
+            size_bytes=size, duration_sec=duration,
+        )
+        return jsonify({
+            "sha256": sha,
+            "size_bytes": size,
+            "duration_sec": duration,
+            "original_name": original,
+            "deduplicated": False,
+        }), 201
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+@app.route("/api/reference_videos", methods=["GET"])
+def api_list_reference_videos():
+    return jsonify({"reference_videos": analyze_job.list_reference_videos()})
+
+
+@app.route("/api/reference_videos/<sha>", methods=["DELETE"])
+def api_delete_reference_video(sha):
+    if not re.match(r'^[a-f0-9]{64}$', sha):
+        return jsonify({"error": "invalid sha256 (64 hex chars required)"}), 400
+
+    deleted = analyze_job.delete_reference_video(sha)
+    if not deleted:
+        return jsonify({
+            "error": "video is referenced by analyze jobs",
+        }), 409
+
+    file_path = analyze_job.reference_video_path(sha)
+    if file_path and os.path.exists(file_path):
+        os.unlink(file_path)
+        return jsonify({"sha256": sha, "deleted": True}), 200
+    return jsonify({
+        "sha256": sha, "deleted": True,
+        "warning": "DB row deleted but file not found",
+    }), 200
 
 
 # ───────────────── 静的設定 ─────────────────

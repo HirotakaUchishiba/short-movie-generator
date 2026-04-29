@@ -13,12 +13,15 @@ started_at / finished_at / duration_ms / cost_usd / error を蓄積する。
 """
 import json
 import logging
+import os
 import sqlite3
 import uuid
 from dataclasses import dataclass
 from datetime import datetime, timezone
+from pathlib import Path
 from typing import Any
 
+import config
 from analytics import db as _db
 
 logger = logging.getLogger(__name__)
@@ -44,6 +47,23 @@ PHASES = (
     "claude",
     "save",
 )
+
+REFERENCE_VIDEOS_DIR = Path(config.BASE_DIR) / "assets" / "reference_videos"
+ALLOWED_VIDEO_EXTS = (".mov", ".mp4", ".webm", ".mkv")
+
+
+def reference_video_path(sha256: str) -> str | None:
+    """sha256 に対応する reference video のファイルパスを返す。無ければ None。"""
+    for ext in ALLOWED_VIDEO_EXTS:
+        p = REFERENCE_VIDEOS_DIR / f"{sha256}{ext}"
+        if p.exists():
+            return str(p)
+    return None
+
+
+def reference_videos_dir() -> Path:
+    REFERENCE_VIDEOS_DIR.mkdir(parents=True, exist_ok=True)
+    return REFERENCE_VIDEOS_DIR
 
 
 @dataclass
