@@ -134,8 +134,52 @@ _BREAK_SPACE = "　 "
 _BREAK_DOT = "・"
 # 主要助詞 (1文字)
 _BREAK_PARTICLES_1CHAR = set("はがをにでとやもへ")
-# よく字幕末尾に来る終助詞 (これらの「直前」で切る)
-_BREAK_TERMINAL = set("ねよかなさよ")
+# 終助詞 (これらの「直前」で切る) — 文末が明確なものに限定。
+# 「な/か/よ」は会話表現で「かな」「なあ」のように続くことが多いため除外
+# (代わりに _FORBIDDEN_BIGRAMS で結合を保護する)。
+_BREAK_TERMINAL = set("ねさ")
+
+# 「絶対に切ってはいけない」2 文字パターン。
+# 助動詞 / 補助動詞 / 活用形 / 慣用結合 の中央で分断するのを防ぐ。
+# left=text[i-1], right=text[i] の bigram を _FORBIDDEN_BIGRAMS と照合する。
+_FORBIDDEN_BIGRAMS: frozenset[str] = frozenset({
+    # 助動詞 (です / ます 系)
+    "です", "でし", "でし", "でき",
+    "ます", "まし", "ませ",
+    "した", "して", "しま", "しょ",
+    "せん", "せる", "され", "した",
+    # 完了 / 過去
+    "った", "って", "っち", "っぱ", "っと", "っく", "っき", "っぽ", "っす", "っ！", "っ？",
+    "だっ", "なっ", "あっ", "いっ", "うっ", "とっ", "やっ", "もっ", "知っ",
+    # 否定
+    "ない", "なく", "なか", "なし",
+    # 受身 / 可能 / 使役
+    "れる", "られ", "れた", "せる", "させ",
+    # 願望 / 意思
+    "たい", "たく", "たか", "よう", "ろう",
+    # 進行形 / 結果
+    "てる", "てい", "でる", "でい",
+    # 縮約形
+    "じゃ", "ちゃ", "ちょ", "きゃ",
+    # 接続
+    "だが", "だけ", "だし", "けど", "ので", "のに",
+    "から", "まで", "より", "とか", "って",
+    # 形容詞活用末尾
+    "くな", "かっ", "かろ",
+    # 終助詞・感嘆 (会話表現の最後)
+    "かな", "かね", "かよ", "なあ", "なぁ", "なー", "な〜",
+    "だな", "だね", "だよ", "だぁ", "だー", "わよ", "わね", "わな",
+    "んだ", "んね", "るん", "んな", "んよ",
+    "ねぇ", "ねー", "よね", "よな", "よぉ", "よう", "けど",
+    # 数字 + 単位
+    "1ヶ", "2ヶ", "3ヶ", "4ヶ", "5ヶ", "6ヶ", "7ヶ", "8ヶ", "9ヶ", "0ヶ",
+    "1万", "1億", "1千", "1百",
+})
+
+
+def _is_forbidden_break(left: str, right: str) -> bool:
+    """この left|right 境界で切ったら不自然になるか。"""
+    return (left + right) in _FORBIDDEN_BIGRAMS
 
 
 def _is_katakana(ch: str) -> bool:
@@ -152,11 +196,15 @@ def _is_hiragana(ch: str) -> bool:
 
 def _break_score_at(text: str, i: int) -> int:
     """位置 i で text を [:i] と [i:] に分けるときのスコア。
-    高いほど切るのに自然。"""
+    高いほど切るのに自然、負は「絶対に切らない」を意味する。"""
     if i <= 0 or i >= len(text):
         return 0
     left = text[i - 1]
     right = text[i]
+
+    # ★★★★ 絶対に切ってはいけない (= 助動詞 / 活用形 / 慣用結合の中)
+    if _is_forbidden_break(left, right):
+        return -1000
 
     # ★★★ 強い改行点
     if left in _BREAK_STRONG:
@@ -173,66 +221,107 @@ def _break_score_at(text: str, i: int) -> int:
     if right in _BREAK_TERMINAL:
         return 70
 
-    # ★★ 主要助詞の直後
+    # ★★ 主要助詞の直後 (= 助詞→次の本文)
     if left in _BREAK_PARTICLES_1CHAR:
-        # 直前が「ま」「て」「し」など (= 動詞活用形末尾) の場合は降格
-        # (例: 「ます」「て」が来る活用語尾は助詞ではない)
-        # 簡易チェック: 直前 2 文字が活用語尾っぽければ降格
-        if i >= 2 and text[i - 2] in "まてしっなき":
-            return 30
+        # right が漢字/カタカナ/数字/記号なら「真の助詞境界」 (本文への切替) → 60
+        # right がひらがなの場合、left は実は助詞でなく動詞活用末尾の可能性が
+        # 高い (例: 「ま+に+あう」「な+に+を」)。降格する。
+        rh = _is_hiragana(right)
+        if rh:
+            return 5
+        # ただし right が補助動詞末尾候補 (す/た/て/り/っ) なら降格
+        if right in "すたてりっ":
+            return 10
         return 60
 
-    # ★ カタカナ↔漢字/ひらがな 境界
-    lk = _is_katakana(left)
-    rk = _is_katakana(right)
-    if lk != rk:
-        return 35
-
-    # ★ ひらがな↔漢字 境界
+    # ★ ひらがな → 漢字 境界 (= 助詞・送り仮名から本文への切替)
     lh = _is_hiragana(left)
     rh = _is_hiragana(right)
     lj = _is_kanji(left)
     rj = _is_kanji(right)
-    if (lh and rj) or (lj and rh):
-        return 25
+    if lh and rj:
+        return 30
+
+    # ★ カタカナ ↔ 漢字 / ひらがな (複合語境界)
+    lk = _is_katakana(left)
+    rk = _is_katakana(right)
+    if lk != rk:
+        # ただし right がひらがな 1 文字目で「っ/た/て/す/り」 (= 動詞活用形)
+        # の場合は降格 (例: "テスト" + "を" は 60 で別経路)
+        if rh and right in "すたてりっなく":
+            return 5
+        return 35
+
+    # ☆ 漢字 → ひらがな は基本的に切らない (動詞 + 送り仮名)
+    # 例: 「行」+「く」「来」+「た」を分断したくない
+    if lj and rh:
+        return 0
+
+    # ☆ ひらがな ↔ ひらがな は基本切らない (= 同一語の中)
+    if lh and rh:
+        return 0
 
     return 0
 
 
 def _split_into_chunks(text: str, max_chars: int) -> list[str]:
-    """日本語テキストを最大 max_chars 文字の chunks に分割する。
+    """日本語テキストを最大 max_chars 文字の chunks に分割する (ホワイトリスト方式)。
 
-    句読点・助詞境界・文字種境界を優先 (= _break_score_at の score 順)。
-    自然な break point が見つからない場合は強制位置で切って WARNING ログを出す。
+    切ってよいのは _break_score_at が **正のスコア** を返す位置のみ:
+      ★★★ 句読点 / スペース / 鉤括弧境界
+      ★★  助詞直後 (right が漢字/カタカナ/数字/記号のときだけ) / 終助詞直前
+      ★   カタカナ↔漢字 / ひらがな→漢字 境界
+    `_FORBIDDEN_BIGRAMS` の中、漢字↔ひらがな (= 動詞+送り仮名)、ひらがな↔ひらがな
+    の中ではスコア 0 か負になり、絶対に切らない。
+
+    max_chars は「目標値」であって硬い上限ではない。自然な break point が無い
+    場合は max_chars を超えてでも (rest 全体まで) 探索を続け、それでも無ければ
+    1 chunk としてそのまま残す。**機械的・不自然な分断は絶対しない方針**。
     """
     if max_chars <= 0 or len(text) <= max_chars:
         return [text] if text else []
 
     chunks: list[str] = []
     rest = text
-    while len(rest) > max_chars:
+    safety = 0
+    while len(rest) > max_chars and safety < 200:
+        safety += 1
         ideal = max_chars
-        # 探索範囲: ideal - (ideal/2 程度) 〜 ideal+1
-        # 8 文字制約だと探索幅は ±4 文字
-        search_back = max(2, max_chars // 2)
-        lo = max(1, ideal - search_back)
-        hi = min(len(rest) - 1, ideal)
         best_pos: int | None = None
-        best_score = 0
-        for i in range(hi, lo - 1, -1):
+        best_score = 0  # ホワイトリスト: 正のスコアのみ採用 (0 は不採用)
+
+        # Phase 1: ideal 周辺 ±9 を探索
+        lo1 = max(2, max_chars - 9)
+        hi1 = min(len(rest) - 1, max_chars + 4)
+        for i in range(hi1, lo1 - 1, -1):
             s = _break_score_at(rest, i)
-            # ideal からの距離ペナルティ (1 文字につき 3 点)
-            s -= abs(i - ideal) * 3
-            if s > best_score:
-                best_score = s
+            if s <= 0:
+                continue
+            s_adj = s - abs(i - ideal) * 2
+            if s_adj > best_score:
+                best_score = s_adj
                 best_pos = i
 
-        if best_pos is None or best_score <= 0:
-            best_pos = ideal
+        # Phase 2: 周辺で見つからなければ全範囲をスキャン (距離ペナルティ弱)
+        if best_pos is None:
+            for i in range(2, len(rest)):
+                s = _break_score_at(rest, i)
+                if s <= 0:
+                    continue
+                # 全範囲なので距離ペナルティを軽く (1点)
+                s_adj = s - abs(i - ideal) * 1
+                if s_adj > best_score:
+                    best_score = s_adj
+                    best_pos = i
+
+        if best_pos is None:
+            # 自然な break point がどこにも無い → 分断せず 1 chunk として残す
             logger.warning(
-                "[subtitle chunks] 自然な break point が見つからず ideal=%d で強制分割: %r",
-                ideal, rest[:max_chars * 2],
+                "[subtitle chunks] 自然な break point が rest 全体に見つからず "
+                "1 chunk として保持: %r",
+                rest,
             )
+            break
 
         chunks.append(rest[:best_pos])
         rest = rest[best_pos:]

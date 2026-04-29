@@ -212,14 +212,16 @@ def test_wrap_brackets_do_not_split_internally() -> None:
         assert "「" not in line[1:-1] or line.startswith("「") or line.endswith("「")
 
 
-def test_wrap_force_break_with_warning(caplog) -> None:
-    """break point が無い超長文は強制分割 + warning ログ。"""
+def test_wrap_no_force_break_for_unbreakable_text(caplog) -> None:
+    """自然な break point が無い超長文は分断せず 1 chunk として保持 + warning。
+    機械的・不自然な分断は絶対しない方針。"""
     import logging
     text = "ABCDEFGHIJKLMNOPQRSTUVWXYZ"  # 26文字、break 候補ゼロ
     with caplog.at_level(logging.WARNING, logger="compositor"):
         out = compositor._wrap_subtitle_text(text, max_chars=10)
-    assert "\n" in out
-    assert any("強制分割" in rec.message for rec in caplog.records)
+    # 1 chunk のまま (= 改行されない)
+    assert out == text
+    assert any("自然な break point" in rec.message for rec in caplog.records)
 
 
 def test_wrap_idempotent_on_already_short_text() -> None:
@@ -406,6 +408,81 @@ def test_build_overlay_chunk_files_each_within_max(tmp_path, monkeypatch) -> Non
         assert "\n" not in content
         # 文字数も max_chars + 探索余裕 以内
         assert len(content) <= 12
+
+
+def test_split_never_breaks_at_forbidden_bigrams() -> None:
+    """実台本のセリフを全部試して、chunks 境界に _FORBIDDEN_BIGRAMS が
+    出現しないことを保証する (機械的・不自然な分断の絶対回避)。"""
+    real_lines = [
+        "8時50分！？",
+        "あともう5分",
+        "やばいやばい寝過ぎた！",
+        "業務開始します！",
+        "ふうー間に合った セーフ！",
+        "うわーこれ納期まにあうかなぁ",
+        "あ、クライアントからだ",
+        "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」",
+        "やったー！今日飲み行っちゃおうかな〜",
+        "おっと、今日研修も受けないと！",
+        "IT未経験で不安だったけど",
+        "eラーニングとか研修制度も充実してるから安心だなあ！",
+        "スタンドデスクまじで便利〜",
+        "ずっと座ってると腰痛くなるからな〜",
+        "あ、もう昼ご飯か",
+        "一旦スーパー行って晩御飯も作っちゃうか！",
+        "この道案内のアプリ私がちょっと作ったんだよな",
+        "実際に使ってるところ見るとなんだか嬉しいな！",
+        "山根さん転職するんだ！",
+        "え 年収200万アップ！？",
+        "お客さんからの引き抜きの誘いってまじであるんだ！",
+        "よし今日も終わった！",
+        "お風呂入ろう！",
+        "在宅ワークだし手に職つくしITエンジニア最高すぎる！！",
+    ]
+    forbidden = compositor._FORBIDDEN_BIGRAMS
+    failures = []
+    for text in real_lines:
+        chunks = compositor._split_into_chunks(text, max_chars=12)
+        for j in range(len(chunks) - 1):
+            boundary = chunks[j][-1] + chunks[j + 1][0]
+            if boundary in forbidden:
+                failures.append(
+                    (text, boundary, chunks[j], chunks[j + 1])
+                )
+    assert not failures, (
+        "禁止 bigram での分断を検出: "
+        + "\n".join(
+            f"  {t!r} → {a!r} | {b!r} (bigram={bg!r})"
+            for t, bg, a, b in failures
+        )
+    )
+
+
+def test_split_chunk_length_within_reasonable_max() -> None:
+    """各 chunk が max_chars + 余裕分 (= 4 文字) 以内に収まる。
+    自然な break point が無いケースでは超過するが警告ログが出る前提。"""
+    real_lines = [
+        "8時50分！？",
+        "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」",
+        "在宅ワークだし手に職つくしITエンジニア最高すぎる！！",
+        "実際に使ってるところ見るとなんだか嬉しいな！",
+    ]
+    for text in real_lines:
+        chunks = compositor._split_into_chunks(text, max_chars=12)
+        for c in chunks:
+            # 12 + 4 = 16 文字以内 (探索範囲拡張分)
+            assert len(c) <= 16, f"chunk too long: {c!r} from {text!r}"
+
+
+def test_split_does_not_break_after_ma_in_verb() -> None:
+    """「ま」を含む動詞活用形 (まにあう / まで / ます) で分断されない。"""
+    text = "うわーこれ納期まにあうかなぁ"
+    chunks = compositor._split_into_chunks(text, max_chars=12)
+    # 「まにあう」が分断されていないこと
+    assert all("まにあう" not in (chunks[j][-2:] + chunks[j + 1][:2])
+               for j in range(len(chunks) - 1)) or \
+           all(not (chunks[j].endswith("ま") and chunks[j + 1].startswith("に"))
+               for j in range(len(chunks) - 1))
 
 
 def test_build_overlay_chunk_timings_consecutive(tmp_path, monkeypatch) -> None:

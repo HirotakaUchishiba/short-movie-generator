@@ -49,8 +49,12 @@ SUBTITLE_MAX_CHARS_PER_LINE = 17
 # True の場合、各 line.text を SUBTITLE_CHUNK_MAX_CHARS 文字以内の chunks に
 # 自動分割し、line.start - line.end の間で文字数比例で時刻を割り当てる。
 # False の場合は 1 line = 1 字幕表示 (従来動作)。
+#
+# MAX_CHARS は「許容上限」であって目標ではない。短いほうが視認しやすいが、
+# 「です/ます」のような活用形末尾の途中分断を絶対に避けるため探索余裕が必要。
+# 12 文字程度あれば日本語の自然な助詞・句読点境界がほぼ常に見つかる。
 SUBTITLE_CHUNK_ENABLED = True
-SUBTITLE_CHUNK_MAX_CHARS = 8
+SUBTITLE_CHUNK_MAX_CHARS = 12
 
 ELEVENLABS_VOICE_ID = "0ptCJp0xgdabdcpVtCB5"
 ELEVENLABS_VOICE_STABILITY = 0.5
