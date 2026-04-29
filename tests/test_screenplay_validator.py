@@ -8,7 +8,6 @@ def _valid_screenplay() -> dict:
         "caption": "会社選びが何より大切です\n\n#未経験 #転職",
         "scenes": [
             {
-                "time": "9:00",
                 "label": "始業",
                 "duration": 5.0,
                 "background_prompt": "オフィスで考え込む男性 cinematic lighting",
@@ -110,12 +109,6 @@ def test_no_lines_allowed() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-def test_title_overlay_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["title_overlay"] = "未経験から\nITエンジニアに転職した末路"
-    screenplay_validator.validate_screenplay(sp)
-
-
 def test_audio_mode_silent_allowed() -> None:
     sp = _valid_screenplay()
     sp["audio_mode"] = "silent"
@@ -157,7 +150,6 @@ def test_line_delivery_allowed() -> None:
 def test_line_acoustic_allowed() -> None:
     sp = _valid_screenplay()
     sp["scenes"][0]["lines"][0]["acoustic"] = {
-        "pitch_hz_mean": 285,
         "pitch_trend": "rising",
         "rms_peak": 0.72,
         "wpm": 480,
@@ -179,19 +171,6 @@ def test_line_pronunciation_hints_allowed() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-def test_pause_and_breath_fields_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["lines"][0]["pause_before"] = 0.4
-    sp["scenes"][0]["lines"][0]["breath_before"] = True
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_field_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["lines"][0]["speaker"] = "主人公"
-    screenplay_validator.validate_screenplay(sp)
-
-
 def test_hidden_field_allowed() -> None:
     sp = _valid_screenplay()
     sp["scenes"][0]["lines"][0]["hidden"] = True
@@ -204,6 +183,7 @@ def test_hidden_field_must_be_boolean() -> None:
     sp["scenes"][0]["lines"][0]["hidden"] = "yes"
     with pytest.raises(Exception):
         screenplay_validator.validate_screenplay(sp)
+
 
 
 def test_characters_name_role_only_allowed() -> None:

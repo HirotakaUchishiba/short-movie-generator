@@ -28,7 +28,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
 
     Returns:
         {
-            "pitch_hz_mean": float,
             "pitch_hz_max": float,
             "pitch_trend": "rising" | "falling" | "flat",
             "rms_peak": float,      # 0.0-1.0
@@ -47,7 +46,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
 
         if len(y) < sr // 20:
             return {
-                "pitch_hz_mean": 0.0,
                 "pitch_hz_max": 0.0,
                 "pitch_trend": "flat",
                 "rms_peak": 0.0,
@@ -63,7 +61,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
             f0 = np.array([])
 
         if len(f0) > 0:
-            pitch_mean = float(np.mean(f0))
             pitch_max = float(np.max(f0))
             first_half = f0[: len(f0) // 2]
             second_half = f0[len(f0) // 2 :]
@@ -78,7 +75,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
             else:
                 trend = "flat"
         else:
-            pitch_mean = 0.0
             pitch_max = 0.0
             trend = "flat"
 
@@ -87,7 +83,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
         rms_mean = float(np.mean(rms)) if len(rms) else 0.0
 
         return {
-            "pitch_hz_mean": round(pitch_mean, 1),
             "pitch_hz_max": round(pitch_max, 1),
             "pitch_trend": trend,
             "rms_peak": round(rms_peak, 3),
@@ -109,171 +104,6 @@ def wpm_from_text(text: str, duration: float) -> float:
     if duration <= 0:
         return 0.0
     return round(chars / duration * 60.0, 1)
-
-
-def detect_pauses(audio_path: str, min_pause: float = 0.3,
-                  silence_db: float = -40.0) -> list[dict]:
-    """音声ファイル内の無音区間（ポーズ）を検出する。
-
-    Returns:
-        [{"start": 1.23, "end": 1.78, "duration": 0.55}, ...]
-    """
-    import numpy as np
-    import librosa
-
-    wav_path, is_tmp = _ensure_wav(audio_path)
-    try:
-        y, sr = librosa.load(wav_path, sr=16000, mono=True)
-        if len(y) == 0:
-            return []
-
-        intervals = librosa.effects.split(
-            y, top_db=abs(silence_db),
-            frame_length=2048, hop_length=512,
-        )
-
-        pauses: list[dict] = []
-        prev_end_sample = 0
-        for start_sample, end_sample in intervals:
-            gap_start = prev_end_sample / sr
-            gap_end = start_sample / sr
-            gap_dur = gap_end - gap_start
-            if gap_dur >= min_pause:
-                pauses.append({
-                    "start": round(gap_start, 3),
-                    "end": round(gap_end, 3),
-                    "duration": round(gap_dur, 3),
-                })
-            prev_end_sample = end_sample
-
-        total_dur = len(y) / sr
-        tail_gap = total_dur - prev_end_sample / sr
-        if tail_gap >= min_pause:
-            pauses.append({
-                "start": round(prev_end_sample / sr, 3),
-                "end": round(total_dur, 3),
-                "duration": round(tail_gap, 3),
-            })
-
-        return pauses
-    finally:
-        if is_tmp:
-            import os
-            try:
-                os.remove(wav_path)
-            except OSError:
-                pass
-
-
-def detect_breath_before(audio_path: str, line_start: float,
-                          window: float = 0.4) -> bool:
-    """指定lineの開始直前に短い吸気音らしき低エネルギーバーストがあるか判定する。
-    厳密な呼吸検出ではなく、間の質を区別するヒューリスティック。
-    """
-    import numpy as np
-    import librosa
-
-    if line_start - window < 0:
-        return False
-
-    wav_path, is_tmp = _ensure_wav(audio_path)
-    try:
-        y, sr = librosa.load(wav_path, sr=16000, mono=True,
-                              offset=max(0, line_start - window),
-                              duration=window)
-        if len(y) < sr // 20:
-            return False
-
-        rms = librosa.feature.rms(y=y, frame_length=512, hop_length=128)[0]
-        if len(rms) == 0:
-            return False
-        threshold = float(np.max(rms)) * 0.4
-        active = (rms > threshold).sum()
-        ratio = active / len(rms)
-        return 0.05 < ratio < 0.5
-    finally:
-        if is_tmp:
-            import os
-            try:
-                os.remove(wav_path)
-            except OSError:
-                pass
-
-
-def voice_profile(audio_path: str) -> dict:
-    """音声全体からpitch分布を取得して話者プロファイルを推定する。
-
-    Returns:
-        {
-            "pitch_hz_median": float,
-            "pitch_hz_p10": float,
-            "pitch_hz_p90": float,
-            "estimated_gender": "female" | "male" | "ambiguous",
-            "estimated_age_range": "child" | "young_adult" | "adult" | "senior",
-        }
-    """
-    import numpy as np
-    import librosa
-
-    wav_path, is_tmp = _ensure_wav(audio_path)
-    try:
-        y, sr = librosa.load(wav_path, sr=16000, mono=True)
-        if len(y) < sr:
-            return {
-                "pitch_hz_median": 0.0,
-                "pitch_hz_p10": 0.0,
-                "pitch_hz_p90": 0.0,
-                "estimated_gender": "ambiguous",
-                "estimated_age_range": "adult",
-            }
-
-        f0 = librosa.yin(y, fmin=70, fmax=500, sr=sr,
-                         frame_length=2048, hop_length=512)
-        f0 = f0[~np.isnan(f0)]
-        f0 = f0[(f0 > 70) & (f0 < 500)]
-        if len(f0) == 0:
-            return {
-                "pitch_hz_median": 0.0,
-                "pitch_hz_p10": 0.0,
-                "pitch_hz_p90": 0.0,
-                "estimated_gender": "ambiguous",
-                "estimated_age_range": "adult",
-            }
-
-        median = float(np.median(f0))
-        p10 = float(np.percentile(f0, 10))
-        p90 = float(np.percentile(f0, 90))
-
-        if median >= 200:
-            gender = "female"
-        elif median <= 145:
-            gender = "male"
-        else:
-            gender = "ambiguous"
-
-        if median >= 280:
-            age = "young_adult"
-        elif median >= 200:
-            age = "adult"
-        elif median >= 130:
-            age = "adult"
-        else:
-            age = "senior"
-
-        return {
-            "pitch_hz_median": round(median, 1),
-            "pitch_hz_p10": round(p10, 1),
-            "pitch_hz_p90": round(p90, 1),
-            "estimated_gender": gender,
-            "estimated_age_range": age,
-        }
-    finally:
-        if is_tmp:
-            import os
-            try:
-                os.remove(wav_path)
-            except OSError:
-                pass
 
 
 def detect_action_complete(video_path: str,

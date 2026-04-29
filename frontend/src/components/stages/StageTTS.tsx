@@ -639,7 +639,7 @@ function SceneTTSCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
         <h3 className="font-semibold">
           シーン{sIdx + 1}{" "}
           <span className="text-slate-400 text-sm font-normal">
-            {scene.time} {scene.label} ({scene.duration}s · {lines.length}lines)
+            ({scene.duration}s · {lines.length}lines)
           </span>
         </h3>
         <span className="text-xs text-slate-400">

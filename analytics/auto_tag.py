@@ -32,11 +32,9 @@ def classify_screenplay(screenplay: dict, api_key: str | None = None) -> dict:
 
     minimal = {
         "caption": screenplay.get("caption"),
-        "title_overlay": screenplay.get("title_overlay"),
         "audio_mode": screenplay.get("audio_mode"),
         "scenes": [
             {
-                "time": s.get("time"),
                 "label": s.get("label"),
                 "duration": s.get("duration"),
                 "lines": [

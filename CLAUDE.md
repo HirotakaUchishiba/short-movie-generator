@@ -34,7 +34,7 @@ python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 
 | Stage      | アーティファクト                                     | 主な確認内容                                     |
 | ---------- | ---------------------------------------------------- | ------------------------------------------------ |
-| 1. script  | `metadata.json` + 台本検証                           | caption/title_overlay/シーン構成/lines整合性     |
+| 1. script  | `metadata.json` + 台本検証                           | caption/シーン構成/lines整合性                   |
 | 2. tts     | `tmp/tts_<S>_<L>.mp3`                                | 各セリフの発音/感情/速度/voice_id                |
 | 3. bg      | `tmp/bg_<S>.png`                                     | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入 |
 | 4. kling   | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`       | 動き・キャラ崩壊・動作完了点                     |
@@ -96,7 +96,6 @@ rm screenplays/drafts/<名前>.json
 ```json
 {
   "caption": "会社選びが何より大切です\n\n#未経験 #it業界 #転職",
-  "title_overlay": "未経験から\nITエンジニアに転職した末路",
   "audio_mode": "voiced",
   "bgm_path": "/abs/path/assets/bgm/<name>_bgm.wav",
   "bgm_volume_db": -18,
@@ -114,7 +113,6 @@ rm screenplays/drafts/<名前>.json
   },
   "scenes": [
     {
-      "time": "9:00",
       "label": "始業",
       "duration": 5.0,
       "location_ref": "home_office",
@@ -156,17 +154,15 @@ rm screenplays/drafts/<名前>.json
 
 ### フィールド仕様
 
-| ルート          | 型                       | 説明                                             |
-| --------------- | ------------------------ | ------------------------------------------------ |
-| `caption`       | string(必須)             | SNS投稿用キャプション本文＋ハッシュタグ          |
-| `title_overlay` | string(任意)             | 動画上部固定の黄色帯タイトル。`\n`改行可         |
-| `audio_mode`    | `"voiced"` \| `"silent"` | 既定`voiced`。silentはTTS/リップシンクをスキップ |
-| `scenes[]`      | array(必須)              | シーン配列。各シーン=1Klingクリップ              |
+| ルート       | 型                       | 説明                                             |
+| ------------ | ------------------------ | ------------------------------------------------ |
+| `caption`    | string(必須)             | SNS投稿用キャプション本文＋ハッシュタグ          |
+| `audio_mode` | `"voiced"` \| `"silent"` | 既定`voiced`。silentはTTS/リップシンクをスキップ |
+| `scenes[]`   | array(必須)              | シーン配列。各シーン=1Klingクリップ              |
 
 | シーン              | 説明                                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `time`              | 画面下部の大文字時刻（例 `"8:50"`）                                                                                    |
-| `label`             | 時刻の下の日本語ラベル（例 `"起床"`）                                                                                  |
+| `label`             | シーンの日本語ラベル（例 `"起床"`）。動画には焼き込まれず、UI/LLM 補助情報                                             |
 | `duration`          | シーン秒数（3以上）。Klingは5/10sで生成し台本値にtrim                                                                  |
 | `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される         |
 | `location_ref`      | `root.location_continuity` のキー。同一動画内のロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                      |
@@ -186,9 +182,6 @@ rm screenplays/drafts/<名前>.json
 | `acoustic`            | librosa由来のpitch/rms/wpm。**自動活用**: `wpm`→rate算出、`pitch_trend`→style微調整、`rms_peak`→ffmpeg音量±dB              |
 | `voice_overrides`     | 特定lineに限定したElevenLabs paramの明示上書き。`emotion`プリセットより優先                                                |
 | `pronunciation_hints` | TTS送信前のテキスト置換（例 `{"IT": "アイティー"}`）                                                                       |
-| `pause_before`        | このline直前に挿入する無音秒数（タイミング遅延）                                                                           |
-| `breath_before`       | true なら `BREATH_DEFAULT_DURATION` 秒分の遅延を入れる（吸気間）                                                           |
-| `speaker`             | 発話者。`scenes[].characters[].name` と対応（複数キャラシーン用）                                                          |
 
 | シーン拡張          | 説明                                                                                 |
 | ------------------- | ------------------------------------------------------------------------------------ |
@@ -229,7 +222,7 @@ python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-sho
 
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
-- librosa で各phraseの pitch/rms/wpm に加え、無音区間・呼吸音・話者プロファイル・BGM存在判定を抽出
+- librosa で各phraseの pitch/rms/wpm に加え、BGM存在判定を抽出
 - demucs (なければ HPSS) で BGM を分離して `assets/bgm/<name>_bgm.wav` に保存し、screenplay に `bgm_path` として紐付け
 - 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力には characters/wardrobe/facial_expression/hand_gesture も含む
 - 所要コスト: 約250〜400円/本（フレーム数に応じて変動）
@@ -293,26 +286,18 @@ LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等)
 
 `acoustic` の各値は scene_gen で以下のように自動消費される:
 
-| メタ                             | 使われ方                                                                   |
-| -------------------------------- | -------------------------------------------------------------------------- |
-| `acoustic.wpm`                   | `WPM_BASELINE`(=280) を基準に `rate` を自動算出。`rate` 明示があれば上書き |
-| `acoustic.pitch_trend`           | `rising`→TTS style +0.10、`falling`→-0.05                                  |
-| `acoustic.rms_peak`              | <0.30→TTS音声を `-6dB` で生成、>0.55→`+3dB`。中間は手付かず                |
-| `delivery`                       | `[delivery] text` の inline tag として eleven_v3 へ送信                    |
-| `pause_before` / `breath_before` | line開始タイミングを遅らせて間を作る                                       |
-
-## 話者プロファイル → voice_id 自動選択
-
-`_analysis.voice_profile`（analyze_video.py が自動付与）から:
-
-- pitch_hz_median × estimated_gender → `config.VOICE_LIBRARY` の中から最も近いElevenLabs voice を選択
-- 個別 `voice_overrides.voice_id` があればそちら優先
+| メタ                   | 使われ方                                                                   |
+| ---------------------- | -------------------------------------------------------------------------- |
+| `acoustic.wpm`         | `WPM_BASELINE`(=280) を基準に `rate` を自動算出。`rate` 明示があれば上書き |
+| `acoustic.pitch_trend` | `rising`→TTS style +0.10、`falling`→-0.05                                  |
+| `acoustic.rms_peak`    | <0.30→TTS音声を `-6dB` で生成、>0.55→`+3dB`。中間は手付かず                |
+| `delivery`             | `[delivery] text` の inline tag として eleven_v3 へ送信                    |
 
 ## オーバーレイ
 
 最終動画には **字幕 (lines[].text) のみ** を焼き込む。タイトル帯/時刻表示/ラベル/インサート画像/ポップアップなどのオーバーレイは廃止。
 
-`title_overlay` / `scenes[].time` / `scenes[].label` フィールドは残しているが画面には描画されない。台本のメタ情報（分析DB保存・参考動画解析時のフック表現）として活用される。
+`scenes[].label` は動画には描画されない。シーン識別用のメタ情報として UI 表示と auto_animation_prompt の LLM 補助入力に使われる。
 
 ### 字幕の手動チャンク制御
 

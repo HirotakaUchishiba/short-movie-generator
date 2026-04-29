@@ -138,7 +138,7 @@ function BGCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
           loading="lazy"
         />
         <div className="absolute top-1 left-2 text-xs bg-black/60 px-1.5 py-0.5 rounded">
-          {scene.time} {scene.label}
+          シーン{sIdx + 1}
         </div>
       </div>
       <div className="space-y-2">

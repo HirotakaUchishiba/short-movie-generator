@@ -170,7 +170,7 @@ function KlingCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
       </div>
       <div className="flex justify-between items-center text-xs text-slate-400 mb-2">
         <span>
-          シーン{sIdx + 1} · {scene.time} {scene.label} · {scene.duration}s
+          シーン{sIdx + 1} · {scene.duration}s
         </span>
         <button
           className="btn-ghost text-xs"

@@ -1,18 +1,4 @@
 {
-  "_analysis": {
-    "analyzer_model": "claude-opus-4-7",
-    "confidence": "high",
-    "input_tokens": 190472,
-    "output_tokens": 12646,
-    "source_video": "/Users/hirotaka/Desktop/Tiktokダウンロード動画.mov",
-    "voice_profile": {
-      "estimated_age_range": "young_adult",
-      "estimated_gender": "female",
-      "pitch_hz_median": 282.4,
-      "pitch_hz_p10": 168,
-      "pitch_hz_p90": 415.8
-    }
-  },
   "audio_mode": "voiced",
   "bgm_path": "/Users/hirotaka/Projects/tensyoku_movie_generator/assets/bgm/Tiktokダウンロード動画_bgm.wav",
   "bgm_volume_db": -18,
@@ -32,7 +18,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 335,
             "pitch_trend": "rising",
             "rms_peak": 0.43,
             "wpm": 180
@@ -45,7 +30,6 @@
           },
           "rate": "+25%",
           "silence_after_ms": 0,
-          "speaker": "主人公",
           "start": 0.4,
           "text": "8時50分！？",
           "voice_overrides": {
@@ -57,7 +41,6 @@
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 240,
             "pitch_trend": "falling",
             "rms_peak": 0.35,
             "wpm": 160
@@ -68,7 +51,6 @@
           "pronunciation_hints": {
             "5分": "ゴフン"
           },
-          "speaker": "主人公",
           "start": 1.6,
           "text": "あともう5分",
           "voice_overrides": {
@@ -76,7 +58,6 @@
           }
         }
       ],
-      "time": "8:50",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -96,24 +77,20 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 290,
             "pitch_trend": "falling",
             "rms_peak": 0.46,
             "wpm": 240
           },
-          "breath_before": true,
           "delivery": "早口で息を切らしながら",
           "emotion": "焦り",
           "end": 1.4,
           "rate": "+15%",
-          "speaker": "主人公",
           "start": 0,
           "text": "やばいやばい寝過ぎた！",
           "silence_after_ms": 0
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 260,
             "pitch_trend": "flat",
             "rms_peak": 0.42,
             "wpm": 200
@@ -124,13 +101,11 @@
           "pronunciation_hints": {
             "業務開始": "ギョウムカイシ"
           },
-          "speaker": "主人公",
           "start": 1.6,
           "text": "業務開始します！"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 248,
             "pitch_trend": "rising",
             "rms_peak": 0.34,
             "wpm": 130
@@ -138,13 +113,10 @@
           "delivery": "息を吐きながら笑顔で",
           "emotion": "満足",
           "end": 4.3,
-          "pause_before": 0.2,
-          "speaker": "主人公",
           "start": 3.2,
           "text": "ふうー間に合った セーフ！"
         }
       ],
-      "time": "9:00",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -168,7 +140,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 274,
             "pitch_trend": "rising",
             "rms_peak": 0.38,
             "wpm": 180
@@ -179,13 +150,11 @@
           "pronunciation_hints": {
             "納期間に": "のうきまに"
           },
-          "speaker": "主人公",
           "start": 0,
           "text": "うわーこれ納期まにあうかなぁ"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 294,
             "pitch_trend": "rising",
             "rms_peak": 0.52,
             "wpm": 170
@@ -193,13 +162,11 @@
           "delivery": "ハッと気づいたように声を上げる",
           "emotion": "驚き",
           "end": 3.3,
-          "speaker": "主人公",
           "start": 1.9,
           "text": "あ、クライアントからだ"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 274,
             "pitch_trend": "flat",
             "rms_peak": 0.38,
             "wpm": 220
@@ -213,28 +180,22 @@
             "延期": "エンキ",
             "弊社都合": "ヘイシャツゴー"
           },
-          "speaker": "主人公",
           "start": 3.4,
           "text": "「弊社都合で受け入れテストを1ヶ月延期させて頂きたいです」"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 353,
             "pitch_trend": "rising",
             "rms_peak": 0.41,
             "wpm": 200
           },
-          "breath_before": true,
           "delivery": "弾むような明るい高音、語尾を伸ばす",
           "emotion": "喜び",
           "end": 9.3,
-          "pause_before": 0.1,
-          "speaker": "主人公",
           "start": 7.5,
           "text": "やったー！今日飲み行っちゃおうかな〜"
         }
       ],
-      "time": "10:30",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -254,7 +215,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 316,
             "pitch_trend": "flat",
             "rms_peak": 0.43,
             "wpm": 200
@@ -265,13 +225,11 @@
           "pronunciation_hints": {
             "研修": "けんしゅう"
           },
-          "speaker": "主人公",
           "start": 0,
           "text": "おっと、今日研修も受けないと！"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 250,
             "pitch_trend": "rising",
             "rms_peak": 0.5,
             "wpm": 170
@@ -283,13 +241,11 @@
             "IT": "アイティー",
             "未経験": "ミケイケン"
           },
-          "speaker": "主人公",
           "start": 2.1,
           "text": "IT未経験で不安だったけど"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 257,
             "pitch_trend": "rising",
             "rms_peak": 0.37,
             "wpm": 220
@@ -302,12 +258,10 @@
             "充実": "ジュウジツ",
             "研修制度": "けんしゅうせいど"
           },
-          "speaker": "主人公",
           "start": 4.5,
           "text": "eラーニングとか研修制度も充実してるから安心だなあ！"
         }
       ],
-      "time": "11:00",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -331,7 +285,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 297,
             "pitch_trend": "rising",
             "rms_peak": 0.38,
             "wpm": 170
@@ -342,13 +295,11 @@
           "pronunciation_hints": {
             "便利": "ベンリ"
           },
-          "speaker": "主人公",
           "start": 0,
           "text": "スタンドデスクまじで便利〜"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 261,
             "pitch_trend": "rising",
             "rms_peak": 0.3,
             "wpm": 180
@@ -359,12 +310,10 @@
           "pronunciation_hints": {
             "腰痛く": "こしいたく"
           },
-          "speaker": "主人公",
           "start": 2.4,
           "text": "ずっと座ってると腰痛くなるからな〜"
         }
       ],
-      "time": "11:30",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -384,7 +333,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 303,
             "pitch_trend": "rising",
             "rms_peak": 0.38,
             "wpm": 180
@@ -395,13 +343,11 @@
           "pronunciation_hints": {
             "昼ご飯": "ひるごはん"
           },
-          "speaker": "主人公",
           "start": 0,
           "text": "あ、もう昼ご飯か"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 280,
             "pitch_trend": "falling",
             "rms_peak": 0.46,
             "wpm": 230
@@ -413,12 +359,10 @@
             "一旦": "いったん",
             "晩御飯": "ばんごはん"
           },
-          "speaker": "主人公",
           "start": 1.6,
           "text": "一旦スーパー行って晩御飯も作っちゃうか！"
         }
       ],
-      "time": "12:00",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -441,7 +385,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 305,
             "pitch_trend": "falling",
             "rms_peak": 0.46,
             "wpm": 220
@@ -453,13 +396,11 @@
             "道案内": "みちあんない"
           },
           "silence_after_ms": 875,
-          "speaker": "主人公",
           "start": 0,
           "text": "この道案内のアプリ私がちょっと作ったんだよな"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 236,
             "pitch_trend": "flat",
             "rms_peak": 0.33,
             "wpm": 170
@@ -470,12 +411,10 @@
           "pronunciation_hints": {
             "街中": "まちなか"
           },
-          "speaker": "主人公",
           "start": 3,
           "text": "実際に使ってるところ見るとなんだか嬉しいな！"
         }
       ],
-      "time": "12:15",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -495,7 +434,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 340,
             "pitch_trend": "rising",
             "rms_peak": 0.43,
             "wpm": 180
@@ -507,13 +445,11 @@
             "山根": "ヤマネ",
             "転職": "テンショク"
           },
-          "speaker": "主人公",
           "start": 0,
           "text": "山根さん転職するんだ！"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 308,
             "pitch_trend": "rising",
             "rms_peak": 0.45,
             "wpm": 170
@@ -525,13 +461,11 @@
             "200万": "ニヒャクマン",
             "年収": "ネンシュウ"
           },
-          "speaker": "主人公",
           "start": 1.8,
           "text": "え 年収200万アップ！？"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 271,
             "pitch_trend": "rising",
             "rms_peak": 0.53,
             "wpm": 220
@@ -543,12 +477,10 @@
             "引き抜き": "ひきぬき",
             "誘い": "さそい"
           },
-          "speaker": "主人公",
           "start": 3.6,
           "text": "お客さんからの引き抜きの誘いってまじであるんだ！"
         }
       ],
-      "time": "15:30",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
@@ -574,7 +506,6 @@
       "lines": [
         {
           "acoustic": {
-            "pitch_hz_mean": 283,
             "pitch_trend": "rising",
             "rms_peak": 0.46,
             "wpm": 180
@@ -582,13 +513,11 @@
           "delivery": "解放感のある明るい声",
           "emotion": "満足",
           "end": 1.7,
-          "speaker": "主人公",
           "start": 0,
           "text": "よし今日も終わった！"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 300,
             "pitch_trend": "rising",
             "rms_peak": 0.45,
             "wpm": 160
@@ -599,13 +528,11 @@
           "pronunciation_hints": {
             "お風呂": "おふろ"
           },
-          "speaker": "主人公",
           "start": 1.8,
           "text": "お風呂入ろう！"
         },
         {
           "acoustic": {
-            "pitch_hz_mean": 266,
             "pitch_trend": "flat",
             "rms_peak": 0.42,
             "wpm": 230
@@ -619,19 +546,16 @@
             "手に職": "てにしょく",
             "最高": "サイコー"
           },
-          "speaker": "主人公",
           "start": 3,
           "text": "在宅ワークだし手に職つくしITエンジニア最高すぎる！！"
         }
       ],
-      "time": "18:00",
       "wardrobe": {
         "identifier": "loungewear_A"
       },
       "location_ref": "home_office"
     }
   ],
-  "title_overlay": "未経験から\nITエンジニアに転職した末路",
   "wardrobe_continuity": {
     "loungewear_A": "ベージュのリブニットセーター、ライトブルーのニットパンツ、ナチュラルロングヘア、ノーメイク風",
     "workwear_A": "グレーのリブ編みハーフジップニット、黒のパンツ、丸メガネ（クリアフレーム）、赤リップ、ロングヘア"

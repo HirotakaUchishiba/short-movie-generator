@@ -124,7 +124,7 @@ function SceneVideoCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
               <h3 className="font-semibold">
                 シーン{sIdx + 1}{" "}
                 <span className="font-normal text-slate-400 text-sm">
-                  {scene.time} {scene.label} ({scene.duration}s)
+                  ({scene.duration}s)
                 </span>
               </h3>
               <div className="text-xs text-slate-400">
