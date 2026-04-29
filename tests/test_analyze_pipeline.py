@@ -1,0 +1,81 @@
+"""analyze.pipeline.run() の単体テスト。"""
+from unittest.mock import patch
+
+import pytest
+
+from analyze import AnalyzeCancelled, AnalyzeOptions, default_output_path
+from analyze.pipeline import run
+
+
+def test_options_to_dict_round_trip() -> None:
+    opt = AnalyzeOptions(fps=3.0, instructions="hi",
+                          no_bgm_extract=True, no_shots=False)
+    d = opt.to_dict()
+    assert d == {
+        "fps": 3.0,
+        "instructions": "hi",
+        "no_bgm_extract": True,
+        "no_shots": False,
+    }
+    assert AnalyzeOptions.from_dict(d) == opt
+
+
+def test_options_from_dict_ignores_unknown_keys() -> None:
+    opt = AnalyzeOptions.from_dict({"fps": 1.5, "unknown_key": "x"})
+    assert opt.fps == 1.5
+    assert opt.instructions is None
+
+
+def test_default_output_path_sanitizes_special_chars() -> None:
+    p = default_output_path("/tmp/サンプル video.mov")
+    assert p.endswith("auto_サンプル_video.json")
+
+
+def test_run_raises_file_not_found() -> None:
+    with pytest.raises(FileNotFoundError):
+        run(video_path="/nonexistent/video.mov")
+
+
+def test_run_raises_cancelled_after_first_phase(tmp_path) -> None:
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"fake")
+    output = tmp_path / "out.json"
+
+    events: list[tuple[str, dict]] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        events.append((event, data))
+
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]):
+        with pytest.raises(AnalyzeCancelled):
+            run(
+                video_path=str(fake_video),
+                output_path=str(output),
+                cancel_token=lambda: True,
+                on_progress=on_progress,
+            )
+
+    # frames だけは完了している (cancel チェックは phase_complete 後)
+    assert any(e == "phase_start" and d["phase"] == "frames" for e, d in events)
+    assert any(e == "phase_complete" and d["phase"] == "frames" for e, d in events)
+    # claude フェーズには到達していない
+    assert not any(e == "phase_start" and d["phase"] == "claude" for e, d in events)
+
+
+def test_run_progress_callback_exception_is_swallowed(tmp_path) -> None:
+    """progress callback が例外を出してもパイプライン全体は壊れない。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"fake")
+
+    def bad_callback(event: str, data: dict) -> None:
+        raise RuntimeError("callback broken")
+
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]):
+        # cancel_token を即 True にして frames 後で停止
+        with pytest.raises(AnalyzeCancelled):
+            run(
+                video_path=str(fake_video),
+                output_path=str(tmp_path / "out.json"),
+                on_progress=bad_callback,
+                cancel_token=lambda: True,
+            )
