@@ -740,6 +740,118 @@ def test_manual_subtitles_mixed_auto_and_fixed(tmp_path) -> None:
     assert "between(t,6.000,10.000)" in f
 
 
+def test_hidden_line_skipped_in_overlay(tmp_path) -> None:
+    """lines[].hidden=True なら drawtext が生成されない。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {"text": "見える", "start": 0.0, "end": 1.0},
+                    {"text": "隠す",   "start": 1.0, "end": 2.0, "hidden": True},
+                    {"text": "見える2", "start": 2.0, "end": 3.0},
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    sub_files = sorted(
+        x for x in os.listdir(tmp_path) if x.startswith("drawtext_sub_"))
+    contents = []
+    for x in sub_files:
+        with open(os.path.join(tmp_path, x)) as fh:
+            contents.append(fh.read())
+    assert "隠す" not in contents
+    # 隣接 line の timing は影響を受けない (line_window は next_line を見る)
+    assert "between(t,0.000,1.000)" in f
+    assert "between(t,2.000,3.000)" in f
+
+
+def test_hidden_line_does_not_affect_next_line_window(tmp_path) -> None:
+    """hidden line は next_line として残るので、前の line の終端に影響しない。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {"text": "前", "start": 0.0},  # end 未指定 → next.start まで
+                    {"text": "中", "start": 2.0, "end": 3.0, "hidden": True},
+                    {"text": "後", "start": 3.0, "end": 4.0},
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    # 前 line は hidden line の start (2.0) まで表示される
+    assert "between(t,0.000,2.000)" in f
+    assert "between(t,3.000,4.000)" in f
+
+
+def test_needs_overlay_all_hidden_returns_false() -> None:
+    """全 line が hidden なら overlay 工程不要。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 3.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {"text": "a", "start": 0.0, "end": 1.0, "hidden": True},
+                    {"text": "b", "start": 1.0, "end": 2.0, "hidden": True},
+                ],
+            }
+        ],
+    }
+    assert compositor._needs_overlay(sp) is False
+
+
+def test_needs_overlay_partial_hidden_returns_true() -> None:
+    """1つでも hidden でない line があれば overlay 必要。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 3.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {"text": "a", "start": 0.0, "end": 1.0, "hidden": True},
+                    {"text": "b", "start": 1.0, "end": 2.0},
+                ],
+            }
+        ],
+    }
+    assert compositor._needs_overlay(sp) is True
+
+
+def test_hidden_line_with_subtitles_field_still_skipped(tmp_path) -> None:
+    """hidden=True は subtitles[] が残っていても優先される。"""
+    sp = {
+        "scenes": [
+            {
+                "duration": 5.0,
+                "background_prompt": "bg",
+                "lines": [
+                    {
+                        "text": "x",
+                        "start": 0.0,
+                        "end": 4.0,
+                        "hidden": True,
+                        "subtitles": [
+                            {"text": "残骸", "start": 0.0, "end": 2.0},
+                        ],
+                    }
+                ],
+            }
+        ],
+    }
+    f = compositor._build_overlay_filter(sp, str(tmp_path))
+    # subtitles[] のテキストも drawtext として出ない
+    assert "between(t,0.000,2.000)" not in f
+    sub_files = [
+        x for x in os.listdir(tmp_path) if x.startswith("drawtext_sub_")]
+    assert sub_files == []
+
+
 def test_manual_subtitles_empty_text_skipped(tmp_path) -> None:
     """空文字 text の subtitle は drawtext を生成しない。"""
     sp = {

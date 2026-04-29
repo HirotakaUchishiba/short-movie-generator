@@ -156,6 +156,31 @@ export default function StageOverlay() {
     });
   };
 
+  const toggleLineHidden = (sIdx: number, lIdx: number) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const line = next.scenes[sIdx].lines![lIdx];
+      if (line.hidden) {
+        delete line.hidden;
+      } else {
+        line.hidden = true;
+      }
+      return next;
+    });
+  };
+
+  const setSceneLinesHidden = (sIdx: number, hidden: boolean) => {
+    setDraft((d) => {
+      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
+      const lines = next.scenes[sIdx].lines ?? [];
+      for (const line of lines) {
+        if (hidden) line.hidden = true;
+        else delete line.hidden;
+      }
+      return next;
+    });
+  };
+
   const onApply = async () => {
     setSaving(true);
     setError(null);
@@ -174,7 +199,7 @@ export default function StageOverlay() {
     <StageGate
       stage="overlay"
       title="Stage 7: 字幕オーバーレイ"
-      description="Stage 5+6 のシーン動画を連結し、字幕を焼き込み。各 line を「手動」に切り替えると自動分割を完全にスキップ。チャンクは text だけ書けば line 範囲を文字数比例で自動配分し、動画の現在位置をスナップして個別微調整できます。"
+      description="Stage 5+6 のシーン動画を連結し、字幕を焼き込み。各 line を「手動」に切り替えると自動分割を完全にスキップ。チャンクは text だけ書けば line 範囲を文字数比例で自動配分し、動画の現在位置をスナップして個別微調整できます。👁 ボタンで line / シーン単位で字幕の表示/非表示を切替可 (TTS は通常通り)。"
       needsRunFirst
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -233,125 +258,198 @@ export default function StageOverlay() {
             </button>
           </div>
           {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
-          <div className="max-h-[640px] overflow-auto space-y-2">
-            {draft.scenes.flatMap((scene, sIdx) =>
-              (scene.lines ?? []).map((line, lIdx) => {
-                const key = `${sIdx}-${lIdx}`;
-                const isManual = !!line.subtitles;
-                const isExpanded = isManual || expanded[key];
-                return (
-                  <div
-                    key={key}
-                    className="border border-slate-700 rounded p-2 bg-slate-900/40"
-                  >
-                    <div className="flex items-center gap-2">
-                      <span className="text-[10px] text-slate-500 w-10">
-                        S{sIdx + 1}-L{lIdx + 1}
+          <div className="max-h-[640px] overflow-auto space-y-3">
+            {draft.scenes.map((scene, sIdx) => {
+              const lines = scene.lines ?? [];
+              const allHidden =
+                lines.length > 0 && lines.every((l) => l.hidden);
+              const someHidden = lines.some((l) => l.hidden);
+              return (
+                <div key={sIdx} className="space-y-1.5">
+                  <div className="flex items-center gap-2 px-1 py-1 border-b border-slate-700/60">
+                    <span className="text-[11px] font-semibold text-slate-300">
+                      Scene {sIdx + 1}
+                    </span>
+                    {scene.label && (
+                      <span className="text-[10px] text-slate-500">
+                        {scene.label}
                       </span>
-                      <span className="text-[10px] text-slate-500 w-16">
-                        {(sceneOffsets[sIdx] + line.start).toFixed(2)}s〜
-                      </span>
-                      <span className="text-xs text-slate-300 flex-1 truncate">
-                        {line.text}
-                      </span>
-                      {isManual ? (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/40 text-amber-200">
-                          手動
-                        </span>
-                      ) : (
-                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
-                          自動
+                    )}
+                    <span className="text-[10px] text-slate-600">
+                      {sceneOffsets[sIdx].toFixed(1)}s〜
+                    </span>
+                    <div className="ml-auto flex items-center gap-1">
+                      {someHidden && (
+                        <span className="text-[10px] px-1.5 py-0.5 rounded bg-rose-900/40 text-rose-300">
+                          {allHidden ? "全hidden" : "一部hidden"}
                         </span>
                       )}
-                      {isManual ? (
+                      {lines.length > 0 && (
                         <button
                           className="btn-ghost text-[10px]"
-                          onClick={() => disableManual(sIdx, lIdx)}
-                          title="手動チャンクを破棄して自動分割に戻す"
-                        >
-                          自動に戻す
-                        </button>
-                      ) : (
-                        <button
-                          className="btn-ghost text-[10px]"
-                          onClick={() => enableManual(sIdx, lIdx)}
-                          title="自動分割を無効化し、この line を手動チャンクで完全制御する"
-                        >
-                          手動に切替
-                        </button>
-                      )}
-                      {!isManual && (
-                        <button
-                          className="btn-ghost text-[10px]"
-                          onClick={() =>
-                            setExpanded((e) => ({ ...e, [key]: !e[key] }))
+                          onClick={() => setSceneLinesHidden(sIdx, !allHidden)}
+                          title={
+                            allHidden
+                              ? "このシーンの字幕を全て表示に戻す"
+                              : "このシーンの字幕を全て非表示にする"
                           }
                         >
-                          {expanded[key] ? "閉じる" : "詳細"}
+                          {allHidden ? "全部表示" : "全部非表示"}
                         </button>
                       )}
                     </div>
-
-                    {isExpanded && !isManual && (
-                      <div className="mt-2 grid grid-cols-2 gap-2 pl-12">
-                        <label className="text-[10px] text-slate-400">
-                          start (相対秒)
-                          <input
-                            type="number"
-                            step="0.1"
-                            className="input text-xs py-1 mt-0.5"
-                            value={line.start}
-                            onChange={(e) =>
-                              updateLine(sIdx, lIdx, {
-                                start: Number(e.target.value),
-                              })
-                            }
-                          />
-                        </label>
-                        <label className="text-[10px] text-slate-400">
-                          end (相対秒)
-                          <input
-                            type="number"
-                            step="0.1"
-                            className="input text-xs py-1 mt-0.5"
-                            value={line.end ?? ""}
-                            placeholder="(次line の start まで)"
-                            onChange={(e) =>
-                              updateLine(sIdx, lIdx, {
-                                end:
-                                  e.target.value === ""
-                                    ? undefined
-                                    : Number(e.target.value),
-                              })
-                            }
-                          />
-                        </label>
-                      </div>
-                    )}
-
-                    {isManual && (
-                      <ManualChunksEditor
-                        sIdx={sIdx}
-                        chunks={line.subtitles!}
-                        onChangeText={(cIdx, text) =>
-                          setChunkText(sIdx, lIdx, cIdx, text)
-                        }
-                        onChangeTime={(cIdx, field, value) =>
-                          setChunkTime(sIdx, lIdx, cIdx, field, value)
-                        }
-                        onSnap={(cIdx, field) =>
-                          snapChunkTime(sIdx, lIdx, cIdx, field)
-                        }
-                        onClearTime={(cIdx) => clearChunkTime(sIdx, lIdx, cIdx)}
-                        onSplit={(cIdx) => splitChunk(sIdx, lIdx, cIdx)}
-                        onRemove={(cIdx) => removeChunk(sIdx, lIdx, cIdx)}
-                        onAppend={() => appendChunk(sIdx, lIdx)}
-                      />
-                    )}
                   </div>
-                );
-              }),
-            )}
+                  {lines.map((line, lIdx) => {
+                    const key = `${sIdx}-${lIdx}`;
+                    const isManual = !!line.subtitles;
+                    const isHidden = !!line.hidden;
+                    const isExpanded = !isHidden && (isManual || expanded[key]);
+                    return (
+                      <div
+                        key={key}
+                        className={
+                          "border border-slate-700 rounded p-2 bg-slate-900/40 " +
+                          (isHidden ? "opacity-50" : "")
+                        }
+                      >
+                        <div className="flex items-center gap-2">
+                          <span className="text-[10px] text-slate-500 w-10">
+                            S{sIdx + 1}-L{lIdx + 1}
+                          </span>
+                          <span className="text-[10px] text-slate-500 w-16">
+                            {(sceneOffsets[sIdx] + line.start).toFixed(2)}s〜
+                          </span>
+                          <span
+                            className={
+                              "text-xs flex-1 truncate " +
+                              (isHidden
+                                ? "text-slate-500 line-through"
+                                : "text-slate-300")
+                            }
+                          >
+                            {line.text}
+                          </span>
+                          <button
+                            className={
+                              "text-[14px] px-1 leading-none " +
+                              (isHidden
+                                ? "text-rose-400 hover:text-rose-300"
+                                : "text-slate-400 hover:text-slate-200")
+                            }
+                            onClick={() => toggleLineHidden(sIdx, lIdx)}
+                            title={
+                              isHidden
+                                ? "字幕を表示する"
+                                : "この line の字幕を焼き込まない"
+                            }
+                          >
+                            {isHidden ? "🚫" : "👁"}
+                          </button>
+                          {isManual ? (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-amber-700/40 text-amber-200">
+                              手動
+                            </span>
+                          ) : (
+                            <span className="text-[10px] px-1.5 py-0.5 rounded bg-slate-700 text-slate-300">
+                              自動
+                            </span>
+                          )}
+                          {isManual ? (
+                            <button
+                              className="btn-ghost text-[10px]"
+                              onClick={() => disableManual(sIdx, lIdx)}
+                              title="手動チャンクを破棄して自動分割に戻す"
+                              disabled={isHidden}
+                            >
+                              自動に戻す
+                            </button>
+                          ) : (
+                            <button
+                              className="btn-ghost text-[10px]"
+                              onClick={() => enableManual(sIdx, lIdx)}
+                              title="自動分割を無効化し、この line を手動チャンクで完全制御する"
+                              disabled={isHidden}
+                            >
+                              手動に切替
+                            </button>
+                          )}
+                          {!isManual && (
+                            <button
+                              className="btn-ghost text-[10px]"
+                              onClick={() =>
+                                setExpanded((e) => ({ ...e, [key]: !e[key] }))
+                              }
+                              disabled={isHidden}
+                            >
+                              {expanded[key] ? "閉じる" : "詳細"}
+                            </button>
+                          )}
+                        </div>
+
+                        {isExpanded && !isManual && (
+                          <div className="mt-2 grid grid-cols-2 gap-2 pl-12">
+                            <label className="text-[10px] text-slate-400">
+                              start (相対秒)
+                              <input
+                                type="number"
+                                step="0.1"
+                                className="input text-xs py-1 mt-0.5"
+                                value={line.start}
+                                onChange={(e) =>
+                                  updateLine(sIdx, lIdx, {
+                                    start: Number(e.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                            <label className="text-[10px] text-slate-400">
+                              end (相対秒)
+                              <input
+                                type="number"
+                                step="0.1"
+                                className="input text-xs py-1 mt-0.5"
+                                value={line.end ?? ""}
+                                placeholder="(次line の start まで)"
+                                onChange={(e) =>
+                                  updateLine(sIdx, lIdx, {
+                                    end:
+                                      e.target.value === ""
+                                        ? undefined
+                                        : Number(e.target.value),
+                                  })
+                                }
+                              />
+                            </label>
+                          </div>
+                        )}
+
+                        {isManual && !isHidden && (
+                          <ManualChunksEditor
+                            sIdx={sIdx}
+                            chunks={line.subtitles!}
+                            onChangeText={(cIdx, text) =>
+                              setChunkText(sIdx, lIdx, cIdx, text)
+                            }
+                            onChangeTime={(cIdx, field, value) =>
+                              setChunkTime(sIdx, lIdx, cIdx, field, value)
+                            }
+                            onSnap={(cIdx, field) =>
+                              snapChunkTime(sIdx, lIdx, cIdx, field)
+                            }
+                            onClearTime={(cIdx) =>
+                              clearChunkTime(sIdx, lIdx, cIdx)
+                            }
+                            onSplit={(cIdx) => splitChunk(sIdx, lIdx, cIdx)}
+                            onRemove={(cIdx) => removeChunk(sIdx, lIdx, cIdx)}
+                            onAppend={() => appendChunk(sIdx, lIdx)}
+                          />
+                        )}
+                      </div>
+                    );
+                  })}
+                </div>
+              );
+            })}
           </div>
         </div>
       </div>

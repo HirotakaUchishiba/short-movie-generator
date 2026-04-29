@@ -192,6 +192,20 @@ def test_speaker_field_allowed() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
+def test_hidden_field_allowed() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["hidden"] = True
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_hidden_field_must_be_boolean() -> None:
+    import pytest
+    sp = _valid_screenplay()
+    sp["scenes"][0]["lines"][0]["hidden"] = "yes"
+    with pytest.raises(Exception):
+        screenplay_validator.validate_screenplay(sp)
+
+
 def test_characters_name_role_only_allowed() -> None:
     """SSOT: characters[] は name / role のみ。"""
     sp = _valid_screenplay()
