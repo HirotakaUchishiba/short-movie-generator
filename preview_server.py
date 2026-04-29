@@ -289,14 +289,21 @@ def api_auto_animation_prompt(ts, scene_idx):
 
     import auto_animation_prompt as aap
 
+    # Stage 3 で生成済みの bg があれば LLM に渡す (= 画像を起点フレームに)
+    bg_path = scene_gen._bg_path_for_scene(scene_idx, scene, _ts_path(ts))
+    if not os.path.exists(bg_path):
+        bg_path = None
+
     if request.method == "GET":
         # キャッシュ命中分のみ返す (LLM は呼ばない)
-        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp)
+        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp,
+                                  bg_path=bg_path)
         return jsonify({
             "scene_idx": scene_idx,
             "manual": scene.get("animation_prompt"),
             "auto": cached.get("composed") if cached else None,
             "structured": cached.get("structured") if cached else None,
+            "bg_used": cached.get("bg_used") if cached else None,
             "cached": cached is not None,
         })
 
@@ -307,7 +314,8 @@ def api_auto_animation_prompt(ts, scene_idx):
     if action == "regenerate":
         try:
             entry = aap.generate(
-                scene, sp, _ts_path(ts), scene_idx, force=True,
+                scene, sp, _ts_path(ts), scene_idx,
+                force=True, bg_path=bg_path,
             )
         except Exception as e:
             return jsonify({"error": f"自動生成失敗: {e}"}), 500
@@ -316,12 +324,14 @@ def api_auto_animation_prompt(ts, scene_idx):
             "manual": scene.get("animation_prompt"),
             "auto": entry["composed"],
             "structured": entry["structured"],
+            "bg_used": entry.get("bg_used"),
             "cached": False,
         })
 
     if action == "adopt":
         # 自動生成した prompt を screenplay の animation_prompt に上書き保存。
-        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp)
+        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp,
+                                  bg_path=bg_path)
         if not cached:
             return jsonify({"error": "採用できる自動生成 prompt がありません。先に生成してください。"}), 400
         composed = cached.get("composed")

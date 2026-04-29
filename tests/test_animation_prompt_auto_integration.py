@@ -147,3 +147,51 @@ def test_auto_skipped_when_no_lines(monkeypatch, tmp_path) -> None:
     }
     scene_gen._get_animation_prompt(scene, ts_path=str(tmp_path), s_idx=0)
     spy.assert_not_called()
+
+
+def test_auto_passes_bg_path_when_bg_exists(monkeypatch, tmp_path) -> None:
+    """Stage 3 完了後 = bg_<S>.png が存在すれば bg_path 引数で渡す。"""
+    monkeypatch.setattr(scene_gen.config, "AUTO_ANIMATION_PROMPT_ENABLED", True)
+    monkeypatch.setattr(scene_gen.config, "ANTHROPIC_API_KEY", "k")
+
+    bg = tmp_path / "bg_000.png"
+    bg.write_bytes(b"BG_DATA")
+
+    captured = {}
+
+    def fake_gen(*args, **kwargs):
+        captured["bg_path"] = kwargs.get("bg_path")
+        return {
+            "composed": "AUTO_OUT",
+            "structured": {"subject": "x", "action_sequence": "y",
+                            "camera": "z", "mood": "w"},
+            "input_hash": "h",
+            "bg_used": True,
+        }
+    monkeypatch.setattr("auto_animation_prompt.generate", fake_gen)
+
+    scene = _scene_with_lines(animation_prompt=None)
+    scene_gen._get_animation_prompt(scene, ts_path=str(tmp_path), s_idx=0)
+    assert captured["bg_path"] == str(bg)
+
+
+def test_auto_passes_none_bg_when_bg_missing(monkeypatch, tmp_path) -> None:
+    """Stage 3 未完了 = bg_<S>.png 無し → bg_path=None で渡す。"""
+    monkeypatch.setattr(scene_gen.config, "AUTO_ANIMATION_PROMPT_ENABLED", True)
+    monkeypatch.setattr(scene_gen.config, "ANTHROPIC_API_KEY", "k")
+
+    captured = {}
+    def fake_gen(*args, **kwargs):
+        captured["bg_path"] = kwargs.get("bg_path")
+        return {
+            "composed": "AUTO_OUT",
+            "structured": {"subject": "x", "action_sequence": "y",
+                            "camera": "z", "mood": "w"},
+            "input_hash": "h",
+            "bg_used": False,
+        }
+    monkeypatch.setattr("auto_animation_prompt.generate", fake_gen)
+
+    scene = _scene_with_lines(animation_prompt=None)
+    scene_gen._get_animation_prompt(scene, ts_path=str(tmp_path), s_idx=0)
+    assert captured["bg_path"] is None

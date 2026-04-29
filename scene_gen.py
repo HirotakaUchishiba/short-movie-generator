@@ -192,6 +192,10 @@ def _maybe_auto_animation_prompt(scene: dict, ts_path: str | None,
       - scene に lines がある (空シーンには使わない)
       - ANTHROPIC_API_KEY がセットされている
 
+    Stage 3 で生成済みの bg_<S>.png があればそれも LLM に渡し、
+    画像内の姿勢・構図を起点フレームとして animation_prompt を生成させる。
+    bg が無ければテキストのみで生成 (フォールバック)。
+
     生成結果は in-memory の scene["animation_prompt_auto"] にもセットして
     後続の API 応答 (preview_server) で読めるようにする。
     """
@@ -205,10 +209,17 @@ def _maybe_auto_animation_prompt(scene: dict, ts_path: str | None,
     if s_idx is None:
         return None
 
+    bg_path = None
+    if ts_path is not None:
+        candidate = _bg_path_for_scene(s_idx, scene, ts_path)
+        if os.path.exists(candidate):
+            bg_path = candidate
+
     try:
         import auto_animation_prompt
         entry = auto_animation_prompt.generate(
-            scene, screenplay, ts_path, s_idx, force=False,
+            scene, screenplay, ts_path, s_idx,
+            force=False, bg_path=bg_path,
         )
         composed = entry.get("composed")
         if not composed:

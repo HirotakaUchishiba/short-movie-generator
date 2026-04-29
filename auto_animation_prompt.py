@@ -1,15 +1,20 @@
-"""シーンの lines / emotion / delivery / acoustic / location_ref から
-Kling V3 用 animation_prompt を Claude Sonnet で自動生成する。
+"""シーンの lines / emotion / delivery / acoustic / location_ref と
+**Stage 3 で生成済みの bg 画像** から Kling V3 用 animation_prompt を
+Claude Sonnet (Vision) で自動生成する。
 
 設計方針:
   - scene.lines[] は既に「シーン意図の決定論的記述」になっているので、
     これをそのまま LLM に渡して身体動作シーケンスに翻訳させる。
+  - bg_<S>.png が存在する場合は **画像を LLM に渡し、画像内の姿勢・位置・
+    構図を起点 (= 動画の開始フレーム) として動作を組み立てさせる**。
+    これで「bg では既に着席している」のに「prompt が "デスクに駆け寄る"」
+    という構図/動作の齟齬を構造的に解消する。
   - 出力は subject / action_sequence / camera / mood の構造化フォーマットで
     取得し、合成して 1 文の prompt にする。
   - UI hallucination 抑止 (chat bubble / notification 等) を system prompt
     レベルで強制する。
-  - 入力ハッシュベースのキャッシュで同じ入力 → 同じ prompt を保証する
-    (Stage 4 を何度走らせても安定)。
+  - 入力ハッシュには bg のファイルバイトハッシュも含める。
+    bg を再生成したら auto キャッシュが自動で無効化される。
 
 呼出元:
   - scene_gen._get_animation_prompt: 手書き animation_prompt が無い場合に
@@ -17,6 +22,7 @@ Kling V3 用 animation_prompt を Claude Sonnet で自動生成する。
   - preview_server: UI から手動で再生成リクエスト。
 """
 
+import base64
 import hashlib
 import json
 import logging
@@ -45,12 +51,23 @@ REQUIREMENTS:
 - Output language: ENGLISH for animation_prompt fields (Kling responds best
   to English structural prompts).
 
+WHEN A BACKGROUND IMAGE IS PROVIDED:
+- Treat the image as the FIRST FRAME of the video. The subject is ALREADY in
+  the depicted pose, position, outfit, and setting. Do NOT describe the subject
+  entering the scene or arriving from elsewhere; build the motion FROM the
+  exact starting state shown in the image.
+- Match the depicted clothing, hair, props (laptop open/closed, mug in hand,
+  posture standing/sitting). Do NOT contradict what is visible.
+- The action_sequence must be physically continuous from the image's starting
+  state. Examples: if the image shows the subject already seated at the desk,
+  do NOT write "rushes to the desk" — start from "leans toward the laptop".
+
 Output ONLY valid JSON with this exact shape:
 {
-  "subject": "<who is on screen, e.g. 'Young woman in glasses'>",
-  "action_sequence": "<continuous body motion arc in one sentence, no UI words>",
-  "camera": "<short camera direction, e.g. 'subtle slow zoom-in then steady'>",
-  "mood": "<one short phrase, e.g. 'tense relief'>"
+  "subject": "<who is on screen, matching the image if provided>",
+  "action_sequence": "<continuous body motion arc starting FROM the image's pose>",
+  "camera": "<short camera direction>",
+  "mood": "<one short phrase>"
 }
 
 No prose. No markdown fence. No explanation. JSON only."""
@@ -67,11 +84,24 @@ def _cache_path(ts_path: str, scene_idx: int) -> str:
     return os.path.join(_cache_dir(ts_path), f"scene_{scene_idx:03d}.json")
 
 
-def _input_signature(scene: dict, screenplay: dict | None) -> dict:
+def _file_sha256(path: str) -> str:
+    h = hashlib.sha256()
+    with open(path, "rb") as f:
+        for chunk in iter(lambda: f.read(65536), b""):
+            h.update(chunk)
+    return h.hexdigest()
+
+
+def _input_signature(scene: dict, screenplay: dict | None,
+                      bg_path: str | None = None) -> dict:
     """ハッシュ生成用の入力スナップショット。
-    変わったら再生成、変わらなければキャッシュ命中。"""
+    変わったら再生成、変わらなければキャッシュ命中。
+
+    bg_path が指定されてファイルが存在する場合は、bg のバイト sha256 を
+    含めて、bg を再生成すると auto キャッシュも無効化されるようにする。
+    """
     lines = scene.get("lines") or []
-    return {
+    sig = {
         "duration": scene.get("duration"),
         "label": scene.get("label"),
         "location_ref": scene.get("location_ref"),
@@ -92,6 +122,9 @@ def _input_signature(scene: dict, screenplay: dict | None) -> dict:
         ],
         "model": config.AUTO_ANIMATION_PROMPT_MODEL,
     }
+    if bg_path and os.path.exists(bg_path):
+        sig["bg_sha256"] = _file_sha256(bg_path)
+    return sig
 
 
 def _input_hash(sig: dict) -> str:
@@ -194,8 +227,73 @@ def _compose_prompt(parsed: dict) -> str:
     )
 
 
-def _call_llm(scene: dict, screenplay: dict | None) -> dict:
-    """Anthropic API 呼出 + JSON parse + 検証 + 連結。"""
+def _bg_media_type(path: str) -> str:
+    """ファイルのマジックバイトから media type を判定する。
+    Imagen が拡張子と実体を一致させずに保存するケース (例 .png 拡張子だが
+    実体は JPEG) に対応するため、マジックバイトを優先する。"""
+    try:
+        with open(path, "rb") as f:
+            header = f.read(12)
+    except OSError:
+        header = b""
+
+    if header.startswith(b"\xff\xd8\xff"):
+        return "image/jpeg"
+    if header.startswith(b"\x89PNG\r\n\x1a\n"):
+        return "image/png"
+    if header.startswith(b"RIFF") and len(header) >= 12 and header[8:12] == b"WEBP":
+        return "image/webp"
+    if header.startswith(b"GIF87a") or header.startswith(b"GIF89a"):
+        return "image/gif"
+
+    # フォールバック: 拡張子から
+    ext = os.path.splitext(path)[1].lower()
+    return {
+        ".png": "image/png",
+        ".jpg": "image/jpeg",
+        ".jpeg": "image/jpeg",
+        ".webp": "image/webp",
+        ".gif": "image/gif",
+    }.get(ext, "image/jpeg")
+
+
+def _build_message_content(scene: dict, screenplay: dict | None,
+                            bg_path: str | None) -> list[dict]:
+    """LLM への content blocks を組み立てる。
+    bg_path が有効ファイルなら image block を先頭に置く (= 動画開始フレームとして)。
+    """
+    blocks: list[dict] = []
+    if bg_path and os.path.exists(bg_path):
+        with open(bg_path, "rb") as f:
+            b64 = base64.b64encode(f.read()).decode("ascii")
+        blocks.append({
+            "type": "image",
+            "source": {
+                "type": "base64",
+                "media_type": _bg_media_type(bg_path),
+                "data": b64,
+            },
+        })
+        blocks.append({
+            "type": "text",
+            "text": (
+                "The image above is the FIRST FRAME of the video.\n"
+                "Build the motion from this exact starting state.\n\n"
+                + _build_user_payload(scene, screenplay)
+            ),
+        })
+    else:
+        blocks.append({
+            "type": "text",
+            "text": _build_user_payload(scene, screenplay),
+        })
+    return blocks
+
+
+def _call_llm(scene: dict, screenplay: dict | None,
+              bg_path: str | None = None) -> dict:
+    """Anthropic API 呼出 + JSON parse + 検証 + 連結。
+    bg_path が指定されたら Vision モードで画像も入力する。"""
     import anthropic
 
     key = config.ANTHROPIC_API_KEY if hasattr(config, "ANTHROPIC_API_KEY") \
@@ -205,6 +303,9 @@ def _call_llm(scene: dict, screenplay: dict | None) -> dict:
             "ANTHROPIC_API_KEY が未設定。auto_animation_prompt は使用できません。"
         )
 
+    content_blocks = _build_message_content(scene, screenplay, bg_path)
+    bg_used = any(b.get("type") == "image" for b in content_blocks)
+
     client = anthropic.Anthropic(api_key=key)
     response = client.messages.create(
         model=config.AUTO_ANIMATION_PROMPT_MODEL,
@@ -212,10 +313,7 @@ def _call_llm(scene: dict, screenplay: dict | None) -> dict:
         system=SYSTEM_PROMPT,
         messages=[{
             "role": "user",
-            "content": [{
-                "type": "text",
-                "text": _build_user_payload(scene, screenplay),
-            }],
+            "content": content_blocks,
         }],
     )
 
@@ -237,6 +335,7 @@ def _call_llm(scene: dict, screenplay: dict | None) -> dict:
         "structured": parsed,
         "composed": composed,
         "model": config.AUTO_ANIMATION_PROMPT_MODEL,
+        "bg_used": bg_used,
     }
 
 
@@ -245,16 +344,22 @@ def _call_llm(scene: dict, screenplay: dict | None) -> dict:
 
 def generate(scene: dict, screenplay: dict | None,
              ts_path: str | None, scene_idx: int,
-             force: bool = False) -> dict:
+             force: bool = False, bg_path: str | None = None) -> dict:
     """シーンの auto animation_prompt を取得する。
 
     優先順位:
       1. force=False かつ 入力ハッシュ一致するキャッシュがあればそれを返す
       2. LLM を呼出して新規生成、ts_path があればキャッシュに保存
 
-    戻り値: {"structured": {...}, "composed": "<prompt>", "model": "...", "input_hash": "..."}
+    bg_path が指定されてファイルが存在する場合、そのバイトハッシュも
+    入力ハッシュに含めるため、bg を再生成すると自動でキャッシュ無効化される。
+    LLM 呼出時には image content block として渡し、画像内の姿勢・構図を
+    起点フレームとして animation_prompt を生成させる。
+
+    戻り値: {"structured": {...}, "composed": "<prompt>", "model": "...",
+             "input_hash": "...", "bg_used": bool}
     """
-    sig = _input_signature(scene, screenplay)
+    sig = _input_signature(scene, screenplay, bg_path)
     h = _input_hash(sig)
 
     if not force and ts_path:
@@ -263,23 +368,24 @@ def generate(scene: dict, screenplay: dict | None,
             logger.debug("auto_animation_prompt cache hit: scene=%d", scene_idx)
             return cached
 
-    result = _call_llm(scene, screenplay)
+    result = _call_llm(scene, screenplay, bg_path=bg_path)
     entry = {**result, "input_hash": h}
 
     if ts_path:
         _write_cache(ts_path, scene_idx, entry)
         logger.info(
-            "auto_animation_prompt 生成: scene=%d model=%s",
-            scene_idx, result["model"],
+            "auto_animation_prompt 生成: scene=%d model=%s bg=%s",
+            scene_idx, result["model"], "yes" if result.get("bg_used") else "no",
         )
 
     return entry
 
 
 def get_cached(ts_path: str, scene_idx: int, scene: dict,
-               screenplay: dict | None) -> dict | None:
+               screenplay: dict | None,
+               bg_path: str | None = None) -> dict | None:
     """キャッシュ命中分のみを返す (LLM は呼ばない)。
     UI で「現状の自動 prompt」を表示するため。"""
-    sig = _input_signature(scene, screenplay)
+    sig = _input_signature(scene, screenplay, bg_path)
     h = _input_hash(sig)
     return _read_cache(ts_path, scene_idx, h)
