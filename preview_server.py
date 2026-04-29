@@ -273,6 +273,77 @@ def api_composed_prompts(ts, scene_idx):
     })
 
 
+# 自動生成 animation_prompt のキャッシュ参照 / 強制再生成 / 採用 (animation_prompt 上書き)。
+# UI から「生成 → diff 確認 → 採用」というワークフローで使う。
+@app.route("/api/projects/<ts>/scenes/<int:scene_idx>/auto-animation-prompt",
+            methods=["GET", "POST"])
+def api_auto_animation_prompt(ts, scene_idx):
+    _validate_ts(ts)
+    if not os.path.isdir(_ts_path(ts)):
+        return jsonify({"error": "プロジェクトが存在しません"}), 404
+    sp, name = _load_screenplay_for_project(ts)
+    scenes = sp.get("scenes") or []
+    if scene_idx >= len(scenes):
+        return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+    scene = scenes[scene_idx]
+
+    import auto_animation_prompt as aap
+
+    if request.method == "GET":
+        # キャッシュ命中分のみ返す (LLM は呼ばない)
+        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp)
+        return jsonify({
+            "scene_idx": scene_idx,
+            "manual": scene.get("animation_prompt"),
+            "auto": cached.get("composed") if cached else None,
+            "structured": cached.get("structured") if cached else None,
+            "cached": cached is not None,
+        })
+
+    # POST: 強制再生成 or 採用
+    body = request.get_json(silent=True) or {}
+    action = body.get("action", "regenerate")
+
+    if action == "regenerate":
+        try:
+            entry = aap.generate(
+                scene, sp, _ts_path(ts), scene_idx, force=True,
+            )
+        except Exception as e:
+            return jsonify({"error": f"自動生成失敗: {e}"}), 500
+        return jsonify({
+            "scene_idx": scene_idx,
+            "manual": scene.get("animation_prompt"),
+            "auto": entry["composed"],
+            "structured": entry["structured"],
+            "cached": False,
+        })
+
+    if action == "adopt":
+        # 自動生成した prompt を screenplay の animation_prompt に上書き保存。
+        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp)
+        if not cached:
+            return jsonify({"error": "採用できる自動生成 prompt がありません。先に生成してください。"}), 400
+        composed = cached.get("composed")
+        if not composed:
+            return jsonify({"error": "キャッシュに composed が無い"}), 500
+        with _screenplay_lock(name):
+            disk_sp = staged_pipeline.load_screenplay(name)
+            disk_scenes = disk_sp.get("scenes") or []
+            if scene_idx >= len(disk_scenes):
+                return jsonify({"error": "scene_idx範囲外"}), 400
+            disk_scenes[scene_idx]["animation_prompt"] = composed
+            staged_pipeline.save_screenplay(name, disk_sp)
+        return jsonify({
+            "scene_idx": scene_idx,
+            "manual": composed,
+            "auto": composed,
+            "adopted": True,
+        })
+
+    return jsonify({"error": f"未知のaction: {action}"}), 400
+
+
 @app.route("/api/projects/<ts>/progress", methods=["GET"])
 def api_project_progress(ts):
     _validate_ts(ts)

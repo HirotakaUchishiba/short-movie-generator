@@ -111,47 +111,63 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
                           screenplay: dict | None = None) -> str:
     """Kling 用 animation_prompt を合成する (SSOT準拠)。
 
-    入力は SSOT のみ:
-      - scene.animation_prompt (シーン固有の動作・ベース文)
-      - lines[].emotion (per-line) → EMOTION_VISUAL_CUES (motion/facial/camera/tone)
-      - tts_<S>_<L>.mp3 (TTS生成済みなら) → audio_dynamics
+    優先順位:
+      1. scene.animation_prompt (手書き) があれば base に採用
+      2. それ以外で AUTO_ANIMATION_PROMPT_ENABLED かつ lines があれば
+         auto_animation_prompt.generate() で base を生成 (キャッシュ命中時は LLM 呼ばず)
+         - 生成結果は scene.animation_prompt_auto にもセット (UI 表示用)
+      3. それも無い場合は background_prompt をベースにフォールバック
 
-    廃止フィールド (scene.facial_expression / hand_gesture) は読まない。
+    自動生成時は LLM が emotion arc / acoustic を統合済みなので、
+    重複注入を避けるため emotion arc cue / audio_dynamics の追加注入を抑止する。
     """
     explicit = scene.get("animation_prompt")
     bg_prompt = scene.get("background_prompt", "")
-    base = explicit if explicit else f"gentle cinematic motion, {bg_prompt}"
+
+    auto_used = False
+    if explicit:
+        base = explicit
+    else:
+        auto_base = _maybe_auto_animation_prompt(scene, ts_path, s_idx, screenplay)
+        if auto_base:
+            base = auto_base
+            auto_used = True
+        else:
+            base = f"gentle cinematic motion, {bg_prompt}"
 
     extras: list[str] = []
 
-    motion_arc = _emotion_arc_summary(scene, "motion")
-    if motion_arc:
-        extras.append(f"motion arc: {motion_arc}")
+    if not auto_used:
+        # LLM 出力には arc 情報がすでに織り込まれているので、二重注入を避ける
+        motion_arc = _emotion_arc_summary(scene, "motion")
+        if motion_arc:
+            extras.append(f"motion arc: {motion_arc}")
 
-    facial_arc = _emotion_arc_summary(scene, "facial")
-    if facial_arc:
-        extras.append(f"facial arc: {facial_arc}")
+        facial_arc = _emotion_arc_summary(scene, "facial")
+        if facial_arc:
+            extras.append(f"facial arc: {facial_arc}")
 
-    dom_cues = _dominant_visual_cues(scene)
-    if dom_cues.get("camera"):
-        extras.append(f"camera: {dom_cues['camera']}")
-    if dom_cues.get("tone"):
-        extras.append(f"tone: {dom_cues['tone']}")
-    # override で書かれることが多いカテゴリ (Kling は人物動作プロンプトなので)
-    if dom_cues.get("eye_gaze"):
-        extras.append(f"eye gaze: {dom_cues['eye_gaze']}")
-    if dom_cues.get("body_posture"):
-        extras.append(f"body posture: {dom_cues['body_posture']}")
-    if dom_cues.get("hair"):
-        extras.append(f"hair: {dom_cues['hair']}")
+        dom_cues = _dominant_visual_cues(scene)
+        if dom_cues.get("camera"):
+            extras.append(f"camera: {dom_cues['camera']}")
+        if dom_cues.get("tone"):
+            extras.append(f"tone: {dom_cues['tone']}")
+        # override で書かれることが多いカテゴリ (Kling は人物動作プロンプトなので)
+        if dom_cues.get("eye_gaze"):
+            extras.append(f"eye gaze: {dom_cues['eye_gaze']}")
+        if dom_cues.get("body_posture"):
+            extras.append(f"body posture: {dom_cues['body_posture']}")
+        if dom_cues.get("hair"):
+            extras.append(f"hair: {dom_cues['hair']}")
 
-    # 横断適用ルール (scoped_augmentations) の要素注入
+    # 横断適用ルール (scoped_augmentations) の要素注入は auto でも残す
+    # (台本作成者が明示した横断ルールは LLM 出力にも追加で適用するため)
     scoped = _resolve_scoped_elements(screenplay, scene, s_idx)
     if scoped:
         extras.append("scene elements: " + ", ".join(scoped))
 
-    # TTS 音響特徴 (TTS 生成済みのときだけ)
-    if ts_path is not None and s_idx is not None:
+    # TTS 音響特徴: auto 採用時は LLM 入力で消費済みのため抑止
+    if not auto_used and ts_path is not None and s_idx is not None:
         try:
             import audio_dynamics
             dyn = audio_dynamics.summarize_scene_dynamics(
@@ -164,6 +180,46 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
     if extras:
         return f"{base}, " + ", ".join(extras)
     return base
+
+
+def _maybe_auto_animation_prompt(scene: dict, ts_path: str | None,
+                                  s_idx: int | None,
+                                  screenplay: dict | None) -> str | None:
+    """LLM 自動生成を試行し、成功すれば prompt 文字列を返す。失敗時は None。
+
+    呼出条件:
+      - config.AUTO_ANIMATION_PROMPT_ENABLED が True
+      - scene に lines がある (空シーンには使わない)
+      - ANTHROPIC_API_KEY がセットされている
+
+    生成結果は in-memory の scene["animation_prompt_auto"] にもセットして
+    後続の API 応答 (preview_server) で読めるようにする。
+    """
+    if not getattr(config, "AUTO_ANIMATION_PROMPT_ENABLED", False):
+        return None
+    if not (scene.get("lines") or []):
+        return None
+    if not config.ANTHROPIC_API_KEY:
+        logger.debug("AUTO_ANIMATION_PROMPT_ENABLED=True だが ANTHROPIC_API_KEY 未設定のためスキップ")
+        return None
+    if s_idx is None:
+        return None
+
+    try:
+        import auto_animation_prompt
+        entry = auto_animation_prompt.generate(
+            scene, screenplay, ts_path, s_idx, force=False,
+        )
+        composed = entry.get("composed")
+        if not composed:
+            return None
+        # screenplay JSON への永続化はここではしない (in-memory のみ)。
+        # UI 採用ボタンで明示的に animation_prompt に書き戻す方針。
+        scene["animation_prompt_auto"] = composed
+        return composed
+    except Exception as e:
+        logger.warning("auto_animation_prompt 生成失敗 (シーン%d): %s", s_idx, e)
+        return None
 
 
 def _clean_text(text: str) -> str:
