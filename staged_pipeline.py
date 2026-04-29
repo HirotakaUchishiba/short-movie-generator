@@ -148,7 +148,8 @@ def run_overlay(screenplay: dict, ts_path: str) -> None:
     overlaid = os.path.join(ts_path, "overlaid.mp4")
     if os.path.exists(overlaid):
         os.remove(overlaid)
-    _apply_overlays(merged, screenplay, ts_path, overlaid, silent)
+    _apply_overlays(merged, screenplay, ts_path, overlaid, silent,
+                      scene_videos=scene_videos)
     progress_store.mark_generated(ts_path, "overlay")
     logger.info("[Stage 7] 字幕焼き込み完了")
 

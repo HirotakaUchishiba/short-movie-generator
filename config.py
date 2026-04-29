@@ -40,6 +40,10 @@ LABEL_Y_FROM_BOTTOM = 410
 SUBTITLE_FONT_SIZE = 76
 SUBTITLE_Y_FROM_BOTTOM = 950
 SUBTITLE_LINE_GAP = 14
+# 字幕 1 行の最大文字数。これを超えるテキストは compositor._wrap_subtitle_text で
+# 句読点・助詞境界を優先して自動改行される。
+# 1080px 幅 + fontsize 76 だと安全に収まるのは ~17 文字。
+SUBTITLE_MAX_CHARS_PER_LINE = 17
 
 ELEVENLABS_VOICE_ID = "0ptCJp0xgdabdcpVtCB5"
 ELEVENLABS_VOICE_STABILITY = 0.5

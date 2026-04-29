@@ -29,9 +29,26 @@ def _escape_fontfile(path: str) -> str:
 
 
 def _scene_offsets(scenes: list[dict]) -> list[float]:
+    """screenplay の scene.duration の累積で offset を計算 (= 想定値ベース)。
+
+    slow_mo 延長や lipsync 後処理で実 scene_<S>.mp4 の尺がここから乖離する
+    場合があるため、可能な限り _scene_offsets_from_videos を使うこと。
+    """
     offsets = [0.0]
     for scene in scenes[:-1]:
         offsets.append(offsets[-1] + float(scene["duration"]))
+    return offsets
+
+
+def _scene_offsets_from_videos(scene_videos: list[str]) -> list[float]:
+    """各 scene_<S>.mp4 の実尺累積で offset を計算 (= 実測値ベース)。
+
+    overlay の base 動画は scene_<S>.mp4 を順に concat したものなので、
+    字幕の絶対秒は実尺累積で計算しないと slow_mo 延長分だけズレる。
+    """
+    offsets = [0.0]
+    for v in scene_videos[:-1]:
+        offsets.append(offsets[-1] + _get_duration(v))
     return offsets
 
 
@@ -88,15 +105,138 @@ def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
     return merged_path
 
 
-def _line_window(line: dict, next_line: dict | None, scene_duration: float) -> tuple[float, float]:
-    start = float(line["start"])
+def _line_window(line: dict, next_line: dict | None,
+                 scene_duration: float,
+                 scene_real_duration: float | None = None) -> tuple[float, float]:
+    """シーン内 line の表示開始/終了 (秒) を返す。
+
+    scene_real_duration が指定された場合、line.start / line.end を
+    scene_real / scene_sp の比率で線形リスケールする。
+    シーン内で slow_mo 延長が一様にかかっている前提で、内部 line タイミングが
+    動画 timeline と整合するようにする。
+    """
+    ratio = 1.0
+    if scene_real_duration and scene_duration > 0:
+        ratio = scene_real_duration / scene_duration
+
+    start = float(line["start"]) * ratio
     if "end" in line:
-        end = float(line["end"])
+        end = float(line["end"]) * ratio
     elif next_line is not None:
-        end = float(next_line["start"])
+        end = float(next_line["start"]) * ratio
     else:
-        end = scene_duration
+        end = scene_real_duration if scene_real_duration else scene_duration
     return start, end
+
+
+_BREAK_STRONG = "、。！？!?,."
+_BREAK_SPACE = "　 "
+_BREAK_DOT = "・"
+# 主要助詞 (1文字)
+_BREAK_PARTICLES_1CHAR = set("はがをにでとやもへ")
+# よく字幕末尾に来る終助詞 (これらの「直前」で切る)
+_BREAK_TERMINAL = set("ねよかなさよ")
+
+
+def _is_katakana(ch: str) -> bool:
+    return bool(ch) and ("゠" <= ch <= "ヿ" or ch == "ー")
+
+
+def _is_kanji(ch: str) -> bool:
+    return bool(ch) and "一" <= ch <= "鿿"
+
+
+def _is_hiragana(ch: str) -> bool:
+    return bool(ch) and "぀" <= ch <= "ゟ"
+
+
+def _break_score_at(text: str, i: int) -> int:
+    """位置 i で text を [:i] と [i:] に分けるときのスコア。
+    高いほど切るのに自然。"""
+    if i <= 0 or i >= len(text):
+        return 0
+    left = text[i - 1]
+    right = text[i]
+
+    # ★★★ 強い改行点
+    if left in _BREAK_STRONG:
+        return 100
+    if left in _BREAK_SPACE:
+        return 95
+    if left == "」" or left == "』" or left == ")" or left == "）":
+        return 92
+    if right == "「" or right == "『" or right == "(" or right == "(":
+        return 90
+    if left in _BREAK_DOT:
+        return 85
+    # 終助詞の直前
+    if right in _BREAK_TERMINAL:
+        return 70
+
+    # ★★ 主要助詞の直後
+    if left in _BREAK_PARTICLES_1CHAR:
+        # 直前が「ま」「て」「し」など (= 動詞活用形末尾) の場合は降格
+        # (例: 「ます」「て」が来る活用語尾は助詞ではない)
+        # 簡易チェック: 直前 2 文字が活用語尾っぽければ降格
+        if i >= 2 and text[i - 2] in "まてしっなき":
+            return 30
+        return 60
+
+    # ★ カタカナ↔漢字/ひらがな 境界
+    lk = _is_katakana(left)
+    rk = _is_katakana(right)
+    if lk != rk:
+        return 35
+
+    # ★ ひらがな↔漢字 境界
+    lh = _is_hiragana(left)
+    rh = _is_hiragana(right)
+    lj = _is_kanji(left)
+    rj = _is_kanji(right)
+    if (lh and rj) or (lj and rh):
+        return 25
+
+    return 0
+
+
+def _wrap_subtitle_text(text: str, max_chars: int) -> str:
+    """日本語字幕を max_chars 以内に折り返す。
+    句読点・助詞境界・文字種境界を優先し、最終手段として強制改行する。
+    """
+    if max_chars <= 0 or len(text) <= max_chars:
+        return text
+
+    lines: list[str] = []
+    rest = text
+    while len(rest) > max_chars:
+        ideal = max_chars
+        # 探索範囲: ideal-5 〜 ideal+1 (前方優先で best break を探す)
+        lo = max(1, ideal - 5)
+        hi = min(len(rest) - 1, ideal)
+        best_pos: int | None = None
+        best_score = 0
+        for i in range(hi, lo - 1, -1):  # 後ろから前へ (= max_chars に近い側を優先)
+            s = _break_score_at(rest, i)
+            # ideal 位置との距離ペナルティ
+            s -= abs(i - ideal) * 3
+            if s > best_score:
+                best_score = s
+                best_pos = i
+
+        if best_pos is None or best_score <= 0:
+            # フォールバック: 強制改行 (=ideal で切る)
+            best_pos = ideal
+            logger.warning(
+                "[subtitle wrap] 自然な改行点が見つからず ideal=%d で強制改行: %r",
+                ideal, rest[:max_chars * 2],
+            )
+
+        lines.append(rest[:best_pos])
+        rest = rest[best_pos:]
+
+    if rest:
+        lines.append(rest)
+    return "\n".join(lines)
 
 
 def _needs_overlay(screenplay: dict) -> bool:
@@ -106,11 +246,30 @@ def _needs_overlay(screenplay: dict) -> bool:
     return False
 
 
-def _build_overlay_filter(screenplay: dict, temp_dir: str) -> str:
+def _build_overlay_filter(screenplay: dict, temp_dir: str,
+                            scene_videos: list[str] | None = None) -> str:
+    """字幕オーバーレイ filter_complex を組み立てる。
+
+    scene_videos が指定されたら **実 timeline ベース** で字幕の絶対時刻を
+    計算する (= scene_<S>.mp4 の実尺累積で offset を決め、シーン内の
+    line.start / end も scene_real / scene_sp 比でリスケール)。
+    指定しない場合は scene.duration ベースで動く (後方互換)。
+    """
     font = _escape_fontfile(config.FONT_PATH)
     H = config.VIDEO_HEIGHT
     scenes = screenplay.get("scenes", [])
-    offsets = _scene_offsets(scenes)
+
+    use_real_timeline = (
+        scene_videos is not None and len(scene_videos) == len(scenes)
+    )
+    if use_real_timeline:
+        offsets = _scene_offsets_from_videos(scene_videos)
+        real_durations = [_get_duration(v) for v in scene_videos]
+    else:
+        offsets = _scene_offsets(scenes)
+        real_durations = [None] * len(scenes)
+
+    max_chars = int(getattr(config, "SUBTITLE_MAX_CHARS_PER_LINE", 17))
 
     filters: list[str] = []
     cur_in = "0:v"
@@ -124,16 +283,17 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str) -> str:
     for s_idx, scene in enumerate(scenes):
         offset = offsets[s_idx]
         duration = float(scene["duration"])
+        scene_real = real_durations[s_idx]
 
         scene_lines = scene.get("lines") or []
         for l_idx, line in enumerate(scene_lines):
             next_line = scene_lines[l_idx + 1] if l_idx + 1 < len(scene_lines) else None
-            rel_start, rel_end = _line_window(line, next_line, duration)
+            rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
             abs_start = offset + rel_start
             abs_end = offset + rel_end
             enable_line = f"between(t,{abs_start:.3f},{abs_end:.3f})"
 
-            text = line["text"].strip()
+            text = _wrap_subtitle_text(line["text"].strip(), max_chars)
             tf = _write_textfile(temp_dir, f"sub_{s_idx:03d}_{l_idx:03d}", text)
             tf_esc = _escape_fontfile(tf)
             # screenplay 側に override があればそちらを優先 (UI で調整可能)
@@ -163,8 +323,12 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str) -> str:
 
 
 def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
-                    output_path: str, silent: bool) -> None:
-    filter_complex = _build_overlay_filter(screenplay, temp_dir)
+                    output_path: str, silent: bool,
+                    scene_videos: list[str] | None = None) -> None:
+    """base_video に字幕を焼き込む。scene_videos が渡されたら、
+    各 scene_<S>.mp4 の実尺ベースで字幕タイミングを計算する。"""
+    filter_complex = _build_overlay_filter(
+        screenplay, temp_dir, scene_videos=scene_videos)
     if not filter_complex:
         import shutil
         shutil.copyfile(base_video, output_path)
@@ -233,10 +397,12 @@ def compose_video(
 
     if use_bgm:
         overlaid_tmp = os.path.join(temp_dir, "overlaid.mp4")
-        _apply_overlays(merged_path, screenplay, temp_dir, overlaid_tmp, silent)
+        _apply_overlays(merged_path, screenplay, temp_dir, overlaid_tmp,
+                          silent, scene_videos=scene_videos)
         bgm_db = float(screenplay.get("bgm_volume_db", config.BGM_DEFAULT_VOLUME_DB))
         _mix_bgm(overlaid_tmp, bgm_path, bgm_db, temp_dir, output_path)
     else:
-        _apply_overlays(merged_path, screenplay, temp_dir, output_path, silent)
+        _apply_overlays(merged_path, screenplay, temp_dir, output_path,
+                          silent, scene_videos=scene_videos)
 
     return output_path
