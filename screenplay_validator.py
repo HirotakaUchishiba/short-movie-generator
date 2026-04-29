@@ -165,15 +165,6 @@ SCHEMA: dict = {
                         "type": "string",
                         "description": "Kling V3に渡すモーションプロンプト（英語推奨、シーン全体の動き）",
                     },
-                    "animation_prompt_auto": {
-                        "type": "string",
-                        "description": (
-                            "auto_animation_prompt が lines/emotion/delivery/acoustic から"
-                            "Claude Sonnet で自動生成した prompt。"
-                            "scene.animation_prompt が空の場合のフォールバックとして使用される。"
-                            "UI から「採用」すれば animation_prompt にコピーされる"
-                        ),
-                    },
                     "character_refs": {
                         "type": "array",
                         "items": {"type": "string", "minLength": 1},
