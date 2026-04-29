@@ -56,6 +56,7 @@ export interface Line {
   speaker?: string;
   silence_after_ms?: number;
   subtitles?: SubtitleChunk[];
+  hidden?: boolean;
 }
 
 export interface CharacterDef {
