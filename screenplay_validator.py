@@ -328,6 +328,10 @@ SCHEMA: dict = {
                                     "type": "string",
                                     "description": "発話者（複数キャラの場合）。scenes[].characters[].name と対応",
                                 },
+                                "hidden": {
+                                    "type": "boolean",
+                                    "description": "true ならこの line の字幕を焼き込まない (TTS は通常通り)",
+                                },
                                 "subtitles": {
                                     "type": "array",
                                     "description": (
