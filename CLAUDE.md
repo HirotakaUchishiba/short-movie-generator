@@ -236,51 +236,14 @@ python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-sho
 
 手動で細かく制御したい場合は `voice_overrides` で個別に上書き。
 
-## animation_prompt の自動生成 (lines + bg 画像 → Claude Sonnet Vision)
+## 日本語修正案でプロンプトを書き換える (Stage 3 / Stage 4)
 
-`scenes[].animation_prompt` を空にしておけば、Stage 4 (Kling) 実行時に `auto_animation_prompt.py` が `lines[]` (text / emotion / delivery / acoustic) と `location_ref` / `wardrobe` から **Claude Sonnet 4.6 で animation_prompt を自動生成**する。出力は `subject / action_sequence / camera / mood` の構造化フォーマットで、UI 誘発語 (chat bubble / notification 等) を含むと自動でリジェクトする。
+Stage 3 (背景) と Stage 4 (Kling) のシーンカードに「日本語で修正案を入力」パネルがあり、日本語の修正指示 (例: "もっとカメラを引いて、机にマグカップ追加") を Claude Sonnet に渡して **既存の `background_prompt` / `animation_prompt` を最小差分で書き換える**。
 
-**Stage 3 で生成済みの bg 画像があれば LLM に渡し、画像内の姿勢・位置・構図を「動画の起点フレーム」として動作を組み立てさせる**。これで「bg では既に着席している」のに「prompt が "デスクに駆け寄る"」のような構図/動作の齟齬を構造的に解消する。
+- **preview**: LLM を呼んで diff を表示。変更前/変更後を見比べ、変更後はテキスト編集可能
+- **適用**: 採用した prompt を screenplay の該当フィールドに書き戻す (= 以降は手書き扱いで Stage 実行に使われる)
 
-### 優先順位
-
-1. **手書き `scene.animation_prompt`** があれば最優先で採用 (LLM は呼ばない)
-2. それ以外で `AUTO_ANIMATION_PROMPT_ENABLED=true` (既定) かつ `lines[]` があれば LLM 生成
-3. 生成不可の場合は `background_prompt` をベースにフォールバック
-
-### bg 画像の参照モード
-
-| 状況                   | LLM 入力               | 期待効果                                               |
-| ---------------------- | ---------------------- | ------------------------------------------------------ |
-| Stage 3 完了 + bg あり | テキスト + **bg 画像** | 構図・姿勢・服装・小道具に整合した動作。起点齟齬を解消 |
-| Stage 3 未完了         | テキストのみ           | 一般的な動作描写 (フォールバック)                      |
-
-bg を参照すると 1 シーンあたり API コストが約 $0.005 → $0.010 に倍増するが、Kling V3 の動画生成成功率が体感 5〜15% 向上。
-
-### キャッシュ
-
-入力ハッシュ (lines / emotion / delivery / acoustic / duration / location*ref + **bg ファイルバイト sha256**) で判定し、同じ入力なら `temp/<TS>/auto_prompts/scene*<i>.json` から再利用。**bg を再生成すると auto キャッシュも自動で無効化** され、新しい bg に対して再度 LLM が走る。
-
-### UI ワークフロー
-
-Stage 4 のシーンカードに「自動生成 / 再生成 / 採用」パネルがあり:
-
-- **自動生成 / 再生成**: LLM を呼んで結果をキャッシュ (Stage 3 完了済みなら自動で bg を参照)
-- **表示**: 構造化 (subject / action / camera / mood) と composed prompt を確認。bg 参照の有無は `bg_used` フィールドで分かる
-- **採用**: 自動生成 prompt を `scene.animation_prompt` に書き戻す (= 以降は手書き優先扱い)
-
-### 重複注入の抑止
-
-LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等) と `audio_dynamics` の追加注入を抑止する (LLM 入力で既に消費済みのため二重にならない)。
-
-### コスト
-
-| モード               | 1 シーン  | 9 シーン台本 |
-| -------------------- | --------- | ------------ |
-| テキストのみ         | 約 $0.005 | 約 $0.045    |
-| bg 画像参照 (Vision) | 約 $0.010 | 約 $0.090    |
-
-キャッシュが効くため再実行コストは 0 (bg を再生成しない限り)。
+UI 誘発語 (chat bubble / notification 等) が出力に含まれていたら自動でリジェクトする。LLM モデルは `PROMPT_REVISE_MODEL` (既定 `claude-sonnet-4-6`) で切替可能。
 
 ## 自動活用される音響メタデータ
 
@@ -297,7 +260,7 @@ LLM 採用時は emotion arc cue (`motion arc:` / `facial arc:` / `camera:` 等)
 
 最終動画には **字幕 (lines[].text) のみ** を焼き込む。タイトル帯/時刻表示/ラベル/インサート画像/ポップアップなどのオーバーレイは廃止。
 
-`scenes[].label` は動画には描画されない。シーン識別用のメタ情報として UI 表示と auto_animation_prompt の LLM 補助入力に使われる。
+`scenes[].label` は動画には描画されない。シーン識別用のメタ情報として UI 表示と LLM 補助入力に使われる。
 
 ### 字幕の手動チャンク制御
 

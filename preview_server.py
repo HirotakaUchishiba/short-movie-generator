@@ -273,11 +273,12 @@ def api_composed_prompts(ts, scene_idx):
     })
 
 
-# 自動生成 animation_prompt のキャッシュ参照 / 強制再生成 / 採用 (animation_prompt 上書き)。
-# UI から「生成 → diff 確認 → 採用」というワークフローで使う。
-@app.route("/api/projects/<ts>/scenes/<int:scene_idx>/auto-animation-prompt",
-            methods=["GET", "POST"])
-def api_auto_animation_prompt(ts, scene_idx):
+# 日本語の修正指示で background_prompt / animation_prompt を書き換える。
+# action="preview" → 修正後 prompt を返すだけ (保存しない、UI で diff 確認用)
+# action="apply"   → 修正後 prompt を screenplay に保存 (regen は呼出側 UI で実施)
+@app.route("/api/projects/<ts>/scenes/<int:scene_idx>/revise-prompt",
+            methods=["POST"])
+def api_revise_prompt(ts, scene_idx):
     _validate_ts(ts)
     if not os.path.isdir(_ts_path(ts)):
         return jsonify({"error": "プロジェクトが存在しません"}), 404
@@ -285,70 +286,68 @@ def api_auto_animation_prompt(ts, scene_idx):
     scenes = sp.get("scenes") or []
     if scene_idx >= len(scenes):
         return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
-    scene = scenes[scene_idx]
 
-    import auto_animation_prompt as aap
-
-    # Stage 3 で生成済みの bg があれば LLM に渡す (= 画像を起点フレームに)
-    bg_path = scene_gen._bg_path_for_scene(scene_idx, scene, _ts_path(ts))
-    if not os.path.exists(bg_path):
-        bg_path = None
-
-    if request.method == "GET":
-        # キャッシュ命中分のみ返す (LLM は呼ばない)
-        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp,
-                                  bg_path=bg_path)
-        return jsonify({
-            "scene_idx": scene_idx,
-            "manual": scene.get("animation_prompt"),
-            "auto": cached.get("composed") if cached else None,
-            "structured": cached.get("structured") if cached else None,
-            "bg_used": cached.get("bg_used") if cached else None,
-            "cached": cached is not None,
-        })
-
-    # POST: 強制再生成 or 採用
     body = request.get_json(silent=True) or {}
-    action = body.get("action", "regenerate")
+    field = body.get("field")
+    instruction_ja = body.get("instruction_ja")
+    action = body.get("action", "preview")
+    if field not in ("background_prompt", "animation_prompt"):
+        return jsonify({"error": "field は background_prompt または animation_prompt"}), 400
+    if not isinstance(instruction_ja, str) or not instruction_ja.strip():
+        return jsonify({"error": "instruction_ja (日本語の修正指示) が必要"}), 400
 
-    if action == "regenerate":
+    if action == "preview":
+        revised_text = body.get("revised")
+        # 「適用」ボタン押下時に preview で得た revised を渡してくる場合は LLM を再実行しない。
+        # ただし通常 preview は LLM を呼ぶ。ここでは preview = LLM 呼出 と固定する。
+        scene = scenes[scene_idx]
+        if field == "background_prompt":
+            current = scene_gen._build_background_prompt(
+                scene, sp, ts_path=_ts_path(ts), s_idx=scene_idx)
+        else:
+            current = scene_gen._get_animation_prompt(
+                scene, ts_path=_ts_path(ts), s_idx=scene_idx)
+
+        import prompt_revise
         try:
-            entry = aap.generate(
-                scene, sp, _ts_path(ts), scene_idx,
-                force=True, bg_path=bg_path,
+            result = prompt_revise.revise(
+                current_prompt=current,
+                instruction_ja=instruction_ja,
+                field=field,
             )
+        except (ValueError, RuntimeError) as e:
+            return jsonify({"error": str(e)}), 400
         except Exception as e:
-            return jsonify({"error": f"自動生成失敗: {e}"}), 500
+            logger.exception("prompt_revise failed")
+            return jsonify({"error": f"修正生成失敗: {e}"}), 500
         return jsonify({
             "scene_idx": scene_idx,
-            "manual": scene.get("animation_prompt"),
-            "auto": entry["composed"],
-            "structured": entry["structured"],
-            "bg_used": entry.get("bg_used"),
-            "cached": False,
+            "field": field,
+            "previous": current,
+            "revised": result["revised"],
+            "model": result["model"],
         })
 
-    if action == "adopt":
-        # 自動生成した prompt を screenplay の animation_prompt に上書き保存。
-        cached = aap.get_cached(_ts_path(ts), scene_idx, scene, sp,
-                                  bg_path=bg_path)
-        if not cached:
-            return jsonify({"error": "採用できる自動生成 prompt がありません。先に生成してください。"}), 400
-        composed = cached.get("composed")
-        if not composed:
-            return jsonify({"error": "キャッシュに composed が無い"}), 500
+    if action == "apply":
+        revised = body.get("revised")
+        if not isinstance(revised, str) or not revised.strip():
+            return jsonify({"error": "revised (適用する prompt) が必要"}), 400
+        from screenplay_validator import validate_screenplay
         with _screenplay_lock(name):
             disk_sp = staged_pipeline.load_screenplay(name)
             disk_scenes = disk_sp.get("scenes") or []
             if scene_idx >= len(disk_scenes):
                 return jsonify({"error": "scene_idx範囲外"}), 400
-            disk_scenes[scene_idx]["animation_prompt"] = composed
+            disk_scenes[scene_idx][field] = revised
+            errors = validate_screenplay(disk_sp, strict=False)
+            if errors:
+                return jsonify({"error": "validator失敗", "details": errors}), 400
             staged_pipeline.save_screenplay(name, disk_sp)
         return jsonify({
             "scene_idx": scene_idx,
-            "manual": composed,
-            "auto": composed,
-            "adopted": True,
+            "field": field,
+            "applied": True,
+            "revised": revised,
         })
 
     return jsonify({"error": f"未知のaction: {action}"}), 400

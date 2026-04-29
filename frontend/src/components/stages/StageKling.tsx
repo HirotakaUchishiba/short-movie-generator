@@ -3,8 +3,8 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { klingAssetUrl, sceneTrimAssetUrl, api } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import EmotionCueOverridePanel from "../EmotionCueOverridePanel";
+import PromptRevisePanel from "../PromptRevisePanel";
 import SceneTtsRow from "../SceneTtsRow";
-import AutoAnimationPromptPanel from "../AutoAnimationPromptPanel";
 import type { Scene } from "../../types";
 
 const KLING_COST_PER_SEC = 0.084;
@@ -193,11 +193,13 @@ function KlingCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
         field="animation_prompt"
         version={ctx.detail.progress.stages.kling.regen_count}
       />
-      <AutoAnimationPromptPanel
+      <PromptRevisePanel
         ts={ctx.detail.timestamp}
         sceneIdx={sIdx}
-        onAdopted={() => {
-          ctx.reload();
+        field="animation_prompt"
+        onApplied={async (revised) => {
+          setPrompt(revised);
+          await ctx.reload();
         }}
       />
       <EmotionCueOverridePanel scene={scene} sIdx={sIdx} />

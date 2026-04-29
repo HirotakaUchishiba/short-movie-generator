@@ -1,9 +1,9 @@
 #!/usr/bin/env python3
 """screenplays/*.json と screenplays/drafts/*.json から廃止フィールドを除去する one-shot migration。
 
-廃止フィールド (chore/remove-dead-screenplay-fields):
-  - root: _analysis, title_overlay
-  - scenes[]: time
+廃止フィールド:
+  - root: _analysis, title_overlay (chore/remove-dead-screenplay-fields)
+  - scenes[]: time, animation_prompt_auto (feat/prompt-revise-ja)
   - scenes[].lines[]: speaker, pause_before, breath_before
   - scenes[].lines[].acoustic: pitch_hz_mean
 
@@ -19,7 +19,7 @@ from pathlib import Path
 ROOT = Path(__file__).resolve().parent.parent
 
 ROOT_DROP = ("_analysis", "title_overlay")
-SCENE_DROP = ("time",)
+SCENE_DROP = ("time", "animation_prompt_auto")
 LINE_DROP = ("speaker", "pause_before", "breath_before")
 ACOUSTIC_DROP = ("pitch_hz_mean",)
 
