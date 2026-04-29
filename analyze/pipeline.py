@@ -3,7 +3,10 @@
 CLI ラッパー (scripts/analyze_video.py) と UI ジョブ runner
 (preview_server から呼ばれる) の両方が同じ run() を共有する。
 
-各フェーズは on_progress(event, data) コールバックで境界を発信する。
+各フェーズは on_progress(event, data) コールバックで境界を発信し、
+入力 sha256 ベースの content-addressed cache (analyze.cache) で
+再分析時の再計算をスキップする。
+
 cancel_token() が True を返すと AnalyzeCancelled が raise される。
 """
 import json
@@ -20,6 +23,7 @@ import config
 import audio_separator
 import furigana_store
 import shot_detector
+from analyze import cache as _cache
 from audio_features import (
     extract_phrase_features,
     has_background_music,
@@ -136,26 +140,23 @@ def run(
     keep_tmp: bool = False,
     on_progress: ProgressCallback | None = None,
     cancel_token: CancelToken | None = None,
+    use_cache: bool = True,
 ) -> dict:
     """参考動画から screenplay JSON を生成する。
 
-    フェーズ順:
+    フェーズ順 (各境界で on_progress("phase_start"|"phase_complete", {phase, ...})):
         frames → audio → whisper → acoustic → bgm_detect
         → shots (optional) → bgm_separate (optional) → claude → save
 
-    各フェーズの境界で on_progress(event, data) を発信する:
-        - ("phase_start",    {"phase": <name>, ...})
-        - ("phase_complete", {"phase": <name>, ...})
-        - ("completed",      {"output_path": ..., "scenes": ..., "lines": ..., "duration_sec": ...})
-
     Args:
-        video_path: 入力動画パス (絶対 or 相対)
+        video_path: 入力動画パス
         output_path: 出力 JSON パス。None なら screenplays/auto_<stem>.json
         options: 実行オプション (fps / instructions / no_bgm_extract / no_shots)
         work_dir: 中間ファイルの作業ディレクトリ。None なら tempfile で確保
-        keep_tmp: True なら work_dir を削除しない (cache 利用 / デバッグ用)
+        keep_tmp: True なら work_dir を削除しない
         on_progress: フェーズ進捗コールバック
-        cancel_token: 各フェーズ境界で呼ばれ、True を返すと AnalyzeCancelled を raise
+        cancel_token: 各フェーズ境界で呼ばれ、True を返すと AnalyzeCancelled
+        use_cache: False なら content-addressed cache を一切使わない
 
     Returns:
         生成された screenplay 辞書 (output_path にも書き出される)
@@ -183,74 +184,126 @@ def run(
         audio_path = os.path.join(work_dir, "audio.wav")
         frame_interval_sec = 1.0 / options.fps
 
-        # ─── Phase: frames ───────────────────────────
+        # ─── Phase: frames (cache: video_sha + fps) ──────
         _emit(on_progress, "phase_start", {"phase": "frames"})
-        frame_paths = _extract_frames(video_path, options.fps, frames_dir)
-        _emit(on_progress, "phase_complete", {
-            "phase": "frames",
-            "frame_count": len(frame_paths),
-        })
+        video_sha = _cache.file_sha256(video_path)
+        restored = _cache.restore_frames(video_sha, options.fps, frames_dir) if use_cache else None
+        if restored is not None:
+            frame_paths = restored
+            _emit(on_progress, "phase_complete", {
+                "phase": "frames",
+                "frame_count": len(frame_paths),
+                "from_cache": True,
+            })
+        else:
+            frame_paths = _extract_frames(video_path, options.fps, frames_dir)
+            if use_cache:
+                _cache.store_frames(video_sha, options.fps, frames_dir)
+            _emit(on_progress, "phase_complete", {
+                "phase": "frames",
+                "frame_count": len(frame_paths),
+                "from_cache": False,
+            })
         _check_cancel(cancel_token)
 
         transcript: dict = {"text": "", "segments": [], "words": [], "duration": 0.0}
         phrase_features: list[dict] = []
         bgm_info: dict | None = None
         has_audio = _has_audio_stream(video_path)
+        audio_sha: str | None = None
 
         if has_audio:
-            # ─── Phase: audio ────────────────────────
+            # ─── Phase: audio (cache 対象外) ─────────
             _emit(on_progress, "phase_start", {"phase": "audio"})
             _extract_audio(video_path, audio_path)
+            audio_sha = _cache.file_sha256(audio_path)
             _emit(on_progress, "phase_complete", {"phase": "audio"})
             _check_cancel(cancel_token)
 
-            # ─── Phase: whisper ──────────────────────
+            # ─── Phase: whisper (cache: audio_sha) ───
             _emit(on_progress, "phase_start", {"phase": "whisper"})
-            transcript = transcribe(audio_path, language=config.LANGUAGE)
+            cached = _cache.get_json("transcript", audio_sha) if use_cache else None
+            if cached is not None:
+                transcript = cached
+                from_cache = True
+            else:
+                transcript = transcribe(audio_path, language=config.LANGUAGE)
+                if use_cache:
+                    _cache.put_json("transcript", audio_sha, transcript)
+                from_cache = False
             _emit(on_progress, "phase_complete", {
                 "phase": "whisper",
                 "segments": len(transcript["segments"]),
                 "words": len(transcript["words"]),
                 "duration_sec": transcript["duration"],
+                "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
 
-            # ─── Phase: acoustic ─────────────────────
+            # ─── Phase: acoustic (cache: audio_sha + segments_sig) ──
             _emit(on_progress, "phase_start", {"phase": "acoustic"})
-            for seg in transcript["segments"]:
-                feat = extract_phrase_features(audio_path, seg["start"], seg["end"])
-                feat["wpm"] = wpm_from_text(seg["text"], seg["end"] - seg["start"])
-                phrase_features.append(feat)
+            ac_key = _cache.acoustic_key(audio_sha, transcript)
+            cached_ac = _cache.get_json("acoustic", ac_key) if use_cache else None
+            if cached_ac is not None:
+                phrase_features = cached_ac.get("features", [])
+                from_cache = True
+            else:
+                for seg in transcript["segments"]:
+                    feat = extract_phrase_features(audio_path, seg["start"], seg["end"])
+                    feat["wpm"] = wpm_from_text(seg["text"], seg["end"] - seg["start"])
+                    phrase_features.append(feat)
+                if use_cache:
+                    _cache.put_json("acoustic", ac_key, {"features": phrase_features})
+                from_cache = False
             _emit(on_progress, "phase_complete", {
                 "phase": "acoustic",
                 "count": len(phrase_features),
+                "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
 
-            # ─── Phase: bgm_detect ───────────────────
+            # ─── Phase: bgm_detect (cache: audio_sha) ────
             _emit(on_progress, "phase_start", {"phase": "bgm_detect"})
-            bgm_info = has_background_music(audio_path)
+            cached_bgm = _cache.get_json("bgm", audio_sha) if use_cache else None
+            if cached_bgm is not None:
+                bgm_info = cached_bgm
+                from_cache = True
+            else:
+                bgm_info = has_background_music(audio_path)
+                if use_cache:
+                    _cache.put_json("bgm", audio_sha, bgm_info)
+                from_cache = False
             _emit(on_progress, "phase_complete", {
                 "phase": "bgm_detect",
                 "present": bgm_info.get("present"),
                 "confidence": bgm_info.get("confidence", 0),
+                "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
         else:
             logger.warning("動画に音声ストリームがありません。silent modeで分析します")
 
-        # ─── Phase: shots (optional) ─────────────────
+        # ─── Phase: shots (optional, cache: video_sha) ───
         shot_boundaries: list[dict] = []
         if not options.no_shots:
             _emit(on_progress, "phase_start", {"phase": "shots"})
-            shot_boundaries = shot_detector.detect_shots(video_path)
+            cached_shots = _cache.get_json("shots", video_sha) if use_cache else None
+            if cached_shots is not None:
+                shot_boundaries = cached_shots.get("shots", [])
+                from_cache = True
+            else:
+                shot_boundaries = shot_detector.detect_shots(video_path)
+                if use_cache:
+                    _cache.put_json("shots", video_sha, {"shots": shot_boundaries})
+                from_cache = False
             _emit(on_progress, "phase_complete", {
                 "phase": "shots",
                 "count": len(shot_boundaries),
+                "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
 
-        # ─── Phase: bgm_separate (optional) ──────────
+        # ─── Phase: bgm_separate (cache 対象外、assets/bgm/ に永続) ──
         if has_audio and bgm_info and bgm_info.get("present") and not options.no_bgm_extract:
             _emit(on_progress, "phase_start", {"phase": "bgm_separate"})
             sep_dir = os.path.join(work_dir, "separated")
@@ -271,7 +324,7 @@ def run(
                 })
             _check_cancel(cancel_token)
 
-        # ─── Phase: claude ───────────────────────────
+        # ─── Phase: claude (cache 対象外、毎回呼ぶ) ──────
         known_furigana = furigana_store.load()
         _emit(on_progress, "phase_start", {
             "phase": "claude",
