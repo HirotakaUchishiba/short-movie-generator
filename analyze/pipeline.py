@@ -79,6 +79,16 @@ def _check_cancel(token: CancelToken | None) -> None:
         raise AnalyzeCancelled()
 
 
+def _emit_skip(cb: ProgressCallback | None, phase: str, reason: str) -> None:
+    """スキップしたフェーズを明示的に通知する。
+
+    skip しても phase_skipped を発火することで、SQLite / SSE / UI の
+    三層すべてで "skipped" 状態を表現できる (発火がないと pending のまま
+    取り残されて永遠に終わらないように見える問題への対処)。
+    """
+    _emit(cb, "phase_skipped", {"phase": phase, "reason": reason})
+
+
 def _extract_frames(video_path: str, fps: float, out_dir: str) -> list[str]:
     os.makedirs(out_dir, exist_ok=True)
     pattern = os.path.join(out_dir, "frame_%04d.jpg")
@@ -285,6 +295,8 @@ def run(
             _check_cancel(cancel_token)
         else:
             logger.warning("動画に音声ストリームがありません。silent modeで分析します")
+            for skipped in ("audio", "whisper", "acoustic", "bgm_detect"):
+                _emit_skip(on_progress, skipped, "音声ストリームなし")
 
         # ─── Phase: shots (optional, cache: video_sha) ───
         shot_boundaries: list[dict] = []
@@ -305,9 +317,12 @@ def run(
                 "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
+        else:
+            _emit_skip(on_progress, "shots", "--no-shots オプションでスキップ")
 
         # ─── Phase: bgm_separate (cache 対象外、assets/bgm/ に永続) ──
-        if has_audio and bgm_info and bgm_info.get("present") and not options.no_bgm_extract:
+        bgm_present = bool(bgm_info and bgm_info.get("present"))
+        if has_audio and bgm_present and not options.no_bgm_extract:
             _emit(on_progress, "phase_start", {"phase": "bgm_separate"})
             sep_dir = os.path.join(work_dir, "separated")
             sep = audio_separator.separate(audio_path, sep_dir)
@@ -326,6 +341,14 @@ def run(
                     "skipped_reason": "demucs/HPSS両方失敗",
                 })
             _check_cancel(cancel_token)
+        else:
+            if not has_audio:
+                reason = "音声ストリームなし"
+            elif not bgm_present:
+                reason = "BGM 未検出"
+            else:
+                reason = "--no-bgm-extract オプションでスキップ"
+            _emit_skip(on_progress, "bgm_separate", reason)
 
         # ─── Cost gate (Phase 5 で SSE 経由ユーザー confirm 待ち) ──
         known_furigana = furigana_store.load()

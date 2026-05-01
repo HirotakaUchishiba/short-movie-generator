@@ -140,6 +140,16 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
           });
       } catch {}
     });
+    es.addEventListener("phase_skipped", (ev) => {
+      try {
+        const d = JSON.parse((ev as MessageEvent).data);
+        if (d.phase)
+          handlePhase(d.phase, {
+            status: "skipped",
+            message: d.reason || "スキップ",
+          });
+      } catch {}
+    });
     es.addEventListener("dryrun_complete", (ev) => {
       try {
         setDryrun(JSON.parse((ev as MessageEvent).data));

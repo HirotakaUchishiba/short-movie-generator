@@ -80,6 +80,11 @@ def _run_job_impl(job_id: str) -> None:
                 job.complete_phase(job_id, phase, duration_ms=duration_ms)
             except Exception:
                 logger.exception("complete_phase failed: %s/%s", job_id, phase)
+        elif event == "phase_skipped" and phase:
+            try:
+                job.skip_phase(job_id, phase)
+            except Exception:
+                logger.exception("skip_phase failed: %s/%s", job_id, phase)
         progress.publish(job_id, event, data)
 
     def cancel_token() -> bool:

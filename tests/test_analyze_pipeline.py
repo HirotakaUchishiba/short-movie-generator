@@ -62,6 +62,66 @@ def test_run_raises_cancelled_after_first_phase(tmp_path) -> None:
     assert not any(e == "phase_start" and d["phase"] == "claude" for e, d in events)
 
 
+def test_run_emits_phase_skipped_for_silent_video(tmp_path) -> None:
+    """silent モード + no_shots + no_bgm_extract で全 skip が phase_skipped を発火する。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"silent")
+
+    skipped: list[str] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        if event == "phase_skipped":
+            skipped.append(data.get("phase", ""))
+
+    # cost_gate で False を返して Claude 呼び出し前で AnalyzeCancelled。
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]), \
+         patch("analyze.pipeline._has_audio_stream", return_value=False), \
+         patch("analyze.pipeline._cache.file_sha256", return_value="v" * 64), \
+         patch("analyze.pipeline.furigana_store.load", return_value={}):
+        with pytest.raises(AnalyzeCancelled):
+            run(
+                video_path=str(fake_video),
+                output_path=str(tmp_path / "out.json"),
+                options=AnalyzeOptions(no_shots=True, no_bgm_extract=True),
+                on_progress=on_progress,
+                on_cost_gate=lambda *args: False,
+                use_cache=False,
+            )
+
+    # silent 由来 4 個 + no_shots 1 個 + bgm_separate (音声なし) 1 個
+    expected = {"audio", "whisper", "acoustic", "bgm_detect",
+                "shots", "bgm_separate"}
+    assert expected.issubset(set(skipped))
+
+
+def test_run_emits_phase_skipped_for_no_shots_only(tmp_path) -> None:
+    """音声あり + no_shots のみ → shots だけ skipped、他は通常実行が試みられる。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"audio")
+
+    skipped: list[str] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        if event == "phase_skipped":
+            skipped.append(data.get("phase", ""))
+
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]), \
+         patch("analyze.pipeline._has_audio_stream", return_value=False), \
+         patch("analyze.pipeline._cache.file_sha256", return_value="v" * 64), \
+         patch("analyze.pipeline.furigana_store.load", return_value={}):
+        with pytest.raises(AnalyzeCancelled):
+            run(
+                video_path=str(fake_video),
+                output_path=str(tmp_path / "out.json"),
+                options=AnalyzeOptions(no_shots=True),
+                on_progress=on_progress,
+                on_cost_gate=lambda *args: False,
+                use_cache=False,
+            )
+
+    assert "shots" in skipped
+
+
 def test_run_progress_callback_exception_is_swallowed(tmp_path) -> None:
     """progress callback が例外を出してもパイプライン全体は壊れない。"""
     fake_video = tmp_path / "v.mov"
