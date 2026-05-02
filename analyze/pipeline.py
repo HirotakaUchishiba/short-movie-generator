@@ -147,6 +147,28 @@ def _bgm_keep_path(video_path: str) -> str:
 # Kling V3 が 5 秒生成 -> trim する制約と整合 (3 秒未満は実用的でない)。
 MIN_SCENE_DURATION = 3.0
 
+# Claude Vision API の入力上限 (画像 100 枚 / 32MB ペイロード)。
+# これを超えると 413 request_too_large が返るため、超過時は均等間引きする。
+MAX_FRAMES_FOR_CLAUDE = 100
+
+
+def _downsample_frames(frame_paths: list[str],
+                        max_frames: int = MAX_FRAMES_FOR_CLAUDE,
+                        ) -> list[str]:
+    """フレーム数が max_frames を超えていたら均等間引きする。
+
+    最初と最後のフレームを必ず含み、間を等間隔でサンプリングする。
+    動画長 / fps から計算されるフレーム数が API 上限を超えるケース
+    (例: 100 秒動画 + fps=2.0 = 200 枚) で 413 を未然に防ぐ。
+    """
+    n = len(frame_paths)
+    if n <= max_frames:
+        return frame_paths
+    indices = [
+        int(round(i * (n - 1) / (max_frames - 1))) for i in range(max_frames)
+    ]
+    return [frame_paths[i] for i in indices]
+
 
 def _ensure_min_duration(screenplay: dict,
                           min_sec: float = MIN_SCENE_DURATION) -> int:
@@ -379,6 +401,24 @@ def run(
             else:
                 reason = "--no-bgm-extract オプションでスキップ"
             _emit_skip(on_progress, "bgm_separate", reason)
+
+        # ─── Claude API の入力上限を超える場合は frames を間引く ──
+        original_frame_count = len(frame_paths)
+        frame_paths = _downsample_frames(frame_paths)
+        if len(frame_paths) < original_frame_count:
+            logger.warning(
+                "Claude API の上限超過のため frames を %d → %d 枚に間引きました",
+                original_frame_count, len(frame_paths),
+            )
+            _emit(on_progress, "frames_downsampled", {
+                "original": original_frame_count,
+                "downsampled": len(frame_paths),
+                "max_frames": MAX_FRAMES_FOR_CLAUDE,
+                "reason": (
+                    f"Claude Vision API の入力上限 "
+                    f"({MAX_FRAMES_FOR_CLAUDE} 枚) を超えたため均等間引き"
+                ),
+            })
 
         # ─── Cost gate (Phase 5 で SSE 経由ユーザー confirm 待ち) ──
         known_furigana = furigana_store.load()

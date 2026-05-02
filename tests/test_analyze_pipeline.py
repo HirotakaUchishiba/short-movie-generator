@@ -122,6 +122,34 @@ def test_run_emits_phase_skipped_for_no_shots_only(tmp_path) -> None:
     assert "shots" in skipped
 
 
+def test_downsample_frames_noop_when_under_limit() -> None:
+    from analyze.pipeline import _downsample_frames
+    paths = [f"f{i}.jpg" for i in range(50)]
+    assert _downsample_frames(paths, max_frames=100) == paths
+
+
+def test_downsample_frames_keeps_first_and_last() -> None:
+    from analyze.pipeline import _downsample_frames
+    paths = [f"f{i:04d}.jpg" for i in range(202)]
+    out = _downsample_frames(paths, max_frames=100)
+    assert len(out) == 100
+    assert out[0] == "f0000.jpg"
+    assert out[-1] == "f0201.jpg"
+    # 単調増加 (順序維持)
+    indices = [int(p.removeprefix("f").removesuffix(".jpg")) for p in out]
+    assert indices == sorted(indices)
+
+
+def test_downsample_frames_uniform_spacing() -> None:
+    from analyze.pipeline import _downsample_frames
+    paths = [f"f{i:04d}.jpg" for i in range(200)]
+    out = _downsample_frames(paths, max_frames=10)
+    indices = [int(p.removeprefix("f").removesuffix(".jpg")) for p in out]
+    # 約 22 ずつ間隔で並ぶ (199/9 ≈ 22.1)
+    diffs = [indices[i + 1] - indices[i] for i in range(len(indices) - 1)]
+    assert max(diffs) - min(diffs) <= 1  # 等間隔 (誤差 ±1)
+
+
 def test_ensure_min_duration_adjusts_short_scenes() -> None:
     from analyze.pipeline import _ensure_min_duration
     sp = {
