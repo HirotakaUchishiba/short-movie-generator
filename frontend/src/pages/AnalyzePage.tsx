@@ -78,12 +78,31 @@ export default function AnalyzePage() {
 
   const onDeleteVideo = async (sha: string) => {
     if (!confirm("この動画を削除しますか?")) return;
-    try {
-      await api.deleteReferenceVideo(sha);
+    const finishDelete = async (force: boolean) => {
+      await api.deleteReferenceVideo(sha, force);
       if (selected === sha) setSelected(null);
       await refresh();
+    };
+    try {
+      await finishDelete(false);
     } catch (e) {
-      setError(String(e));
+      const msg = String(e);
+      if (msg.includes("409")) {
+        const m = msg.match(/(\d+)\s*件/);
+        const n = m ? m[1] : "?";
+        const ok = confirm(
+          `この動画は ${n} 件の分析ジョブから参照されています。\n` +
+            `関連ジョブも一緒に削除しますか? (ジョブ履歴とフェーズ記録も消えます)`,
+        );
+        if (!ok) return;
+        try {
+          await finishDelete(true);
+        } catch (e2) {
+          setError(String(e2));
+        }
+        return;
+      }
+      setError(msg);
     }
   };
 

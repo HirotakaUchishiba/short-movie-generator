@@ -801,18 +801,24 @@ def api_delete_reference_video(sha):
     if not re.match(r'^[a-f0-9]{64}$', sha):
         return jsonify({"error": "invalid sha256 (64 hex chars required)"}), 400
 
-    deleted = analyze_job.delete_reference_video(sha)
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+    deleted = analyze_job.delete_reference_video(sha, force=force)
     if not deleted:
+        n = analyze_job.count_jobs_for_video(sha)
         return jsonify({
-            "error": "video is referenced by analyze jobs",
+            "error": (
+                f"この動画は {n} 件の analyze ジョブから参照されています。"
+                "?force=true を指定すると関連ジョブごと削除します。"
+            ),
+            "job_count": n,
         }), 409
 
     file_path = analyze_job.reference_video_path(sha)
     if file_path and os.path.exists(file_path):
         os.unlink(file_path)
-        return jsonify({"sha256": sha, "deleted": True}), 200
+        return jsonify({"sha256": sha, "deleted": True, "force": force}), 200
     return jsonify({
-        "sha256": sha, "deleted": True,
+        "sha256": sha, "deleted": True, "force": force,
         "warning": "DB row deleted but file not found",
     }), 200
 

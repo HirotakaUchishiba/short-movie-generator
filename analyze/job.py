@@ -288,18 +288,37 @@ def touch_reference_video(sha256: str) -> None:
         )
 
 
-def delete_reference_video(sha256: str) -> bool:
-    """ジョブから参照されていない場合のみ削除する。
+def delete_reference_video(sha256: str, *, force: bool = False) -> bool:
+    """動画メタデータを削除する。
+
+    既定 (force=False) では analyze_jobs から参照されていない場合のみ削除する。
+    force=True では関連 analyze_jobs も先に削除してから動画を消す
+    (analyze_phases は schema.sql の ON DELETE CASCADE で自動連鎖)。
 
     Returns:
-        True なら削除成功、False ならジョブ参照が残っていて削除不可。
+        True なら削除成功、False は force=False かつ参照ジョブが残っている場合のみ。
     """
     with _db.get_connection() as conn:
-        used = conn.execute(
-            "SELECT 1 FROM analyze_jobs WHERE video_sha256 = ? LIMIT 1",
-            (sha256,),
-        ).fetchone()
-        if used:
-            return False
+        if not force:
+            used = conn.execute(
+                "SELECT 1 FROM analyze_jobs WHERE video_sha256 = ? LIMIT 1",
+                (sha256,),
+            ).fetchone()
+            if used:
+                return False
+        else:
+            conn.execute(
+                "DELETE FROM analyze_jobs WHERE video_sha256 = ?", (sha256,),
+            )
         conn.execute("DELETE FROM reference_videos WHERE sha256 = ?", (sha256,))
         return True
+
+
+def count_jobs_for_video(sha256: str) -> int:
+    """指定動画を参照する analyze_jobs の件数。409 エラー時の表示用。"""
+    with _db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT COUNT(*) FROM analyze_jobs WHERE video_sha256 = ?",
+            (sha256,),
+        ).fetchone()
+    return row[0] if row else 0

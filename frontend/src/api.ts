@@ -211,9 +211,9 @@ export const api = {
       xhr.send(fd);
     });
   },
-  deleteReferenceVideo: (sha256: string) =>
-    http<{ sha256: string; deleted: boolean }>(
-      `/api/reference_videos/${sha256}`,
+  deleteReferenceVideo: (sha256: string, force = false) =>
+    http<{ sha256: string; deleted: boolean; force?: boolean }>(
+      `/api/reference_videos/${sha256}${force ? "?force=true" : ""}`,
       { method: "DELETE" },
     ),
 

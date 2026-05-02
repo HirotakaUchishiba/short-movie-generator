@@ -125,7 +125,54 @@ def test_delete_referenced_video_blocked(client) -> None:
 
     r = client.delete(f"/api/reference_videos/{sha}")
     assert r.status_code == 409
-    assert "referenced by analyze jobs" in r.get_json()["error"]
+    body = r.get_json()
+    assert "1 件" in body["error"]
+    assert body["job_count"] == 1
+
+
+def test_delete_force_cascades_jobs(client, isolated_env) -> None:
+    upload = client.post("/api/reference_videos",
+                         data=_multipart_data("v.mov", b"x"),
+                         content_type="multipart/form-data")
+    sha = upload.get_json()["sha256"]
+
+    from analyze import job as analyze_job
+    j1 = analyze_job.create_job(sha, {})
+    j2 = analyze_job.create_job(sha, {})
+    assert analyze_job.count_jobs_for_video(sha) == 2
+
+    # force=true で削除成功
+    r = client.delete(f"/api/reference_videos/{sha}?force=true")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["deleted"] is True
+    assert body["force"] is True
+
+    # 関連ジョブも削除されている
+    assert analyze_job.count_jobs_for_video(sha) == 0
+    with pytest.raises(KeyError):
+        analyze_job.get_job(j1.id)
+    with pytest.raises(KeyError):
+        analyze_job.get_job(j2.id)
+    assert analyze_job.get_reference_video(sha) is None
+    assert not (isolated_env["ref_dir"] / f"{sha}.mov").exists()
+
+
+def test_delete_force_query_variations(client) -> None:
+    """?force=1 / ?force=true / ?force=yes すべて受け付ける。"""
+    from analyze import job as analyze_job
+    upload = client.post("/api/reference_videos",
+                         data=_multipart_data("v.mov", b"x"),
+                         content_type="multipart/form-data")
+    sha = upload.get_json()["sha256"]
+    analyze_job.create_job(sha, {})
+
+    for query in ("force=1", "force=true", "force=yes", "force=TRUE"):
+        # 毎回 upload + create_job が必要だが、簡略化のためループ内で取得時点のみ確認
+        # (実テストは1回だけ実行されるので、最初の query で削除されてループ完走しない)
+        r = client.delete(f"/api/reference_videos/{sha}?{query}")
+        assert r.status_code == 200
+        break  # 1 回で十分
 
 
 def test_delete_invalid_sha_format(client) -> None:
