@@ -59,6 +59,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 - `docs/content-strategy.md` — **動画制作の根本戦略**。Transformation / コンテンツ軸 / POV / MVP / 最適化
 - `docs/development-rules.md` — 開発ルール・前提事項・禁止事項
 - `docs/architecture-decisions.md` — AIモデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、ワークフロー設計
+- `docs/abstract-screenplay-design.md` — **抽象台本生成 + VideoStyle 合成** の設計 (analyze pipeline は構成・セリフ・感情だけ抽出し、ビジュアルは `screenplays/styles/<name>.json` から後段で注入)
 
 ## 台本JSONの仕様
 
@@ -96,9 +97,6 @@ rm screenplays/drafts/<名前>.json
 ```json
 {
   "caption": "会社選びが何より大切です\n\n#未経験 #it業界 #転職",
-  "audio_mode": "voiced",
-  "bgm_path": "/abs/path/assets/bgm/<name>_bgm.wav",
-  "bgm_volume_db": -18,
   "wardrobe_continuity": {
     "office_outfit": "グレーのリブニット + ブラックパンツ + 眼鏡 + ロングヘア"
   },
@@ -113,7 +111,6 @@ rm screenplays/drafts/<名前>.json
   },
   "scenes": [
     {
-      "label": "始業",
       "duration": 5.0,
       "location_ref": "home_office",
       "background_prompt": "デスクに駆け寄るエンジニア cinematic lighting, shallow depth of field",
@@ -154,15 +151,13 @@ rm screenplays/drafts/<名前>.json
 
 ### フィールド仕様
 
-| ルート       | 型                       | 説明                                             |
-| ------------ | ------------------------ | ------------------------------------------------ |
-| `caption`    | string(必須)             | SNS投稿用キャプション本文＋ハッシュタグ          |
-| `audio_mode` | `"voiced"` \| `"silent"` | 既定`voiced`。silentはTTS/リップシンクをスキップ |
-| `scenes[]`   | array(必須)              | シーン配列。各シーン=1Klingクリップ              |
+| ルート     | 型           | 説明                                    |
+| ---------- | ------------ | --------------------------------------- |
+| `caption`  | string(必須) | SNS投稿用キャプション本文＋ハッシュタグ |
+| `scenes[]` | array(必須)  | シーン配列。各シーン=1Klingクリップ     |
 
 | シーン              | 説明                                                                                                                   |
 | ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `label`             | シーンの日本語ラベル（例 `"起床"`）。動画には焼き込まれず、UI/LLM 補助情報                                             |
 | `duration`          | シーン秒数（3以上）。Klingは5/10sで生成し台本値にtrim                                                                  |
 | `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される         |
 | `location_ref`      | `root.location_continuity` のキー。同一動画内のロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                      |
@@ -192,8 +187,6 @@ rm screenplays/drafts/<名前>.json
 
 | ルート拡張            | 説明                                                                                              |
 | --------------------- | ------------------------------------------------------------------------------------------------- |
-| `bgm_path`            | 全編に流すBGM音声ファイル絶対パス。指定時はvoiceの下に低音量で自動mix                             |
-| `bgm_volume_db`       | BGMの相対音量dB。既定 -18                                                                         |
 | `wardrobe_continuity` | 衣装識別子→説明 のマップ。`scenes[].wardrobe.identifier` と紐付け                                 |
 | `location_continuity` | ロケ識別子→属性辞書のマップ。`scenes[].location_ref` と紐付け、同一動画内で背景の一貫性を自動確保 |
 
@@ -222,9 +215,8 @@ python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-sho
 
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
-- librosa で各phraseの pitch/rms/wpm に加え、BGM存在判定を抽出
-- demucs (なければ HPSS) で BGM を分離して `assets/bgm/<name>_bgm.wav` に保存し、screenplay に `bgm_path` として紐付け
-- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力には characters/wardrobe/facial_expression/hand_gesture も含む
+- librosa で各phraseの pitch/rms/wpm を抽出
+- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情のみ、ビジュアル要素は VideoStyle が後段で注入)。詳細は `docs/abstract-screenplay-design.md`
 - 所要コスト: 約250〜400円/本（フレーム数に応じて変動）
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
@@ -280,10 +272,6 @@ Stage 7 UI (`StageOverlay.tsx`) では:
 - **動画プレイヤーの再生位置をスナップ**: 各チャンクの「⏱→start」「⏱→end」ボタンで `video.currentTime - sceneOffsets[sIdx]` をその場でセット。微調整したい境界だけ動画と同期できる
 - 「auto に戻す」: そのチャンクの time を削除して文字数比例配分に戻す
 - 「自動に戻す」: subtitles 自体を削除して `_split_into_chunks` 経路に戻す
-
-## BGM ミックス
-
-screenplay ルートに `bgm_path` があれば `compose_video` 最終段で voice 下に低音量 (`bgm_volume_db` 既定 -18dB) で自動 mix。silent モードでは無視。
 
 ## ログ
 
