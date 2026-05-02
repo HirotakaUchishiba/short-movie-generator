@@ -186,6 +186,24 @@ def test_hidden_field_must_be_boolean() -> None:
 
 
 
+def test_line_speaker_field_allowed() -> None:
+    """複数キャラのシーンで line.speaker を指定できる。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["characters"] = [
+        {"name": "主人公", "role": "narrator"},
+        {"name": "上司", "role": "boss"},
+    ]
+    sp["scenes"][0]["lines"][0]["speaker"] = "主人公"
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_line_speaker_optional() -> None:
+    """speaker は省略可能 (単一キャラのシーンでは付けなくてよい)。"""
+    sp = _valid_screenplay()
+    assert "speaker" not in sp["scenes"][0]["lines"][0]
+    screenplay_validator.validate_screenplay(sp)
+
+
 def test_characters_name_role_only_allowed() -> None:
     """SSOT: characters[] は name / role のみ。"""
     sp = _valid_screenplay()

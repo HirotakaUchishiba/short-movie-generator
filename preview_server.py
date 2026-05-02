@@ -12,7 +12,7 @@ import sys
 import threading
 import time
 import uuid
-from flask import Flask, jsonify, request, send_file, abort, send_from_directory
+from flask import Flask, jsonify, request, send_file, abort, send_from_directory, Response
 from flask_cors import CORS
 
 import config
@@ -20,11 +20,23 @@ import log_setup
 import progress_store
 import scene_gen
 import staged_pipeline
+from analyze import job as analyze_job
+from analyze import progress as analyze_progress
+from analyze import runner as analyze_runner
+from analyze.cache import file_sha256
+from analytics import db as _analytics_db
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
 
+# 起動時に analytics DB schema を最新化する。
+# analyze_jobs / analyze_phases / reference_videos テーブルが含まれていない
+# 古い DB でも CREATE TABLE IF NOT EXISTS で安全に追加される。
+_analytics_db.init_db()
+
 app = Flask(__name__, static_folder=None)
+# 動画アップロード上限 (1GB、analyze 用 reference video)。
+app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024
 CORS(app)
 
 TEMP_DIR = config.TEMP_DIR
@@ -453,7 +465,7 @@ def api_patch_line(ts, scene_idx, line_idx):
         return jsonify({"error": "patch (object) が必要です"}), 400
     # 許可フィールドの allowlist (誤更新防止)
     allowed = {"silence_after_ms", "text", "tts_text", "rate", "emotion",
-                "emotion_intensity", "delivery", "audio_tags",
+                "emotion_intensity", "delivery", "audio_tags", "speaker",
                 "pronunciation_hints", "voice_overrides"}
     unknown = set(patch.keys()) - allowed
     if unknown:
@@ -716,6 +728,226 @@ def asset_character(name):
     if os.path.exists(p):
         return send_file(p, mimetype="image/png")
     return "", 404
+
+
+# ───────────────── reference videos (analyze 用) ─────────────────
+
+@app.route("/api/reference_videos", methods=["POST"])
+def api_upload_reference_video():
+    """multipart で動画をアップロードし、content-addressed (sha256) で保存する。
+
+    既存 sha256 と一致する場合は dedup され既存メタを返す (HTTP 200)。
+    新規なら 201。
+    """
+    f = request.files.get("file")
+    if not f:
+        return jsonify({"error": "file required (multipart 'file' field)"}), 400
+
+    name = f.filename or "video"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in analyze_job.ALLOWED_VIDEO_EXTS:
+        return jsonify({
+            "error": f"unsupported extension: {ext}",
+            "allowed": list(analyze_job.ALLOWED_VIDEO_EXTS),
+        }), 400
+
+    ref_dir = analyze_job.reference_videos_dir()
+    tmp = ref_dir / f".tmp_{uuid.uuid4().hex}{ext}"
+    try:
+        f.save(str(tmp))
+        sha = file_sha256(str(tmp))
+        size = os.path.getsize(tmp)
+
+        existing = analyze_job.get_reference_video(sha)
+        if existing:
+            tmp.unlink(missing_ok=True)
+            analyze_job.touch_reference_video(sha)
+            return jsonify({
+                "sha256": sha,
+                "size_bytes": existing["size_bytes"],
+                "duration_sec": existing["duration_sec"],
+                "original_name": existing["original_name"],
+                "deduplicated": True,
+            }), 200
+
+        final_path = ref_dir / f"{sha}{ext}"
+        tmp.replace(final_path)
+
+        duration = _ffprobe_duration(str(final_path))
+        original = os.path.basename(name)
+        analyze_job.upsert_reference_video(
+            sha, original_name=original,
+            size_bytes=size, duration_sec=duration,
+        )
+        return jsonify({
+            "sha256": sha,
+            "size_bytes": size,
+            "duration_sec": duration,
+            "original_name": original,
+            "deduplicated": False,
+        }), 201
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
+
+
+@app.route("/api/reference_videos", methods=["GET"])
+def api_list_reference_videos():
+    return jsonify({"reference_videos": analyze_job.list_reference_videos()})
+
+
+@app.route("/api/reference_videos/<sha>", methods=["DELETE"])
+def api_delete_reference_video(sha):
+    if not re.match(r'^[a-f0-9]{64}$', sha):
+        return jsonify({"error": "invalid sha256 (64 hex chars required)"}), 400
+
+    force = request.args.get("force", "").lower() in ("1", "true", "yes")
+    deleted = analyze_job.delete_reference_video(sha, force=force)
+    if not deleted:
+        n = analyze_job.count_jobs_for_video(sha)
+        return jsonify({
+            "error": (
+                f"この動画は {n} 件の analyze ジョブから参照されています。"
+                "?force=true を指定すると関連ジョブごと削除します。"
+            ),
+            "job_count": n,
+        }), 409
+
+    file_path = analyze_job.reference_video_path(sha)
+    if file_path and os.path.exists(file_path):
+        os.unlink(file_path)
+        return jsonify({"sha256": sha, "deleted": True, "force": force}), 200
+    return jsonify({
+        "sha256": sha, "deleted": True, "force": force,
+        "warning": "DB row deleted but file not found",
+    }), 200
+
+
+# ───────────────── analyze ジョブ ─────────────────
+
+_JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
+_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
+
+
+def _job_to_dict(j) -> dict:
+    return {
+        "id": j.id,
+        "video_sha256": j.video_sha256,
+        "options": json.loads(j.options_json),
+        "status": j.status,
+        "current_phase": j.current_phase,
+        "error": j.error,
+        "estimated_cost_usd": j.estimated_cost_usd,
+        "actual_cost_usd": j.actual_cost_usd,
+        "screenplay_path": j.screenplay_path,
+        "created_at": j.created_at,
+        "started_at": j.started_at,
+        "finished_at": j.finished_at,
+        "cancellation_requested": bool(j.cancellation_requested),
+    }
+
+
+@app.route("/api/screenplay/analyze", methods=["POST"])
+def api_create_analyze_job():
+    """analyze ジョブを作成し、別 thread で起動する。"""
+    data = request.get_json(force=True) or {}
+    sha = data.get("video_sha256") or ""
+    if not _SHA256_RE.match(sha):
+        return jsonify({"error": "video_sha256 (64 hex chars) required"}), 400
+    if not analyze_job.get_reference_video(sha):
+        return jsonify({"error": f"reference video not found: {sha}"}), 404
+
+    raw_options = data.get("options") or {}
+    allowed = {"fps", "instructions"}
+    options = {k: v for k, v in raw_options.items() if k in allowed}
+
+    j = analyze_job.create_job(sha, options)
+    analyze_runner.start(j.id)
+    return jsonify({"job_id": j.id}), 201
+
+
+@app.route("/api/screenplay/analyze", methods=["GET"])
+def api_list_analyze_jobs():
+    items = [_job_to_dict(j) for j in analyze_job.list_jobs()]
+    return jsonify({"jobs": items})
+
+
+@app.route("/api/screenplay/analyze/<job_id>", methods=["GET"])
+def api_analyze_job_detail(job_id):
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        j = analyze_job.get_job(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    phases = analyze_job.get_phases(job_id)
+    return jsonify({**_job_to_dict(j), "phases": phases})
+
+
+@app.route("/api/screenplay/analyze/<job_id>/events", methods=["GET"])
+def api_analyze_job_events(job_id):
+    """SSE で event をストリーミング配信する。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        snapshot = _job_to_dict(analyze_job.get_job(job_id))
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+
+    terminal_events = ("completed", "failed", "cancelled")
+    is_terminal = snapshot["status"] in terminal_events
+    # 既に終端状態でなければ、state event を yield する**前に** subscribe して
+    # queue を確保する (state yield 中に publish された event を取りこぼさない)。
+    sub_iter = None if is_terminal else analyze_progress.subscribe(job_id)
+
+    def gen():
+        try:
+            yield (
+                "event: state\n"
+                f"data: {json.dumps(snapshot, ensure_ascii=False)}\n\n"
+            )
+            if is_terminal:
+                return
+            for event, data in sub_iter:
+                payload = json.dumps(data, ensure_ascii=False, default=str)
+                yield f"event: {event}\ndata: {payload}\n\n"
+                if event in terminal_events:
+                    break
+        finally:
+            if sub_iter is not None:
+                sub_iter.close()
+
+    return Response(gen(), mimetype="text/event-stream", headers={
+        "Cache-Control": "no-cache",
+        "X-Accel-Buffering": "no",
+    })
+
+
+@app.route("/api/screenplay/analyze/<job_id>/confirm", methods=["POST"])
+def api_confirm_analyze_job(job_id):
+    """awaiting_confirm 状態のジョブを running に遷移させて Claude 続行。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        analyze_runner.confirm(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 409
+    return jsonify({"ok": True}), 200
+
+
+@app.route("/api/screenplay/analyze/<job_id>", methods=["DELETE"])
+def api_cancel_analyze_job(job_id):
+    """ジョブのキャンセルを要求 (各フェーズ境界で読まれて中断)。"""
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        analyze_job.get_job(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+    analyze_runner.cancel(job_id)
+    return jsonify({"ok": True}), 202
 
 
 # ───────────────── 静的設定 ─────────────────

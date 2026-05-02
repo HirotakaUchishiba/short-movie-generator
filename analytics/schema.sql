@@ -87,6 +87,51 @@ JOIN (
     GROUP BY post_id
 ) latest ON pm.post_id = latest.post_id AND pm.fetched_at = latest.latest;
 
+-- ─────────────────────────────────────────────────────────────────
+-- analyze pipeline jobs (UI 経由で参考動画から台本を生成するジョブ)
+-- ─────────────────────────────────────────────────────────────────
+
+CREATE TABLE IF NOT EXISTS analyze_jobs (
+    id TEXT PRIMARY KEY,                       -- analyze_<TS>_<rand6>
+    video_sha256 TEXT NOT NULL,                -- reference_videos(sha256) を参照
+    options_json TEXT NOT NULL,                -- AnalyzeOptions のシリアライズ
+    status TEXT NOT NULL,                      -- pending|dryrunning|awaiting_confirm|running|completed|failed|cancelled
+    current_phase TEXT,                        -- frames|audio|whisper|...|save
+    error TEXT,
+    estimated_cost_usd REAL,
+    actual_cost_usd REAL,
+    screenplay_path TEXT,                      -- 完了時の出力パス
+    created_at TEXT NOT NULL,
+    started_at TEXT,
+    finished_at TEXT,
+    cancellation_requested INTEGER NOT NULL DEFAULT 0
+);
+
+CREATE INDEX IF NOT EXISTS idx_analyze_jobs_video ON analyze_jobs(video_sha256);
+CREATE INDEX IF NOT EXISTS idx_analyze_jobs_status ON analyze_jobs(status);
+CREATE INDEX IF NOT EXISTS idx_analyze_jobs_created ON analyze_jobs(created_at);
+
+CREATE TABLE IF NOT EXISTS analyze_phases (
+    job_id TEXT NOT NULL REFERENCES analyze_jobs(id) ON DELETE CASCADE,
+    phase TEXT NOT NULL,                       -- frames|audio|whisper|acoustic|bgm_detect|shots|bgm_separate|claude|save
+    status TEXT NOT NULL,                      -- pending|running|completed|failed|skipped
+    started_at TEXT,
+    finished_at TEXT,
+    duration_ms INTEGER,
+    cost_usd REAL,
+    error TEXT,
+    PRIMARY KEY (job_id, phase)
+);
+
+CREATE TABLE IF NOT EXISTS reference_videos (
+    sha256 TEXT PRIMARY KEY,
+    original_name TEXT NOT NULL,
+    size_bytes INTEGER NOT NULL,
+    duration_sec REAL,
+    uploaded_at TEXT NOT NULL,
+    last_used_at TEXT
+);
+
 -- Performance summary (screenplay × platform latest metrics)
 CREATE VIEW IF NOT EXISTS v_performance AS
 SELECT

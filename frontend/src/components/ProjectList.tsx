@@ -48,11 +48,16 @@ export default function ProjectList() {
 
   return (
     <div className="max-w-5xl mx-auto p-8">
-      <header className="mb-8">
-        <h1 className="text-3xl font-bold mb-2">tensyoku movie generator</h1>
-        <p className="text-slate-400 text-sm">
-          段階的ゲート方式で動画を生成。各stageで人間が確認・承認してから次に進めます。
-        </p>
+      <header className="mb-8 flex items-start justify-between">
+        <div>
+          <h1 className="text-3xl font-bold mb-2">tensyoku movie generator</h1>
+          <p className="text-slate-400 text-sm">
+            段階的ゲート方式で動画を生成。各stageで人間が確認・承認してから次に進めます。
+          </p>
+        </div>
+        <Link to="/analyze" className="btn-ghost text-sm whitespace-nowrap">
+          参考動画から台本を生成 →
+        </Link>
       </header>
 
       {error && (
