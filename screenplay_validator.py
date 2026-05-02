@@ -292,6 +292,14 @@ SCHEMA: dict = {
                                     "additionalProperties": {"type": "string"},
                                     "description": "TTS送信前のテキスト置換（例 {\"IT\": \"アイティー\"}）",
                                 },
+                                "speaker": {
+                                    "type": "string",
+                                    "description": (
+                                        "発話者の name (scene.characters[].name と一致)。"
+                                        "複数キャラのシーンで「誰のセリフか」を識別するために使う。"
+                                        "単一キャラのシーンでは省略可 (主人公とみなす)。"
+                                    ),
+                                },
                                 "hidden": {
                                     "type": "boolean",
                                     "description": "true ならこの line の字幕を焼き込まない (TTS は通常通り)",

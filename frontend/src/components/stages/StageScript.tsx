@@ -66,7 +66,12 @@ function LineRow({ line, idx }: { line: Line; idx: number }) {
           <span className="text-slate-500 font-mono">rate {line.rate}</span>
         )}
       </div>
-      <div className="text-base font-medium leading-relaxed">{line.text}</div>
+      <div className="text-base font-medium leading-relaxed">
+        {line.speaker && (
+          <span className="text-emerald-300 mr-2">【{line.speaker}】</span>
+        )}
+        {line.text}
+      </div>
       {line.delivery && (
         <div className="text-xs text-slate-400 mt-1 italic">
           → 話し方: {line.delivery}

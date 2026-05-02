@@ -50,6 +50,7 @@ export interface Line {
   acoustic?: Acoustic;
   voice_overrides?: VoiceOverrides;
   pronunciation_hints?: Record<string, string>;
+  speaker?: string;
   silence_after_ms?: number;
   subtitles?: SubtitleChunk[];
   hidden?: boolean;

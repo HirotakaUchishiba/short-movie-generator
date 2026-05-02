@@ -18,6 +18,7 @@ data/*.db-wal
 data/*.db-shm
 assets/bgm/*.wav
 assets/bgm/*.mp3
+assets/reference_videos/
 
 # frontend
 frontend/node_modules/

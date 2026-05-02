@@ -465,7 +465,7 @@ def api_patch_line(ts, scene_idx, line_idx):
         return jsonify({"error": "patch (object) が必要です"}), 400
     # 許可フィールドの allowlist (誤更新防止)
     allowed = {"silence_after_ms", "text", "tts_text", "rate", "emotion",
-                "emotion_intensity", "delivery", "audio_tags",
+                "emotion_intensity", "delivery", "audio_tags", "speaker",
                 "pronunciation_hints", "voice_overrides"}
     unknown = set(patch.keys()) - allowed
     if unknown:
