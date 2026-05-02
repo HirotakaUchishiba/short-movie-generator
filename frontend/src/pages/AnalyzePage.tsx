@@ -191,26 +191,39 @@ export default function AnalyzePage() {
             <section className="card">
               <h2 className="font-semibold mb-3">3. オプション</h2>
               <div className="space-y-3 text-sm">
-                <label className="flex items-center gap-3">
-                  <span className="w-32">fps (frame抽出)</span>
-                  <input
-                    type="number"
-                    step="0.5"
-                    min="0.5"
-                    max="10"
-                    value={options.fps ?? 2.0}
-                    onChange={(e) =>
-                      setOptions({
-                        ...options,
-                        fps: parseFloat(e.target.value) || 2.0,
-                      })
-                    }
-                    className="bg-slate-800 px-2 py-1 rounded w-20"
-                  />
-                  <span className="text-xs text-slate-400">
-                    既定 2.0 (=0.5秒刻み)、大きいほど精度↑コスト↑
-                  </span>
-                </label>
+                <div className="space-y-1">
+                  <label className="flex items-center gap-3">
+                    <span className="w-40">フレーム抽出間隔</span>
+                    <input
+                      type="number"
+                      step="0.1"
+                      min="0.1"
+                      max="5.0"
+                      value={(1 / (options.fps ?? 2.0)).toFixed(2)}
+                      onChange={(e) => {
+                        const sec = parseFloat(e.target.value);
+                        if (!isNaN(sec) && sec >= 0.1) {
+                          setOptions({
+                            ...options,
+                            fps: parseFloat((1 / sec).toFixed(3)),
+                          });
+                        }
+                      }}
+                      className="bg-slate-800 px-2 py-1 rounded w-20"
+                    />
+                    <span className="text-sm">秒ごとに 1 フレーム</span>
+                    <span className="text-xs text-slate-500 font-mono">
+                      (= fps {(options.fps ?? 2.0).toFixed(2)})
+                    </span>
+                  </label>
+                  <div className="text-xs text-slate-400 pl-44">
+                    既定 0.5 秒間隔。短いほど分析精度↑、Claude API への課金
+                    (実費) も増加します。
+                    <br />
+                    目安: 60 秒の動画を既定値で分析すると ¥250〜400 程度
+                    (実行前にコストゲートで推定額を確認できます)。
+                  </div>
+                </div>
 
                 <label className="flex items-start gap-3">
                   <span className="w-32 mt-1">追加指示 (任意)</span>
