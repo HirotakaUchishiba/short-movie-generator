@@ -48,7 +48,7 @@ def test_create_analyze_job_with_uploaded_video(client) -> None:
     sha = _upload(client)
     r = client.post("/api/screenplay/analyze",
                     json={"video_sha256": sha,
-                          "options": {"fps": 1.5, "no_shots": True}})
+                          "options": {"fps": 1.5, "instructions": "hi"}})
     assert r.status_code == 201
     job_id = r.get_json()["job_id"]
     assert job_id.startswith("analyze_")

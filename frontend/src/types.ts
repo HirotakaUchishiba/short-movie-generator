@@ -187,8 +187,6 @@ export interface JobStatus {
 export interface AnalyzeOptions {
   fps?: number;
   instructions?: string | null;
-  no_bgm_extract?: boolean;
-  no_shots?: boolean;
 }
 
 export interface ReferenceVideo {
@@ -218,9 +216,6 @@ export type AnalyzePhase =
   | "audio"
   | "whisper"
   | "acoustic"
-  | "bgm_detect"
-  | "shots"
-  | "bgm_separate"
   | "claude"
   | "save";
 

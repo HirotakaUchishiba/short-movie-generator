@@ -48,9 +48,9 @@ def test_put_then_get_json(isolated_cache) -> None:
 
 def test_put_json_atomic_replace(isolated_cache, tmp_path) -> None:
     """tmp ファイル経由で原子的に置換する (途中で読まれても破損しない)。"""
-    isolated_cache.put_json("bgm", "k", {"present": True})
-    isolated_cache.put_json("bgm", "k", {"present": False})
-    assert isolated_cache.get_json("bgm", "k") == {"present": False}
+    isolated_cache.put_json("transcript", "k", {"present": True})
+    isolated_cache.put_json("transcript", "k", {"present": False})
+    assert isolated_cache.get_json("transcript", "k") == {"present": False}
 
 
 def test_unknown_kind_raises(isolated_cache) -> None:
@@ -110,27 +110,27 @@ def test_frames_key_includes_fps(isolated_cache, tmp_path) -> None:
 
 def test_clear_specific_kind(isolated_cache) -> None:
     isolated_cache.put_json("transcript", "k1", {"a": 1})
-    isolated_cache.put_json("bgm", "k2", {"b": 2})
+    isolated_cache.put_json("acoustic", "k2", {"b": 2})
     n = isolated_cache.clear("transcript")
     assert n == 1
     assert isolated_cache.get_json("transcript", "k1") is None
-    assert isolated_cache.get_json("bgm", "k2") == {"b": 2}
+    assert isolated_cache.get_json("acoustic", "k2") == {"b": 2}
 
 
 def test_clear_all(isolated_cache) -> None:
     isolated_cache.put_json("transcript", "k1", {"a": 1})
-    isolated_cache.put_json("bgm", "k2", {"b": 2})
+    isolated_cache.put_json("acoustic", "k2", {"b": 2})
     n = isolated_cache.clear()
     assert n == 2
     assert isolated_cache.get_json("transcript", "k1") is None
-    assert isolated_cache.get_json("bgm", "k2") is None
+    assert isolated_cache.get_json("acoustic", "k2") is None
 
 
 def test_stats_counts(isolated_cache) -> None:
     isolated_cache.put_json("transcript", "a", {})
     isolated_cache.put_json("transcript", "b", {})
-    isolated_cache.put_json("bgm", "c", {})
+    isolated_cache.put_json("acoustic", "c", {})
     s = isolated_cache.stats()
     assert s["transcript"] == 2
-    assert s["bgm"] == 1
-    assert s["acoustic"] == 0
+    assert s["acoustic"] == 1
+    assert s["frames"] == 0

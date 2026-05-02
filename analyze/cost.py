@@ -1,11 +1,10 @@
 """Claude Opus 4.7 を使った analyze pipeline のコスト推定。
 
-Vision モデルへのフレーム画像入力、transcript / shot_boundaries / furigana 辞書の
-text 入力、output JSON の token 消費量を概算する。
+Vision モデルへのフレーム画像入力、transcript / furigana 辞書の text 入力、
+output JSON の token 消費量を概算する。
 
-実コストはレスポンス到着時に screenplay._analysis.input_tokens / output_tokens で
-正確に取れるが、コストゲート (Phase 5 の awaiting_confirm) ではユーザー confirm 前に
-推定値を見せる必要があるため本モジュールを使う。
+コストゲート (Phase 5 の awaiting_confirm) でユーザー confirm 前に推定値を
+見せる用途。
 """
 
 # Claude Opus 4.7 価格 (2026 時点)

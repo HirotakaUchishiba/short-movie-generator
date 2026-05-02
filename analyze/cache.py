@@ -4,20 +4,14 @@
 キャッシュ対象は決定論的に再現できるフェーズのみ:
     - transcript (Whisper)        : audio_sha
     - acoustic (librosa segments) : audio_sha + segments_sig
-    - bgm_detect                  : audio_sha
-    - shots (PySceneDetect)       : video_sha
     - frames (ffmpeg)             : video_sha + fps
 
-audio 抽出と bgm_separate (demucs/HPSS) はキャッシュしない:
-    - audio 抽出は ffmpeg で十分高速
-    - bgm_separate は assets/bgm/<stem>_bgm.wav に永続化されるため別経路
+audio 抽出はキャッシュしない (ffmpeg で十分高速)。
 
 ディレクトリ構造:
     output/analyze/cache/
         transcript/<audio_sha>.json
         acoustic/<audio_sha>_<segments_sig>.json
-        bgm/<audio_sha>.json
-        shots/<video_sha>.json
         frames/<video_sha>_fps<fps>.tar
 """
 import hashlib
@@ -33,7 +27,7 @@ logger = logging.getLogger(__name__)
 
 
 CACHE_ROOT = Path(config.BASE_DIR) / "output" / "analyze" / "cache"
-KINDS = ("transcript", "acoustic", "bgm", "shots", "frames")
+KINDS = ("transcript", "acoustic", "frames")
 
 
 def _cache_dir(kind: str) -> Path:
@@ -64,7 +58,7 @@ def _fps_label(fps: float) -> str:
     return f"{fps:.2f}".replace(".", "_")
 
 
-# ─── JSON-based caches (transcript / acoustic / bgm / shots) ────
+# ─── JSON-based caches (transcript / acoustic) ────
 
 
 def _json_path(kind: str, key: str) -> Path:

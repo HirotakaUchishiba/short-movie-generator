@@ -12,8 +12,6 @@ export default function AnalyzePage() {
   const [selected, setSelected] = useState<string | null>(null);
   const [options, setOptions] = useState<AnalyzeOptions>({
     fps: 2.0,
-    no_bgm_extract: false,
-    no_shots: false,
   });
   const [activeJobId, setActiveJobId] = useState<string | null>(null);
   const [uploading, setUploading] = useState(false);
@@ -258,31 +256,6 @@ export default function AnalyzePage() {
                     }
                     className="bg-slate-800 px-2 py-1 rounded flex-1"
                   />
-                </label>
-
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={!!options.no_bgm_extract}
-                    onChange={(e) =>
-                      setOptions({
-                        ...options,
-                        no_bgm_extract: e.target.checked,
-                      })
-                    }
-                  />
-                  <span>BGM分離をスキップ (高速化)</span>
-                </label>
-
-                <label className="flex items-center gap-3">
-                  <input
-                    type="checkbox"
-                    checked={!!options.no_shots}
-                    onChange={(e) =>
-                      setOptions({ ...options, no_shots: e.target.checked })
-                    }
-                  />
-                  <span>ショット境界検出をスキップ</span>
                 </label>
               </div>
 

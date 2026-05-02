@@ -20,13 +20,10 @@ from pathlib import Path
 from typing import Any, Callable
 
 import config
-import audio_separator
 import furigana_store
-import shot_detector
 from analyze import cache as _cache
 from audio_features import (
     extract_phrase_features,
-    has_background_music,
     wpm_from_text,
 )
 from screenplay_validator import validate_screenplay
@@ -53,8 +50,6 @@ class AnalyzeOptions:
 
     fps: float = DEFAULT_FPS
     instructions: str | None = None
-    no_bgm_extract: bool = False
-    no_shots: bool = False
 
     def to_dict(self) -> dict:
         return asdict(self)
@@ -135,14 +130,6 @@ def default_output_path(video_path: str) -> str:
     return str(Path(config.SCREENPLAYS_DIR) / f"auto_{safe}.json")
 
 
-def _bgm_keep_path(video_path: str) -> str:
-    stem = Path(video_path).stem
-    safe = "".join(c if c.isalnum() or c in "._-" else "_" for c in stem)
-    bgm_dir = Path(config.BASE_DIR) / "assets" / "bgm"
-    bgm_dir.mkdir(parents=True, exist_ok=True)
-    return str(bgm_dir / f"{safe}_bgm.wav")
-
-
 # screenplay_validator が要求する最低 scene duration。
 # Kling V3 が 5 秒生成 -> trim する制約と整合 (3 秒未満は実用的でない)。
 MIN_SCENE_DURATION = 3.0
@@ -210,13 +197,12 @@ def run(
     """参考動画から screenplay JSON を生成する。
 
     フェーズ順 (各境界で on_progress("phase_start"|"phase_complete", {phase, ...})):
-        frames → audio → whisper → acoustic → bgm_detect
-        → shots (optional) → bgm_separate (optional) → claude → save
+        frames → audio → whisper → acoustic → claude → save
 
     Args:
         video_path: 入力動画パス
         output_path: 出力 JSON パス。None なら screenplays/auto_<stem>.json
-        options: 実行オプション (fps / instructions / no_bgm_extract / no_shots)
+        options: 実行オプション (fps / instructions)
         work_dir: 中間ファイルの作業ディレクトリ。None なら tempfile で確保
         keep_tmp: True なら work_dir を削除しない
         on_progress: フェーズ進捗コールバック
@@ -243,7 +229,6 @@ def run(
         cleanup_tmp = not keep_tmp
     logger.info("作業ディレクトリ: %s", work_dir)
 
-    bgm_kept_path: str | None = None
     try:
         frames_dir = os.path.join(work_dir, "frames")
         audio_path = os.path.join(work_dir, "audio.wav")
@@ -273,7 +258,6 @@ def run(
 
         transcript: dict = {"text": "", "segments": [], "words": [], "duration": 0.0}
         phrase_features: list[dict] = []
-        bgm_info: dict | None = None
         has_audio = _has_audio_stream(video_path)
         audio_sha: str | None = None
 
@@ -326,81 +310,10 @@ def run(
                 "from_cache": from_cache,
             })
             _check_cancel(cancel_token)
-
-            # ─── Phase: bgm_detect (cache: audio_sha) ────
-            _emit(on_progress, "phase_start", {"phase": "bgm_detect"})
-            cached_bgm = _cache.get_json("bgm", audio_sha) if use_cache else None
-            if cached_bgm is not None:
-                bgm_info = cached_bgm
-                from_cache = True
-            else:
-                bgm_info = has_background_music(audio_path)
-                if use_cache:
-                    _cache.put_json("bgm", audio_sha, bgm_info)
-                from_cache = False
-            _emit(on_progress, "phase_complete", {
-                "phase": "bgm_detect",
-                "present": bgm_info.get("present"),
-                "confidence": bgm_info.get("confidence", 0),
-                "from_cache": from_cache,
-            })
-            _check_cancel(cancel_token)
         else:
             logger.warning("動画に音声ストリームがありません。silent modeで分析します")
-            for skipped in ("audio", "whisper", "acoustic", "bgm_detect"):
+            for skipped in ("audio", "whisper", "acoustic"):
                 _emit_skip(on_progress, skipped, "音声ストリームなし")
-
-        # ─── Phase: shots (optional, cache: video_sha) ───
-        shot_boundaries: list[dict] = []
-        if not options.no_shots:
-            _emit(on_progress, "phase_start", {"phase": "shots"})
-            cached_shots = _cache.get_json("shots", video_sha) if use_cache else None
-            if cached_shots is not None:
-                shot_boundaries = cached_shots.get("shots", [])
-                from_cache = True
-            else:
-                shot_boundaries = shot_detector.detect_shots(video_path)
-                if use_cache:
-                    _cache.put_json("shots", video_sha, {"shots": shot_boundaries})
-                from_cache = False
-            _emit(on_progress, "phase_complete", {
-                "phase": "shots",
-                "count": len(shot_boundaries),
-                "from_cache": from_cache,
-            })
-            _check_cancel(cancel_token)
-        else:
-            _emit_skip(on_progress, "shots", "--no-shots オプションでスキップ")
-
-        # ─── Phase: bgm_separate (cache 対象外、assets/bgm/ に永続) ──
-        bgm_present = bool(bgm_info and bgm_info.get("present"))
-        if has_audio and bgm_present and not options.no_bgm_extract:
-            _emit(on_progress, "phase_start", {"phase": "bgm_separate"})
-            sep_dir = os.path.join(work_dir, "separated")
-            sep = audio_separator.separate(audio_path, sep_dir)
-            if sep:
-                bgm_kept_path = _bgm_keep_path(video_path)
-                shutil.copyfile(sep["no_vocals"], bgm_kept_path)
-                _emit(on_progress, "phase_complete", {
-                    "phase": "bgm_separate",
-                    "method": sep["method"],
-                    "output": bgm_kept_path,
-                })
-            else:
-                _emit(on_progress, "phase_complete", {
-                    "phase": "bgm_separate",
-                    "method": None,
-                    "skipped_reason": "demucs/HPSS両方失敗",
-                })
-            _check_cancel(cancel_token)
-        else:
-            if not has_audio:
-                reason = "音声ストリームなし"
-            elif not bgm_present:
-                reason = "BGM 未検出"
-            else:
-                reason = "--no-bgm-extract オプションでスキップ"
-            _emit_skip(on_progress, "bgm_separate", reason)
 
         # ─── Claude API の入力上限を超える場合は frames を間引く ──
         original_frame_count = len(frame_paths)
@@ -426,7 +339,7 @@ def run(
             proceed = on_cost_gate(
                 len(frame_paths),
                 transcript,
-                len(shot_boundaries),
+                0,  # shot_count: 廃止 (互換のため 0 を渡す)
                 len(known_furigana),
             )
             if not proceed:
@@ -446,8 +359,6 @@ def run(
             source_video_path=video_path,
             extra_instructions=options.instructions,
             frame_interval_sec=frame_interval_sec,
-            shot_boundaries=shot_boundaries,
-            bgm_info=bgm_info,
             known_furigana=known_furigana,
         )
         _emit(on_progress, "phase_complete", {"phase": "claude"})
@@ -458,10 +369,6 @@ def run(
         new_hints = furigana_store.collect_from_screenplay(screenplay)
         if new_hints:
             furigana_store.merge(new_hints)
-
-        if bgm_kept_path:
-            screenplay["bgm_path"] = bgm_kept_path
-            screenplay.setdefault("bgm_volume_db", -18)
 
         # Claude が SYSTEM_PROMPT の指示を守らず duration<3 を出力するケースが
         # あるので、validate 前に底上げする。プロジェクト作成時の strict

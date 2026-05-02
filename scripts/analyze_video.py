@@ -8,7 +8,6 @@
     python3 scripts/analyze_video.py path/to/reference.mov
     python3 scripts/analyze_video.py path/to/reference.mov --output my_output.json
     python3 scripts/analyze_video.py path/to/reference.mov --fps 2.0
-    python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract
 """
 import argparse
 import logging
@@ -53,17 +52,11 @@ def main() -> int:
     parser.add_argument("--keep-tmp", action="store_true",
                         help="一時フレーム・音声を削除しない (デバッグ用)")
     parser.add_argument("--instructions", help="Claudeに渡す追加指示")
-    parser.add_argument("--no-bgm-extract", action="store_true",
-                        help="BGM分離をスキップ（高速化）")
-    parser.add_argument("--no-shots", action="store_true",
-                        help="ショット境界検出をスキップ")
     args = parser.parse_args()
 
     options = AnalyzeOptions(
         fps=args.fps,
         instructions=args.instructions,
-        no_bgm_extract=args.no_bgm_extract,
-        no_shots=args.no_shots,
     )
 
     try:

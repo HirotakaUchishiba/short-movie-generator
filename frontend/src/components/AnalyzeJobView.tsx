@@ -13,9 +13,6 @@ const PHASE_LABELS: Record<AnalyzePhase, string> = {
   audio: "音声抽出",
   whisper: "文字起こし (Whisper)",
   acoustic: "音響特徴 (librosa)",
-  bgm_detect: "BGM検出",
-  shots: "ショット境界検出",
-  bgm_separate: "BGM分離 (demucs)",
   claude: "Claude 分析 (Vision)",
   save: "台本保存",
 };
@@ -26,9 +23,6 @@ const PHASE_HINTS: Record<AnalyzePhase, string> = {
   whisper:
     "Whisper で word 単位の文字起こしを生成中 (動画長依存、数秒〜数十秒)",
   acoustic: "librosa で各セグメントの pitch / RMS / wpm を抽出中",
-  bgm_detect: "harmonic/percussive 分離で BGM 有無を判定中",
-  shots: "PySceneDetect でショット境界を検出中",
-  bgm_separate: "demucs / HPSS で BGM トラックを分離中 (時間がかかる場合あり)",
   claude: "Claude Opus 4.7 にフレーム+音声情報を送って台本生成中",
   save: "screenplay JSON を screenplays/auto_*.json に書き出し中",
 };
@@ -58,9 +52,6 @@ const PHASE_ORDER: AnalyzePhase[] = [
   "audio",
   "whisper",
   "acoustic",
-  "bgm_detect",
-  "shots",
-  "bgm_separate",
   "claude",
   "save",
 ];

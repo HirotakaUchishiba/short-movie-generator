@@ -15,7 +15,7 @@ def isolated_db(tmp_path, monkeypatch):
 def test_create_and_get_job_initializes_phases(isolated_db) -> None:
     from analyze.job import create_job, get_job, get_phases, PHASES
 
-    j = create_job("sha_abc", {"fps": 2.0, "no_shots": False})
+    j = create_job("sha_abc", {"fps": 2.0})
     assert j.id.startswith("analyze_")
     assert j.video_sha256 == "sha_abc"
     assert j.status == "pending"
@@ -87,14 +87,14 @@ def test_phase_lifecycle(isolated_db) -> None:
     complete_phase(j.id, "frames", duration_ms=1234, cost_usd=0.0)
     start_phase(j.id, "claude")
     fail_phase(j.id, "claude", "rate limit")
-    skip_phase(j.id, "shots")
+    skip_phase(j.id, "audio")
 
     rows = {p["phase"]: p for p in get_phases(j.id)}
     assert rows["frames"]["status"] == "completed"
     assert rows["frames"]["duration_ms"] == 1234
     assert rows["claude"]["status"] == "failed"
     assert rows["claude"]["error"] == "rate limit"
-    assert rows["shots"]["status"] == "skipped"
+    assert rows["audio"]["status"] == "skipped"
 
     # current_phase が start_phase で更新される
     assert get_job(j.id).current_phase == "claude"
@@ -126,8 +126,8 @@ def test_list_jobs_orders_by_created_desc(isolated_db) -> None:
 def test_options_property_parses_json(isolated_db) -> None:
     from analyze.job import create_job
 
-    j = create_job("sha", {"fps": 1.5, "no_shots": True})
-    assert j.options == {"fps": 1.5, "no_shots": True}
+    j = create_job("sha", {"fps": 1.5, "instructions": "x"})
+    assert j.options == {"fps": 1.5, "instructions": "x"}
 
 
 # ─── reference_videos ───────────────────────────────────────────

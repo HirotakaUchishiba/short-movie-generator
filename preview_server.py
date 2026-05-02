@@ -858,7 +858,7 @@ def api_create_analyze_job():
         return jsonify({"error": f"reference video not found: {sha}"}), 404
 
     raw_options = data.get("options") or {}
-    allowed = {"fps", "instructions", "no_bgm_extract", "no_shots"}
+    allowed = {"fps", "instructions"}
     options = {k: v for k, v in raw_options.items() if k in allowed}
 
     j = analyze_job.create_job(sha, options)

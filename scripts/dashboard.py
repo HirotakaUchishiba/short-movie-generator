@@ -164,8 +164,7 @@ def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
 
 
 PHASE_ORDER = (
-    "frames", "audio", "whisper", "acoustic", "bgm_detect",
-    "shots", "bgm_separate", "claude", "save",
+    "frames", "audio", "whisper", "acoustic", "claude", "save",
 )
 
 
