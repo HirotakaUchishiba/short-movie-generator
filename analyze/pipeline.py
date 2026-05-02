@@ -143,6 +143,36 @@ def _bgm_keep_path(video_path: str) -> str:
     return str(bgm_dir / f"{safe}_bgm.wav")
 
 
+# screenplay_validator が要求する最低 scene duration。
+# Kling V3 が 5 秒生成 -> trim する制約と整合 (3 秒未満は実用的でない)。
+MIN_SCENE_DURATION = 3.0
+
+
+def _ensure_min_duration(screenplay: dict,
+                          min_sec: float = MIN_SCENE_DURATION) -> int:
+    """SYSTEM_PROMPT の指示に反して Claude が出した短すぎるシーンを底上げする。
+
+    duration < min_sec のシーンを min_sec に切り上げ、line.start / line.end が
+    新しい duration を超えていれば clamp する。
+
+    Returns:
+        補正したシーン数。
+    """
+    n = 0
+    for scene in screenplay.get("scenes") or []:
+        d = scene.get("duration")
+        if not isinstance(d, (int, float)) or d >= min_sec:
+            continue
+        scene["duration"] = float(min_sec)
+        for line in scene.get("lines") or []:
+            for k in ("start", "end"):
+                v = line.get(k)
+                if isinstance(v, (int, float)) and v > min_sec:
+                    line[k] = float(min_sec)
+        n += 1
+    return n
+
+
 def run(
     *,
     video_path: str,
@@ -392,6 +422,16 @@ def run(
         if bgm_kept_path:
             screenplay["bgm_path"] = bgm_kept_path
             screenplay.setdefault("bgm_volume_db", -18)
+
+        # Claude が SYSTEM_PROMPT の指示を守らず duration<3 を出力するケースが
+        # あるので、validate 前に底上げする。プロジェクト作成時の strict
+        # validate (minimum: 3) を通せるようにするため。
+        adjusted = _ensure_min_duration(screenplay)
+        if adjusted:
+            logger.info(
+                "duration<%.1fs のシーンを %d 件補正しました (validator 制約)",
+                MIN_SCENE_DURATION, adjusted,
+            )
 
         errors = validate_screenplay(screenplay, strict=False)
         if errors:
