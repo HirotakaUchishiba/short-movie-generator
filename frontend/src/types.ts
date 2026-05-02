@@ -257,3 +257,45 @@ export interface DryrunCompleteEvent {
   cost_usd: number;
   cost_breakdown: Record<string, number>;
 }
+
+// ─── VideoStyle (抽象台本合成テンプレ) ─────────
+
+export interface VideoStyleCharacter {
+  name: string;
+  role: string;
+  ref: string;
+  voice_overrides?: Record<string, unknown>;
+}
+
+export interface VideoStyleLocation {
+  decor: string;
+  lighting: string;
+  color_palette: string;
+  props: string;
+  camera_distance: "close-up" | "medium-close" | "medium" | "wide";
+}
+
+export interface VideoStyle {
+  name: string;
+  format: "narrator" | "dialogue";
+  characters: VideoStyleCharacter[];
+  wardrobe_continuity: Record<string, string>;
+  default_wardrobe: string | null;
+  location_continuity: Record<string, VideoStyleLocation>;
+  default_location: string | null;
+  default_tags: string[];
+  scoped_augmentations: unknown[];
+  animation_style: "subtle" | "standard" | "expressive";
+}
+
+export interface SceneOverride {
+  wardrobe?: string;
+  location_ref?: string;
+  tags?: string[];
+}
+
+export interface ComposeResult {
+  screenplay_path: string;
+  style_name: string;
+  scenes: number;
+}

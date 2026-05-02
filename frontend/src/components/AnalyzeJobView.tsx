@@ -534,9 +534,11 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
       {/* ─── 完了時のサマリ + リンク ────────────────────── */}
       {completedPath && screenplayName && (
         <div className="card border border-emerald-500/40">
-          <h3 className="font-semibold mb-2 text-emerald-300">✓ 分析完了</h3>
+          <h3 className="font-semibold mb-2 text-emerald-300">
+            ✓ 抽象台本生成完了
+          </h3>
           <div className="text-sm">
-            生成台本:{" "}
+            抽象台本:{" "}
             <span className="font-mono break-all">{completedPath}</span>
           </div>
           {jobStartedAt && jobFinishedAt && (
@@ -544,10 +546,17 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
               総所要時間: {formatDuration(jobFinishedAt - jobStartedAt)}
             </div>
           )}
-          <div className="mt-3">
-            <Link to="/" className="btn-primary">
-              プロジェクト一覧へ ({screenplayName} で新規プロジェクト)
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <Link to={`/analyze/${jobId}/style`} className="btn-primary">
+              VideoStyle を選んで完全台本に →
             </Link>
+            <Link to="/" className="btn-ghost">
+              後で (プロジェクト一覧へ)
+            </Link>
+          </div>
+          <div className="mt-2 text-xs text-slate-400">
+            ※ 抽象台本にはセリフ・感情だけが含まれます。次の画面でキャラ・場所・
+            衣装を選んで完全な台本に変換してください。
           </div>
         </div>
       )}

@@ -2,16 +2,19 @@ import type {
   AnalyzeJob,
   AnalyzeJobDetail,
   AnalyzeOptions,
+  ComposeResult,
   ProjectDetail,
   ProjectListItem,
   Progress,
   ReferenceVideo,
   ReferenceVideoUploadResult,
+  SceneOverride,
   Screenplay,
   ServerConfig,
   StageName,
   JobStatus,
   TtsPricing,
+  VideoStyle,
 } from "./types";
 
 const API_BASE = "";
@@ -194,6 +197,38 @@ export const api = {
     http<{ ok: true }>(`/api/screenplay/analyze/${id}`, { method: "DELETE" }),
   analyzeJobEventSource: (id: string): EventSource =>
     new EventSource(`${API_BASE}/api/screenplay/analyze/${id}/events`),
+
+  // ─── VideoStyle ────────────────────────────────
+  listStyles: () => http<{ styles: VideoStyle[] }>("/api/styles"),
+  getStyle: (name: string) => http<VideoStyle>(`/api/styles/${name}`),
+  createStyle: (style: VideoStyle) =>
+    http<VideoStyle>("/api/styles", {
+      method: "POST",
+      body: JSON.stringify(style),
+    }),
+  updateStyle: (name: string, style: VideoStyle) =>
+    http<VideoStyle>(`/api/styles/${name}`, {
+      method: "PUT",
+      body: JSON.stringify(style),
+    }),
+  deleteStyle: (name: string) =>
+    http<{ name: string; deleted: boolean }>(`/api/styles/${name}`, {
+      method: "DELETE",
+    }),
+
+  // ─── 抽象台本 + VideoStyle 合成 ──────────────────
+  composeScreenplay: (
+    jobId: string,
+    styleName: string,
+    sceneOverrides?: Record<string, SceneOverride>,
+  ) =>
+    http<ComposeResult>(`/api/screenplay/analyze/${jobId}/compose`, {
+      method: "POST",
+      body: JSON.stringify({
+        style_name: styleName,
+        scene_overrides: sceneOverrides,
+      }),
+    }),
 };
 
 function withVersion(url: string, v?: number | string): string {
