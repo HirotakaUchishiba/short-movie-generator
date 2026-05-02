@@ -26,6 +26,7 @@ export default function StyleEditorPage() {
   const [selectedStyle, setSelectedStyle] = useState<string>("");
   const [overrides, setOverrides] = useState<Record<number, SceneOverride>>({});
   const [composing, setComposing] = useState(false);
+  const [creatingProject, setCreatingProject] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [doneScreenplayPath, setDoneScreenplayPath] = useState<string | null>(
     null,
@@ -76,6 +77,21 @@ export default function StyleEditorPage() {
       setError(String(e));
     } finally {
       setComposing(false);
+    }
+  };
+
+  const onCreateProjectFromCompose = async () => {
+    if (!doneScreenplayPath) return;
+    const screenplayName = doneScreenplayPath.split("/").pop();
+    if (!screenplayName) return;
+    setCreatingProject(true);
+    setError(null);
+    try {
+      const r = await api.createProject(screenplayName);
+      navigate(`/project/${r.timestamp}/script`);
+    } catch (e) {
+      setError(String(e));
+      setCreatingProject(false);
     }
   };
 
@@ -132,8 +148,17 @@ export default function StyleEditorPage() {
           <div className="text-sm break-all">
             生成台本: <span className="font-mono">{doneScreenplayPath}</span>
           </div>
-          <div className="mt-3 flex gap-2">
-            <button className="btn-primary" onClick={() => navigate("/")}>
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <button
+              className="btn-primary"
+              onClick={onCreateProjectFromCompose}
+              disabled={creatingProject}
+            >
+              {creatingProject
+                ? "プロジェクト作成中..."
+                : "このまま新規プロジェクトを作成 → Stage 1 へ"}
+            </button>
+            <button className="btn-ghost" onClick={() => navigate("/")}>
               プロジェクト一覧へ
             </button>
             <button
