@@ -1,6 +1,5 @@
 {
   "caption": "20代で何もしなかった人の末路…\n後悔しないために今すぐ動き出そう\n#20代 #後悔 #人生 #自己啓発",
-  "audio_mode": "voiced",
   "wardrobe_continuity": {
     "casual_30s": "グレーのフード付きパーカーに黒いスウェットパンツ、黒髪の30歳の男性",
     "suit_recruit": "紺色のリクルートスーツに黄色いネクタイ、白いシャツの就活生",
@@ -14,7 +13,6 @@
   },
   "scenes": [
     {
-      "label": "タイトル",
       "duration": 3.0,
       "background_prompt": "暗い背景に立つ疲れた表情のスーツ姿の男性、足元には茶色いトートバッグ",
       "animation_prompt": "the man stands still staring at the camera with a hollow expression, slight subtle breathing motion",
@@ -44,7 +42,6 @@
       ]
     },
     {
-      "label": "自己紹介30歳",
       "duration": 3.5,
       "background_prompt": "白いキッチンとドアのある自宅の部屋でゲーミングチェアに座りスマホを横向きに持つ30歳の男性",
       "animation_prompt": "the man sits slouched on a worn gaming chair holding a smartphone horizontally with both hands looking down at the screen with a bored expression",
@@ -90,7 +87,6 @@
       ]
     },
     {
-      "label": "就活生回想",
       "duration": 4,
       "background_prompt": "明るいカフェの木目の店内でMacBookを開いて座るリクルートスーツ姿の就活生",
       "animation_prompt": "the recruit student types on a MacBook with a serious focused face glancing at the screen with determination",
@@ -121,7 +117,6 @@
       ]
     },
     {
-      "label": "恋愛で悩む友人",
       "duration": 3,
       "background_prompt": "大学のキャンパス前で頭を抱えて泣きそうな顔をする黒Tシャツの若い男性",
       "animation_prompt": "the young man holds his head with both hands eyes squeezed shut mouth open in anguish in front of a university building",
@@ -164,7 +159,6 @@
       ]
     },
     {
-      "label": "起業する友人",
       "duration": 4.3,
       "background_prompt": "おしゃれなコワーキングスペースで黒いTシャツを着てMacBookを片手に持ちもう片方の手を広げて熱く語る若い男性",
       "animation_prompt": "the man holds a silver laptop in one hand and gestures excitedly with the other arm raised eyes wide and mouth open in passionate explanation",
@@ -227,7 +221,6 @@
       ]
     },
     {
-      "label": "20代の総括",
       "duration": 3,
       "background_prompt": "白いキッチンと茶色いドアのある自宅の部屋でゲーミングチェアに座る30歳の男性",
       "animation_prompt": "the man sits on the gaming chair looking up with a vacant expression mouth slightly open in resignation",
@@ -259,7 +252,6 @@
       ]
     },
     {
-      "label": "35歳昇進できない",
       "duration": 4,
       "background_prompt": "古いオフィスのデスクで紙を両手に持ち驚愕の表情を浮かべる35歳のスーツ姿の会社員",
       "animation_prompt": "the man holds a white paper document with both hands his eyes wide open mouth agape in shock at his desk in a dated office",
@@ -304,7 +296,6 @@
       ]
     },
     {
-      "label": "上司からの叱責",
       "duration": 5,
       "background_prompt": "古いオフィスのデスクで紙を持ち上を見上げて困惑する35歳のスーツ姿の会社員",
       "animation_prompt": "the man holds a paper document looking upward with a pained troubled expression as if being scolded by an unseen boss",
@@ -350,7 +341,6 @@
       ]
     },
     {
-      "label": "向いてないのか",
       "duration": 5,
       "background_prompt": "暗い背景の中で茶色いトートバッグを持って立ち尽くす不安げな表情のスーツ姿の男性",
       "animation_prompt": "the man stands holding a brown tote bag his eyes wide and brow furrowed in confused realization",
@@ -396,7 +386,6 @@
       ]
     },
     {
-      "label": "30代の総括",
       "duration": 3,
       "background_prompt": "暗い背景の中で茶色いトートバッグを持って立ち泣きそうな顔のスーツ姿の男性",
       "animation_prompt": "the man stands with a brown tote bag in hand face contorted in regret as he reflects on his past",
@@ -427,7 +416,6 @@
       ]
     },
     {
-      "label": "40歳寂しい",
       "duration": 5,
       "background_prompt": "白いキッチンと茶色いドアのある自宅の部屋で椅子に座り両手を膝に置く40歳の薄毛が進行した男性",
       "animation_prompt": "the older balding man sits hunched on a chair with hands resting on his knees eyes wide and mouth open in despairing realization",
@@ -502,7 +490,6 @@
       ]
     },
     {
-      "label": "40代の総括",
       "duration": 3,
       "background_prompt": "白いキッチンと茶色いドアのある自宅の部屋で椅子に座る40歳の薄毛の男性",
       "animation_prompt": "the balding man sits on a chair with a sorrowful resigned expression hands clenched on his knees",
@@ -533,7 +520,6 @@
       ]
     },
     {
-      "label": "50歳起業挑戦",
       "duration": 5,
       "background_prompt": "古い和室の木目の壁の前で椅子に座り口元にほうれい線が深く刻まれた50歳の薄毛の男性",
       "animation_prompt": "the aged balding man sits on a chair shifting from defeated to suddenly fierce determination raising a fist eyes wide",
@@ -580,7 +566,6 @@
       ]
     },
     {
-      "label": "50歳挫折",
       "duration": 5.5,
       "background_prompt": "古い和室の木目の壁の前で椅子に座り両手を握りしめる50歳の薄毛の男性",
       "animation_prompt": "the aged man slumps back on the chair eyes filling with fear face crumpling as his moment of bravado collapses",
@@ -641,7 +626,6 @@
       ]
     },
     {
-      "label": "50代の総括",
       "duration": 3,
       "background_prompt": "古い和室で椅子に座り絶望の表情を浮かべる50歳の薄毛の男性",
       "animation_prompt": "the aged man sits on the chair with a face of utter regret eyes welling up mouth slightly open",
@@ -672,7 +656,6 @@
       ]
     },
     {
-      "label": "50歳の自己紹介",
       "duration": 4,
       "background_prompt": "暗い背景の中で茶色いトートバッグを持って立つ口元にほうれい線が刻まれた50歳のスーツ姿の男性",
       "animation_prompt": "the aged man stands holding a brown tote bag with a hollow weary expression staring at the camera",
@@ -718,7 +701,6 @@
       ]
     },
     {
-      "label": "本当の気持ち",
       "duration": 5,
       "background_prompt": "暗い背景の中で茶色いトートバッグを持ち胸に手を当てる50歳のスーツ姿の男性",
       "animation_prompt": "the aged man brings his hand to his chest fingers slowly clenching as if his heart is being squeezed face contorted in pain",
@@ -764,7 +746,6 @@
       ]
     },
     {
-      "label": "メッセージ",
       "duration": 3,
       "background_prompt": "黒い画面に白い文字で表示される人生のメッセージ",
       "animation_prompt": "static black screen with white text fading in slowly conveying a powerful life message",

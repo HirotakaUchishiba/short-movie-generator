@@ -1,7 +1,4 @@
 {
-  "audio_mode": "voiced",
-  "bgm_path": "/Users/hirotaka/Projects/tensyoku_movie_generator/assets/bgm/Tiktokダウンロード動画_bgm.wav",
-  "bgm_volume_db": -18,
   "caption": "未経験からITエンジニアに転職した1日のリアル\n在宅ワークで自由な働き方が叶った\n#IT転職 #未経験エンジニア #在宅ワーク #転職",
   "scenes": [
     {
@@ -14,7 +11,6 @@
         }
       ],
       "duration": 3,
-      "label": "起床",
       "lines": [
         {
           "acoustic": {
@@ -29,7 +25,6 @@
             "8時50分": "ハチジゴジュップン"
           },
           "rate": "+25%",
-          "silence_after_ms": 0,
           "start": 0.4,
           "text": "8時50分！？",
           "voice_overrides": {
@@ -73,7 +68,6 @@
         }
       ],
       "duration": 4.5,
-      "label": "始業",
       "lines": [
         {
           "acoustic": {
@@ -86,8 +80,7 @@
           "end": 1.4,
           "rate": "+15%",
           "start": 0,
-          "text": "やばいやばい寝過ぎた！",
-          "silence_after_ms": 0
+          "text": "やばいやばい寝過ぎた！"
         },
         {
           "acoustic": {
@@ -120,11 +113,7 @@
       "wardrobe": {
         "identifier": "loungewear_A"
       },
-      "location_ref": "home_office",
-      "emotion_cue_overrides": {
-        "facial": "flustered",
-        "eye_gaze": "laptop_screen"
-      }
+      "location_ref": "home_office"
     },
     {
       "animation_prompt": "young East Asian woman in beige knit sweater and light blue jeans, seated at a standing desk with an open MacBook, white mug and closed journal to her left From the tense, forward-leaning starting posture with furrowed brows and hands near the keyboard, she exhales slowly through parted lips and her shoulders drop slightly, eyes narrowing as she tilts her head left toward the screen — anxiety visible in the tight set of her jaw. Around second two she sharply inhales, spine straightening as her eyes widen and her chin lifts upward, fingers freezing above the trackpad with a small jolt of her upper body. From seconds three through seven she leans in closer to the screen, head tilting slightly right, lips moving in a quiet reading murmur, brow gradually smoothing as her gaze tracks steadily left to right across the display at an even, unhurried pace, posture settling back neutrally into the chair. At second seven-and-a-half she gasps audibly, head snapping upright, eyes going wide and bright; a broad grin spreads across her face as she presses both palms flat on the desk and pushes herself back slightly in the chair, chin rising with an upward gaze, shoulders lifting in a buoyant shrug, body swaying gently side to side with barely contained elation., slow push-in from three-quarter angle, holding medium shot throughout, with a subtle tilt up at the final joy beat, anxious relief blooming into delight",
@@ -136,7 +125,6 @@
         }
       ],
       "duration": 9.5,
-      "label": "チャット",
       "lines": [
         {
           "acoustic": {
@@ -211,7 +199,6 @@
         }
       ],
       "duration": 7.5,
-      "label": "研修",
       "lines": [
         {
           "acoustic": {
@@ -265,10 +252,6 @@
       "wardrobe": {
         "identifier": "loungewear_A"
       },
-      "emotion_cue_overrides": {
-        "facial": "concentrating",
-        "tone": "professional_composed"
-      },
       "location_ref": "home_office"
     },
     {
@@ -281,7 +264,6 @@
         }
       ],
       "duration": 4.7,
-      "label": "立ち仕事",
       "lines": [
         {
           "acoustic": {
@@ -329,7 +311,6 @@
         }
       ],
       "duration": 4.1,
-      "label": "昼食",
       "lines": [
         {
           "acoustic": {
@@ -366,9 +347,6 @@
       "wardrobe": {
         "identifier": "loungewear_A"
       },
-      "emotion_cue_overrides": {
-        "tone": "energetic_upbeat"
-      },
       "location_ref": "home_office"
     },
     {
@@ -381,7 +359,6 @@
         }
       ],
       "duration": 5.2,
-      "label": "道中",
       "lines": [
         {
           "acoustic": {
@@ -395,7 +372,6 @@
           "pronunciation_hints": {
             "道案内": "みちあんない"
           },
-          "silence_after_ms": 875,
           "start": 0,
           "text": "この道案内のアプリ私がちょっと作ったんだよな"
         },
@@ -430,7 +406,6 @@
         }
       ],
       "duration": 6.3,
-      "label": "上司の退職",
       "lines": [
         {
           "acoustic": {
@@ -484,9 +459,6 @@
       "wardrobe": {
         "identifier": "loungewear_A"
       },
-      "emotion_cue_overrides": {
-        "tone": "energetic_upbeat"
-      },
       "tags": [
         "home_office"
       ],
@@ -502,7 +474,6 @@
         }
       ],
       "duration": 6.6,
-      "label": "退勤",
       "lines": [
         {
           "acoustic": {

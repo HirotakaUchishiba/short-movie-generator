@@ -385,7 +385,7 @@ def api_patch_line(ts, scene_idx, line_idx):
     if not isinstance(patch, dict):
         return jsonify({"error": "patch (object) が必要です"}), 400
     # 許可フィールドの allowlist (誤更新防止)
-    allowed = {"silence_after_ms", "text", "tts_text", "rate", "emotion",
+    allowed = {"text", "tts_text", "rate", "emotion",
                 "emotion_intensity", "delivery", "audio_tags", "speaker",
                 "pronunciation_hints", "voice_overrides"}
     unknown = set(patch.keys()) - allowed
@@ -466,7 +466,6 @@ def api_patch_screenplay_meta(ts):
     if not isinstance(patch, dict):
         return jsonify({"error": "patch (object) が必要です"}), 400
     allowed = {"scoped_augmentations", "wardrobe_continuity",
-                "bgm_path", "bgm_volume_db", "audio_mode",
                 "subtitle_y_from_bottom"}
     unknown = set(patch.keys()) - allowed
     if unknown:

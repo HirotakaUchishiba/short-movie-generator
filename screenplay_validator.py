@@ -27,18 +27,6 @@ SCHEMA: dict = {
             "minLength": 1,
             "description": "SNS投稿用キャプション本文（ハッシュタグ含む）",
         },
-        "audio_mode": {
-            "enum": ["voiced", "silent"],
-            "description": "voiced=TTS+リップシンク、silent=無音。既定 voiced",
-        },
-        "bgm_path": {
-            "type": "string",
-            "description": "全編に流すBGMファイル絶対パス。指定時はvoice下にmix",
-        },
-        "bgm_volume_db": {
-            "type": "number",
-            "description": "BGMの相対音量dB。既定 -18 (ボイスより小)",
-        },
         "subtitle_y_from_bottom": {
             "type": "integer",
             "minimum": 0,
@@ -126,10 +114,6 @@ SCHEMA: dict = {
                 # SSOT 強制: 未定義のキーは拒否 (廃止フィールドの再混入を防ぐ)
                 "additionalProperties": False,
                 "properties": {
-                    "label": {
-                        "type": "string",
-                        "description": "シーンの日本語ラベル（例 \"起床\"）。動画には焼き込まれず、UI/LLM 補助情報として使用",
-                    },
                     "duration": {
                         "type": "number",
                         "minimum": 3,
@@ -195,23 +179,6 @@ SCHEMA: dict = {
                             "scoped_augmentations の scope.tag と照合される"
                         ),
                     },
-                    "emotion_cue_overrides": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "description": (
-                            "EMOTION_VISUAL_CUES の上書き。値は preset ID (enum)。"
-                            "上書きされなかったカテゴリは emotion 由来の既定 cue を使う"
-                        ),
-                        "properties": {
-                            "facial":       {"enum": _FACIAL_KEYS},
-                            "eye_gaze":     {"enum": _EYE_GAZE_KEYS},
-                            "hair":         {"enum": _HAIR_KEYS},
-                            "body_posture": {"enum": _BODY_POSTURE_KEYS},
-                            "lighting":     {"enum": _LIGHTING_KEYS},
-                            "camera":       {"enum": _CAMERA_KEYS},
-                            "tone":         {"enum": _TONE_KEYS},
-                        },
-                    },
                     "lines": {
                         "type": "array",
                         "items": {
@@ -241,12 +208,6 @@ SCHEMA: dict = {
                                 "rate": {
                                     "type": "string",
                                     "description": "TTS速度（例 +10%）",
-                                },
-                                "silence_after_ms": {
-                                    "type": "number",
-                                    "minimum": 0,
-                                    "maximum": 2000,
-                                    "description": "このlineの後ろに含める自然音声の長さ (ms)。次lineを侵食しない範囲でclamp",
                                 },
                                 "emotion": {
                                     "type": "string",

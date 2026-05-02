@@ -1,0 +1,803 @@
+{
+  "caption": "2026年に向けて年収が一気に跳ねるIT職種3選を徹底解説\nクラウド・セキュリティ・機械学習、どれも今が動き出しのタイミング\n#IT転職 #エンジニア転職 #年収アップ #2026年 #キャリアアップ",
+  "wardrobe_continuity": {
+    "narrator_outfit": "グレーのジップアップパーカー、襟元にRODEのピンマイク、左薬指に銀色の指輪"
+  },
+  "scenes": [
+    {
+      "duration": 8.0,
+      "background_prompt": "白い壁を背景にダークブラウンの木製テーブルに向かって座る男性の胸から下のクローズアップ、両手をテーブル上で軽く構えている、single moment in time",
+      "animation_prompt": "The speaker leans slightly forward with both hands gesturing softly near chest level emphasizing the opening question",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "今、IT転職で一番アツい職種、知ってますか?",
+          "start": 0.0,
+          "end": 3.3,
+          "emotion": "問いかけ",
+          "delivery": "前のめりで語尾を上げる、視聴者に直接問いかける口調",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.13,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい"
+          }
+        },
+        {
+          "text": "ここ数年で市場が一気に動いて、企業が本気で取りに来てる分野があります",
+          "start": 3.36,
+          "end": 7.5,
+          "emotion": "中立",
+          "delivery": "落ち着いたトーンで事実を提示、テンポは速め",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手を胸の前で構えて話す男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker holds both hands close together at chest height as if framing the topic he is about to introduce",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "2026年、本気で市場価値が上がってる本当にアツいIT職種を3つだけ話します",
+          "start": 0.0,
+          "end": 5.4,
+          "emotion": "確信",
+          "delivery": "力強く言い切る、3つだけの部分にやや強勢",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい",
+            "市場価値": "しじょうかち"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 14.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手で説明のジェスチャーをする男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker opens his right hand outward to introduce the first topic then gestures with both hands to emphasize the migration trend",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "1つ目、クラウドエンジニア",
+          "start": 0.0,
+          "end": 1.7,
+          "emotion": "宣言",
+          "delivery": "番号を区切ってはっきり提示",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.03,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "AWS": "エーダブリューエス",
+            "GCP": "ジーシーピー",
+            "Azure": "アジュール",
+            "オンプレ": "オンプレ",
+            "案件": "あんけん",
+            "潰し": "つぶし"
+          }
+        },
+        {
+          "text": "まず間違いないのがこれ",
+          "start": 1.8,
+          "end": 3.2,
+          "emotion": "確信",
+          "delivery": "断定的に短く言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 260
+          },
+          "pronunciation_hints": {
+            "AWS": "エーダブリューエス",
+            "GCP": "ジーシーピー",
+            "Azure": "アジュール",
+            "オンプレ": "オンプレ",
+            "案件": "あんけん",
+            "潰し": "つぶし"
+          }
+        },
+        {
+          "text": "オンプレからクラウドへの移行は、もうやるかどうかじゃなくて、いつやるかの段階",
+          "start": 3.3,
+          "end": 7.5,
+          "emotion": "中立",
+          "delivery": "落ち着いた説明調、後半をやや強調",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.03,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "AWS": "エーダブリューエス",
+            "GCP": "ジーシーピー",
+            "Azure": "アジュール",
+            "オンプレ": "オンプレ",
+            "案件": "あんけん",
+            "潰し": "つぶし"
+          }
+        },
+        {
+          "text": "AWS、GCP、Azure、どれも案件が減る気配がない",
+          "start": 7.6,
+          "end": 10.8,
+          "emotion": "確信",
+          "delivery": "サービス名を一つずつ区切って読み上げる",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "AWS": "エーダブリューエス",
+            "GCP": "ジーシーピー",
+            "Azure": "アジュール",
+            "オンプレ": "オンプレ",
+            "案件": "あんけん",
+            "潰し": "つぶし"
+          }
+        },
+        {
+          "text": "しかもクラウドはインフラ、アプリ、全部とつながるから、潰しがきくスキルになりやすい",
+          "start": 10.9,
+          "end": 13.9,
+          "emotion": "中立",
+          "delivery": "畳みかけるように要素を並べて説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 300
+          },
+          "pronunciation_hints": {
+            "AWS": "エーダブリューエス",
+            "GCP": "ジーシーピー",
+            "Azure": "アジュール",
+            "オンプレ": "オンプレ",
+            "案件": "あんけん",
+            "潰し": "つぶし"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで右手を上向きに開いて挙手のジェスチャーをする男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker raises his right hand briefly as if mimicking someone raising a hand in a meeting then settles back",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "現場でクラウド分かる人いない?って聞かれて手が挙がるだけで",
+          "start": 0.0,
+          "end": 3.3,
+          "emotion": "強調",
+          "delivery": "現場のリアルな問いかけを再現するように語る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "単価": "たんか",
+            "一段": "いちだん"
+          }
+        },
+        {
+          "text": "単価も年収も一段変わる",
+          "start": 3.4,
+          "end": 5.4,
+          "emotion": "確信",
+          "delivery": "断定的に言い切る、語尾を落とす",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 250
+          },
+          "pronunciation_hints": {
+            "単価": "たんか",
+            "一段": "いちだん"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 16.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手を構えて深刻そうに説明する男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker counts off reasons on his fingers then opens both palms to convey urgency about the talent shortage",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "2つ目、セキュリティエンジニア",
+          "start": 0.0,
+          "end": 2.0,
+          "emotion": "宣言",
+          "delivery": "番号を区切ってはっきり提示",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか",
+            "放置": "ほうち",
+            "後回し": "あとまわし",
+            "手放されない": "てばなされない"
+          }
+        },
+        {
+          "text": "ここ、2026年はさらに人が足りない",
+          "start": 2.1,
+          "end": 4.3,
+          "emotion": "焦り",
+          "delivery": "深刻さを匂わせる強めのトーン",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか",
+            "放置": "ほうち",
+            "後回し": "あとまわし",
+            "手放されない": "てばなされない"
+          }
+        },
+        {
+          "text": "理由はシンプルで、生成AIの普及、情報漏洩リスクの爆増、攻撃手法の高度化",
+          "start": 4.4,
+          "end": 9.6,
+          "emotion": "中立",
+          "delivery": "理由を畳みかけるように列挙",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.08,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか",
+            "放置": "ほうち",
+            "後回し": "あとまわし",
+            "手放されない": "てばなされない"
+          }
+        },
+        {
+          "text": "企業側がもう放置できない状態になってる",
+          "start": 9.7,
+          "end": 11.6,
+          "emotion": "確信",
+          "delivery": "結論を強めに言い切る",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.08,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか",
+            "放置": "ほうち",
+            "後回し": "あとまわし",
+            "手放されない": "てばなされない"
+          }
+        },
+        {
+          "text": "しかもセキュリティは後回しにされがちだからこそ、一度できる人が育つと手放されない",
+          "start": 11.7,
+          "end": 15.6,
+          "emotion": "強調",
+          "delivery": "落ち着いた説得調、後半をゆっくり",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか",
+            "放置": "ほうち",
+            "後回し": "あとまわし",
+            "手放されない": "てばなされない"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.5,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで右手でピースを作るような指のジェスチャーをする男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker briefly raises two fingers to indicate the second category then lowers both hands in a calm closing motion",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "20代なら、資格プラス最低限の実務経験だけで",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "中立",
+          "delivery": "条件を区切って丁寧に提示",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "資格": "しかく",
+            "実務経験": "じつむけいけん",
+            "年収レンジ": "ねんしゅうレンジ",
+            "領域": "りょういき"
+          }
+        },
+        {
+          "text": "年収レンジが一段上がる、数少ない領域",
+          "start": 3.1,
+          "end": 5.7,
+          "emotion": "確信",
+          "delivery": "結論を落ち着いて言い切る",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 260
+          },
+          "pronunciation_hints": {
+            "資格": "しかく",
+            "実務経験": "じつむけいけん",
+            "年収レンジ": "ねんしゅうレンジ",
+            "領域": "りょういき"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 14.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで右手を開いて3を示すように指を立てる男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker spreads three fingers on his right hand to introduce the third profession then gestures as if shaping an object in the air",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "3つ目、機械学習エンジニア",
+          "start": 0.0,
+          "end": 1.9,
+          "emotion": "宣言",
+          "delivery": "番号を区切って提示、語尾しっかり",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "機械学習": "きかいがくしゅう",
+            "AI": "エーアイ",
+            "中身": "なかみ",
+            "設計": "せっけい"
+          }
+        },
+        {
+          "text": "AIブームの裏で、実際にお金が動いてるのはここ",
+          "start": 2.0,
+          "end": 4.6,
+          "emotion": "強調",
+          "delivery": "ここの一語に強勢を置く",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "機械学習": "きかいがくしゅう",
+            "AI": "エーアイ",
+            "中身": "なかみ",
+            "設計": "せっけい"
+          }
+        },
+        {
+          "text": "機械学習エンジニアは、AIを使う人じゃなくて、AIを作って仕事で使える形にするエンジニア",
+          "start": 4.7,
+          "end": 10.1,
+          "emotion": "中立",
+          "delivery": "対比を意識して前後をはっきり区切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "機械学習": "きかいがくしゅう",
+            "AI": "エーアイ",
+            "中身": "なかみ",
+            "設計": "せっけい"
+          }
+        },
+        {
+          "text": "こういうAIを作りたいって、中身を設計する側",
+          "start": 10.2,
+          "end": 13.0,
+          "emotion": "強調",
+          "delivery": "言い換えで補足する落ち着いた口調",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "機械学習": "きかいがくしゅう",
+            "AI": "エーアイ",
+            "中身": "なかみ",
+            "設計": "せっけい"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 12.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手を交互に動かしながら例示する男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker alternates pointing motions with both hands as he lists multiple business use cases of machine learning",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "たとえば、来月どの商品が売れるか、怪しい取引はどれか、次に何をおすすめするか",
+          "start": 0.0,
+          "end": 4.5,
+          "emotion": "中立",
+          "delivery": "具体例をテンポよく列挙",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 290
+          },
+          "pronunciation_hints": {
+            "来月": "らいげつ",
+            "商品": "しょうひん",
+            "取引": "とりひき",
+            "予測": "よそく",
+            "判定": "はんてい",
+            "売上": "うりあげ",
+            "直結": "ちょっけつ"
+          }
+        },
+        {
+          "text": "こういう予測や判定をAIにやらせる仕組みを作る",
+          "start": 4.6,
+          "end": 7.5,
+          "emotion": "確信",
+          "delivery": "まとめるように落ち着いて言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "来月": "らいげつ",
+            "商品": "しょうひん",
+            "取引": "とりひき",
+            "予測": "よそく",
+            "判定": "はんてい",
+            "売上": "うりあげ",
+            "直結": "ちょっけつ"
+          }
+        },
+        {
+          "text": "企業の売上やコストに直結する部分を任される",
+          "start": 7.6,
+          "end": 10.3,
+          "emotion": "強調",
+          "delivery": "責任の重さを匂わせる落ち着いたトーン",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "来月": "らいげつ",
+            "商品": "しょうひん",
+            "取引": "とりひき",
+            "予測": "よそく",
+            "判定": "はんてい",
+            "売上": "うりあげ",
+            "直結": "ちょっけつ"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 4.5,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手を軽く構えて締めくくるように話す男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker brings both hands close together as he calmly emphasizes scarcity and stable income",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "ちゃんとモデルを改善できる人は、普通に希少で、年収も安定して高い",
+          "start": 0.0,
+          "end": 4.0,
+          "emotion": "確信",
+          "delivery": "落ち着いた断定調、年収の部分にやや強勢",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.06,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "改善": "かいぜん",
+            "希少": "きしょう",
+            "安定": "あんてい"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 9.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで両手を整えて締めくくる男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker holds his hands steady at chest level summarizing the three professions then settles them on the table",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "まとめ、2026年にアツいIT職種はこの3つ",
+          "start": 0.0,
+          "end": 2.8,
+          "emotion": "宣言",
+          "delivery": "結論を提示する落ち着いたトーン",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい",
+            "優劣": "ゆうれつ",
+            "領域": "りょういき",
+            "将来": "しょうらい"
+          }
+        },
+        {
+          "text": "クラウド、セキュリティ、機械学習",
+          "start": 2.9,
+          "end": 4.7,
+          "emotion": "強調",
+          "delivery": "3つを区切ってはっきり読み上げる",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい",
+            "優劣": "ゆうれつ",
+            "領域": "りょういき",
+            "将来": "しょうらい"
+          }
+        },
+        {
+          "text": "スキルの優劣じゃない",
+          "start": 4.8,
+          "end": 5.9,
+          "emotion": "確信",
+          "delivery": "短く強く言い切る",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい",
+            "優劣": "ゆうれつ",
+            "領域": "りょういき",
+            "将来": "しょうらい"
+          }
+        },
+        {
+          "text": "どの領域に乗ってるかで、年収も将来も変わる",
+          "start": 6.0,
+          "end": 8.6,
+          "emotion": "強調",
+          "delivery": "視聴者に刺すように力強く語る",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.09,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "アツい": "アツい",
+            "優劣": "ゆうれつ",
+            "領域": "りょういき",
+            "将来": "しょうらい"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.0,
+      "background_prompt": "白い壁の前のダークブラウンの木製テーブルで右手の人差し指を立てて視聴者に呼びかける男性の胸から下のクローズアップ、single moment in time",
+      "animation_prompt": "The speaker raises his index finger toward the camera as a call to action then returns hands to a relaxed position",
+      "character_refs": [
+        "characters/narrator.png"
+      ],
+      "characters": [
+        {
+          "name": "主人公",
+          "role": "narrator"
+        }
+      ],
+      "wardrobe": {
+        "identifier": "narrator_outfit"
+      },
+      "lines": [
+        {
+          "text": "今の延長線で大丈夫かな?って少しでも思った人は、一度立ち位置を見直した方がいい",
+          "start": 0.0,
+          "end": 4.7,
+          "emotion": "問いかけ",
+          "delivery": "視聴者に寄り添うように柔らかく問いかける",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 280
+          },
+          "pronunciation_hints": {
+            "延長線": "えんちょうせん",
+            "立ち位置": "たちいち",
+            "見直した": "みなおした",
+            "転職": "てんしょく",
+            "プロフ": "プロフ"
+          }
+        },
+        {
+          "text": "転職を相談したい人は、プロフのリンクから",
+          "start": 4.8,
+          "end": 6.8,
+          "emotion": "中立",
+          "delivery": "案内する落ち着いた締めの口調",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 270
+          },
+          "pronunciation_hints": {
+            "延長線": "えんちょうせん",
+            "立ち位置": "たちいち",
+            "見直した": "みなおした",
+            "転職": "てんしょく",
+            "プロフ": "プロフ"
+          }
+        }
+      ]
+    }
+  ]
+}

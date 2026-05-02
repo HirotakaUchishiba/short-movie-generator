@@ -137,8 +137,7 @@ def test_run_next_stage_advances_step_by_step(
     ts_path = str(tmp_path / "ts3")
     os.makedirs(ts_path)
 
-    # silent mode で TTS / kling / scene の重い処理をスキップ
-    sp["audio_mode"] = "silent"
+    # 重い処理 (TTS / kling / scene) を mock でスキップ
     monkeypatch.setattr(
         staged_pipeline.scene_gen, "generate_backgrounds",
         lambda screenplay, td: {f"bg_{i:03d}": "" for i in range(len(screenplay["scenes"]))},

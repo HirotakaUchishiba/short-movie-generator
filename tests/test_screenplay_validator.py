@@ -8,7 +8,6 @@ def _valid_screenplay() -> dict:
         "caption": "会社選びが何より大切です\n\n#未経験 #転職",
         "scenes": [
             {
-                "label": "始業",
                 "duration": 5.0,
                 "background_prompt": "オフィスで考え込む男性 cinematic lighting",
                 "animation_prompt": "slow zoom",
@@ -107,19 +106,6 @@ def test_no_lines_allowed() -> None:
     sp = _valid_screenplay()
     sp["scenes"][0]["lines"] = []
     screenplay_validator.validate_screenplay(sp)
-
-
-def test_audio_mode_silent_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["audio_mode"] = "silent"
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_audio_mode_invalid_fails() -> None:
-    sp = _valid_screenplay()
-    sp["audio_mode"] = "mute"
-    with pytest.raises(ValueError):
-        screenplay_validator.validate_screenplay(sp)
 
 
 def test_scene_lipsync_boolean_allowed() -> None:
@@ -221,13 +207,6 @@ def test_wardrobe_identifier_only_allowed() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-def test_global_bgm_path_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["bgm_path"] = "/abs/path/bgm.wav"
-    sp["bgm_volume_db"] = -18
-    screenplay_validator.validate_screenplay(sp)
-
-
 def test_facial_expression_rejected_as_deprecated() -> None:
     """SSOT: scene.facial_expression は廃止 (lines[].emotion で表現)。"""
     sp = _valid_screenplay()
@@ -289,31 +268,6 @@ def test_unknown_line_field_rejected() -> None:
     sp = _valid_screenplay()
     sp["scenes"][0]["lines"][0]["unknown_line_field"] = "x"
     with pytest.raises(ValueError, match="unknown_line_field"):
-        screenplay_validator.validate_screenplay(sp)
-
-
-def test_emotion_cue_overrides_with_preset_ids_allowed() -> None:
-    """preset ID 経由の override は schema 通過。"""
-    sp = _valid_screenplay()
-    sp["scenes"][0]["emotion_cue_overrides"] = {
-        "facial": "alert_focused",
-        "lighting": "warm_morning",
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_emotion_cue_overrides_with_invalid_preset_rejected() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["emotion_cue_overrides"] = {"facial": "not_a_real_preset"}
-    with pytest.raises(ValueError, match="not_a_real_preset"):
-        screenplay_validator.validate_screenplay(sp)
-
-
-def test_emotion_cue_overrides_unknown_category_rejected() -> None:
-    """カテゴリも限定 (unknown_category 不可)。"""
-    sp = _valid_screenplay()
-    sp["scenes"][0]["emotion_cue_overrides"] = {"unknown_category": "neutral"}
-    with pytest.raises(ValueError, match="unknown_category"):
         screenplay_validator.validate_screenplay(sp)
 
 
