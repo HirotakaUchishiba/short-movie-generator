@@ -78,6 +78,7 @@ export interface Scene {
   character_refs?: string[];
   characters?: CharacterDef[];
   wardrobe?: Wardrobe;
+  location_ref?: string;
   facial_expression?: string;
   hand_gesture?: string;
   lipsync?: boolean;
