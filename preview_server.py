@@ -23,6 +23,7 @@ import staged_pipeline
 from analyze import job as analyze_job
 from analyze import progress as analyze_progress
 from analyze import runner as analyze_runner
+from analyze import style as analyze_style
 from analyze.cache import file_sha256
 from analytics import db as _analytics_db
 
@@ -741,6 +742,67 @@ def api_delete_reference_video(sha):
         "sha256": sha, "deleted": True, "force": force,
         "warning": "DB row deleted but file not found",
     }), 200
+
+
+# ───────────────── VideoStyle (抽象台本合成用テンプレ) ─────────────────
+
+@app.route("/api/styles", methods=["GET"])
+def api_list_styles():
+    items = []
+    for name in analyze_style.list_styles():
+        try:
+            items.append(analyze_style.load_style(name).to_dict())
+        except Exception as e:
+            logger.warning("style %s 読み込み失敗: %s", name, e)
+    return jsonify({"styles": items})
+
+
+@app.route("/api/styles/<name>", methods=["GET"])
+def api_get_style(name):
+    try:
+        return jsonify(analyze_style.load_style(name).to_dict())
+    except FileNotFoundError:
+        return jsonify({"error": f"style not found: {name}"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+
+@app.route("/api/styles", methods=["POST"])
+def api_create_style():
+    data = request.get_json(force=True) or {}
+    if not data.get("name"):
+        return jsonify({"error": "name required"}), 400
+    try:
+        style = analyze_style.VideoStyle.from_dict(data)
+        analyze_style.save_style(style)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(style.to_dict()), 201
+
+
+@app.route("/api/styles/<name>", methods=["PUT"])
+def api_update_style(name):
+    if not analyze_style.NAME_RE.match(name):
+        return jsonify({"error": "invalid name"}), 400
+    data = request.get_json(force=True) or {}
+    data["name"] = name  # URL のものを正とする
+    try:
+        style = analyze_style.VideoStyle.from_dict(data)
+        analyze_style.save_style(style)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(style.to_dict())
+
+
+@app.route("/api/styles/<name>", methods=["DELETE"])
+def api_delete_style(name):
+    try:
+        deleted = analyze_style.delete_style(name)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    if not deleted:
+        return jsonify({"error": f"style not found: {name}"}), 404
+    return jsonify({"name": name, "deleted": True})
 
 
 # ───────────────── analyze ジョブ ─────────────────

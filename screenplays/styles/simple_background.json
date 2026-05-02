@@ -1,0 +1,33 @@
+{
+  "name": "simple_background",
+  "format": "narrator",
+  "characters": [
+    {
+      "name": "主人公",
+      "role": "narrator",
+      "ref": "female_engineer",
+      "voice_overrides": {
+        "stability": 0.4,
+        "style": 0.3,
+        "similarity_boost": 0.7
+      }
+    }
+  ],
+  "wardrobe_continuity": {
+    "neutral_top": "オフホワイトのシンプルなTシャツ + ナチュラルメイク + ストレートヘア"
+  },
+  "default_wardrobe": "neutral_top",
+  "location_continuity": {
+    "soft_gradient": {
+      "decor": "シンプルな単色グラデーション背景、装飾なし、被写体に集中させる構図",
+      "lighting": "柔らかい正面ライト、影は最小限",
+      "color_palette": "ライトグレー〜オフホワイトのグラデーション",
+      "props": "なし",
+      "camera_distance": "medium-close"
+    }
+  },
+  "default_location": "soft_gradient",
+  "default_tags": [],
+  "scoped_augmentations": [],
+  "animation_style": "subtle"
+}

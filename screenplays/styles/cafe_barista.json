@@ -1,0 +1,33 @@
+{
+  "name": "cafe_barista",
+  "format": "narrator",
+  "characters": [
+    {
+      "name": "主人公",
+      "role": "narrator",
+      "ref": "female_engineer",
+      "voice_overrides": {
+        "stability": 0.45,
+        "style": 0.35,
+        "similarity_boost": 0.7
+      }
+    }
+  ],
+  "wardrobe_continuity": {
+    "casual_apron": "白いリネンシャツ + ベージュのエプロン + ナチュラルメイク + ハーフアップ"
+  },
+  "default_wardrobe": "casual_apron",
+  "location_continuity": {
+    "warm_cafe": {
+      "decor": "温かみのある木目調カウンター、サブウェイタイル、棚にコーヒー器具、奥に黒板メニュー",
+      "lighting": "暖色系のペンダントライト、夕方の窓光",
+      "color_palette": "ブラウン基調、クリーム色、深緑のアクセント",
+      "props": "エスプレッソマシン、ガラス瓶のコーヒー豆、白マグカップ",
+      "camera_distance": "medium"
+    }
+  },
+  "default_location": "warm_cafe",
+  "default_tags": ["cafe"],
+  "scoped_augmentations": [],
+  "animation_style": "standard"
+}
