@@ -385,16 +385,15 @@ def _compose_animation(scene, src_scene, style) -> str:
 
 ---
 
-## 9. オープン課題
+## 9. オープン課題への決定 (2026-05-02 確定)
 
-実装着手時に再検討が必要な項目:
-
-1. **VideoStyle の保存先**: `video_styles/` 直下で OK か、`screenplays/styles/` のようにネストするか
-2. **VideoStyle の git 管理**: canonical / drafts と同様の二層分離が必要か (個人運用なら不要)
-3. **デフォルト VideoStyle**: 初期同梱するプリセット数 (1 個 or 3〜5 個)
-4. **dialogue モードでの speaker 自動推定精度**: Claude Vision に「複数キャラ時は speaker を必ず指定」を強く指示する必要 (既に実装済みだがテスト要)
-5. **既存 screenplay (削除対象フィールドあり) の migration**: ワンショット script で削除フィールドを除去 + 抽象化フィールドはそのまま残す
-6. **`_compose_background` の決定論的合成 vs Claude 呼び出し**: 初期は決定論。人手で改善余地が出てきたら Sonnet 呼び出しに切替
+| #   | 項目                               | 決定                                 | 備考                                                                                                                                    |
+| --- | ---------------------------------- | ------------------------------------ | --------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | VideoStyle 保存先                  | **`screenplays/styles/<name>.json`** | screenplays 配下にネスト (canonical / drafts と同階層感)                                                                                |
+| 2   | デフォルト VideoStyle 数           | **3〜5 個**                          | office_engineer / cafe_barista / living_room_lifestyle / simple_background / outdoor_park                                               |
+| 3   | 既存 screenplay の migration       | **ワンショット script**              | `scripts/migrate_screenplay_v3.py` で削除対象フィールド (label / audio*mode / bgm*\* / silence_after_ms / emotion_cue_overrides) を除去 |
+| 4   | `_compose_background` 合成方式     | **決定論ルールベース**               | テンプレ + 動作キーワードを文字列連結で組み立て。Claude Sonnet 呼び出しは不採用 (コスト・ばらつき・遅延)                                |
+| 5   | dialogue モードの speaker 推定精度 | **テスト動画で実測**                 | 主人公 + 上司の対話シーンを含む短尺動画で実分析 → speaker 取得精度を検証                                                                |
 
 ---
 
