@@ -157,6 +157,32 @@ def _downsample_frames(frame_paths: list[str],
     return [frame_paths[i] for i in indices]
 
 
+def _normalize_scene_pronunciation_hints(screenplay: dict) -> int:
+    """scene 直下の pronunciation_hints を各 line に展開して scene からは削除する。
+
+    Claude は SYSTEM_PROMPT の指示に反して scene 直下に
+    pronunciation_hints を出すケースがあるため (シーン全体の読み方辞書を
+    まとめる意図と思われる)、validator が scenes の additionalProperties:
+    False で拒否する前にここで吸収する。
+
+    line 個別の pronunciation_hints が既にある場合は line 側を優先する
+    (より具体的な指定を尊重)。
+
+    Returns: 正規化したシーン数。
+    """
+    n = 0
+    for scene in screenplay.get("scenes") or []:
+        scene_hints = scene.pop("pronunciation_hints", None)
+        if not scene_hints or not isinstance(scene_hints, dict):
+            continue
+        n += 1
+        for line in scene.get("lines") or []:
+            existing = line.get("pronunciation_hints") or {}
+            # scene 由来の hints は base、line 個別指定があれば line を優先
+            line["pronunciation_hints"] = {**scene_hints, **existing}
+    return n
+
+
 def _ensure_min_duration(screenplay: dict,
                           min_sec: float = MIN_SCENE_DURATION) -> int:
     """SYSTEM_PROMPT の指示に反して Claude が出した短すぎるシーンを底上げする。
@@ -369,6 +395,15 @@ def run(
         new_hints = furigana_store.collect_from_screenplay(screenplay)
         if new_hints:
             furigana_store.merge(new_hints)
+
+        # Claude が SYSTEM_PROMPT の指示を守らず scene 直下に
+        # pronunciation_hints を出すケースを line 側に展開する。
+        normalized = _normalize_scene_pronunciation_hints(screenplay)
+        if normalized:
+            logger.info(
+                "scene 直下の pronunciation_hints を %d 件 line にマージしました",
+                normalized,
+            )
 
         # Claude が SYSTEM_PROMPT の指示を守らず duration<3 を出力するケースが
         # あるので、validate 前に底上げする。プロジェクト作成時の strict

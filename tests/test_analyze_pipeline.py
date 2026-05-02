@@ -113,6 +113,44 @@ def test_downsample_frames_uniform_spacing() -> None:
     assert max(diffs) - min(diffs) <= 1  # 等間隔 (誤差 ±1)
 
 
+def test_normalize_scene_pronunciation_hints_merges_into_lines() -> None:
+    from analyze.pipeline import _normalize_scene_pronunciation_hints
+    sp = {
+        "scenes": [
+            {
+                "duration": 5,
+                "pronunciation_hints": {"AWS": "エーダブリューエス", "IT": "アイティー"},
+                "lines": [
+                    {"text": "AWS は便利"},
+                    {"text": "IT 業界",
+                     "pronunciation_hints": {"IT": "アイティ"}},  # line 個別優先
+                ],
+            },
+            {"duration": 3, "lines": [{"text": "x"}]},  # hints 無し
+        ],
+    }
+    n = _normalize_scene_pronunciation_hints(sp)
+    assert n == 1
+    # scene 直下から削除されている
+    assert "pronunciation_hints" not in sp["scenes"][0]
+    # line[0] には scene 由来 hints が展開
+    assert sp["scenes"][0]["lines"][0]["pronunciation_hints"] == {
+        "AWS": "エーダブリューエス", "IT": "アイティー",
+    }
+    # line[1] は個別指定の "IT" → "アイティ" が優先される
+    assert sp["scenes"][0]["lines"][1]["pronunciation_hints"] == {
+        "AWS": "エーダブリューエス", "IT": "アイティ",
+    }
+    # hints 無し scene は無変更
+    assert "pronunciation_hints" not in sp["scenes"][1]
+
+
+def test_normalize_scene_pronunciation_hints_noop_for_clean_screenplay() -> None:
+    from analyze.pipeline import _normalize_scene_pronunciation_hints
+    sp = {"scenes": [{"duration": 3, "lines": [{"text": "x"}]}]}
+    assert _normalize_scene_pronunciation_hints(sp) == 0
+
+
 def test_ensure_min_duration_adjusts_short_scenes() -> None:
     from analyze.pipeline import _ensure_min_duration
     sp = {
