@@ -167,6 +167,68 @@ def test_list_reference_videos_returns_all(isolated_db) -> None:
     assert len(items) == 2
 
 
+def test_wait_for_confirm_returns_true_when_running(isolated_db) -> None:
+    """status が running になったら _wait_for_confirm が True を返す。"""
+    import threading
+    import time
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    j = analyze_job.create_job("sha", {})
+    analyze_job.transition_status(j.id, "awaiting_confirm",
+                                    estimated_cost_usd=0.5)
+
+    def confirm_after_short_delay():
+        time.sleep(0.05)
+        analyze_job.transition_status(j.id, "running")
+
+    threading.Thread(target=confirm_after_short_delay, daemon=True).start()
+    assert analyze_runner._wait_for_confirm(
+        j.id, timeout_sec=2.0, poll_interval_sec=0.02,
+    ) is True
+
+
+def test_wait_for_confirm_returns_false_when_cancelled(isolated_db) -> None:
+    import threading
+    import time
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    j = analyze_job.create_job("sha", {})
+    analyze_job.transition_status(j.id, "awaiting_confirm",
+                                    estimated_cost_usd=0.5)
+
+    def cancel_after_short_delay():
+        time.sleep(0.05)
+        analyze_job.request_cancellation(j.id)
+
+    threading.Thread(target=cancel_after_short_delay, daemon=True).start()
+    assert analyze_runner._wait_for_confirm(
+        j.id, timeout_sec=2.0, poll_interval_sec=0.02,
+    ) is False
+
+
+def test_wait_for_confirm_timeout_marks_failed(isolated_db) -> None:
+    """timeout 時は CostGateTimeout を raise し、status='failed' + error 記録。"""
+    import pytest
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    j = analyze_job.create_job("sha", {})
+    analyze_job.transition_status(j.id, "awaiting_confirm",
+                                    estimated_cost_usd=0.5)
+
+    with pytest.raises(analyze_runner.CostGateTimeout):
+        analyze_runner._wait_for_confirm(
+            j.id, timeout_sec=0.15, poll_interval_sec=0.05,
+        )
+
+    j2 = analyze_job.get_job(j.id)
+    assert j2.status == "failed"
+    assert j2.error is not None
+    assert "timeout" in j2.error
+
+
 def test_delete_reference_video_blocked_by_job(isolated_db) -> None:
     from analyze.job import (upsert_reference_video, delete_reference_video,
                               create_job, get_reference_video)

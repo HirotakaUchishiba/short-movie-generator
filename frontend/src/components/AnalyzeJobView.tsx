@@ -183,6 +183,12 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
     es.addEventListener("dryrun_complete", (ev) => {
       try {
         setDryrun(JSON.parse((ev as MessageEvent).data));
+        // SSE では status 遷移そのものは publish されないため、
+        // dryrun_complete を受けたら awaiting_confirm に明示的に切り替えて
+        // コスト確認モーダルを表示する (これがないとモーダルが永遠に出ない)。
+        setJob((prev) =>
+          prev ? { ...prev, status: "awaiting_confirm" } : prev,
+        );
       } catch {}
     });
     es.addEventListener("claude_chunk", (ev) => {

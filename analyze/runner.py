@@ -16,13 +16,52 @@ from analyze.pipeline import AnalyzeCancelled, AnalyzeOptions, default_output_pa
 
 logger = logging.getLogger(__name__)
 
+
+class CostGateTimeout(Exception):
+    """cost gate が timeout した時に raise される (AnalyzeCancelled とは別扱い)。
+
+    AnalyzeCancelled は「ユーザーが意図的にキャンセル」を表すため、
+    timeout を分けて failed 状態として記録する (UI 上の混乱を避ける)。
+    """
+
+
 # 同時実行数の上限
 _MAX_CONCURRENT = 1
 _CONCURRENT = threading.Semaphore(_MAX_CONCURRENT)
 
 # コストゲート confirm 待ちの polling 間隔と timeout
 CONFIRM_POLL_INTERVAL_SEC = 0.5
-CONFIRM_TIMEOUT_SEC = 1800  # 30 分待っても confirm が来なければ自動 cancel
+CONFIRM_TIMEOUT_SEC = 1800  # 30 分待っても confirm が来なければ failed
+
+
+def _wait_for_confirm(job_id: str, timeout_sec: float = CONFIRM_TIMEOUT_SEC,
+                       poll_interval_sec: float = CONFIRM_POLL_INTERVAL_SEC,
+                       ) -> bool:
+    """awaiting_confirm のジョブが confirm or cancel されるのを polling で待つ。
+
+    Returns:
+        True なら confirm 成功 (Claude 続行可)、False ならユーザーキャンセル。
+    Raises:
+        CostGateTimeout: timeout 時。failed 状態と error 文字列が SQLite に
+        記録され、failed event も publish 済みの状態で raise する。
+    """
+    deadline = time.time() + timeout_sec
+    while time.time() < deadline:
+        j = job.get_job(job_id)
+        if j.cancellation_requested:
+            return False
+        if j.status == "running":
+            return True
+        time.sleep(poll_interval_sec)
+
+    timeout_min = max(1, int(round(timeout_sec / 60)))
+    err = (
+        f"コスト確認の timeout ({timeout_min} 分以内に "
+        "Claude 呼び出しが confirm されませんでした)"
+    )
+    job.transition_status(job_id, "failed", error=err)
+    progress.publish(job_id, "failed", {"error": err, "phase": "cost_gate"})
+    raise CostGateTimeout(err)
 
 
 def start(job_id: str) -> threading.Thread:
@@ -94,8 +133,10 @@ def _run_job_impl(job_id: str) -> None:
                    shot_count: int, known_furigana_count: int) -> bool:
         """Claude 呼び出し直前。awaiting_confirm に遷移して confirm を待つ。
 
-        confirm = job.transition_status(job_id, "running")
-        cancel  = job.request_cancellation(job_id)
+        confirm = job.transition_status(job_id, "running")  (preview_server の
+                                                             confirm endpoint)
+        cancel  = job.request_cancellation(job_id)          (DELETE endpoint)
+        timeout = _wait_for_confirm が CostGateTimeout を raise
         """
         estimate = cost.estimate(
             frame_count=frame_count,
@@ -111,21 +152,7 @@ def _run_job_impl(job_id: str) -> None:
             "frame_count": frame_count,
             **estimate,
         })
-
-        deadline = time.time() + CONFIRM_TIMEOUT_SEC
-        while time.time() < deadline:
-            j2 = job.get_job(job_id)
-            if j2.cancellation_requested:
-                return False
-            if j2.status == "running":
-                return True
-            time.sleep(CONFIRM_POLL_INTERVAL_SEC)
-
-        # timeout -> 自動 cancel 扱い
-        progress.publish(job_id, "failed",
-                          {"error": "confirm timeout",
-                           "phase": "cost_gate"})
-        return False
+        return _wait_for_confirm(job_id)
 
     try:
         screenplay = pipeline.run(
@@ -138,8 +165,6 @@ def _run_job_impl(job_id: str) -> None:
         job.touch_reference_video(j.video_sha256)
 
         out_path = default_output_path(video_path)
-        # 実 cost は build_screenplay の usage ログ出力にあるが、
-        # screenplay.json には保存されないため概算 (estimated) を再利用する
         finished = job.transition_status(
             job_id, "completed",
             screenplay_path=out_path,
@@ -151,6 +176,9 @@ def _run_job_impl(job_id: str) -> None:
             "lines": sum(len(s.get("lines") or [])
                           for s in screenplay.get("scenes", [])),
         })
+    except CostGateTimeout:
+        # _wait_for_confirm で既に failed 遷移 + publish 済み
+        return
     except AnalyzeCancelled:
         job.transition_status(job_id, "cancelled")
         progress.publish(job_id, "cancelled", {})
