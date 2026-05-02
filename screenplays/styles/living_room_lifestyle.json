@@ -27,7 +27,7 @@
     }
   },
   "default_location": "cozy_living",
-  "default_tags": ["lifestyle"],
+  "default_tags": ["living_room"],
   "scoped_augmentations": [],
   "animation_style": "subtle"
 }

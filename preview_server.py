@@ -919,6 +919,68 @@ def api_confirm_analyze_job(job_id):
     return jsonify({"ok": True}), 200
 
 
+@app.route("/api/screenplay/analyze/<job_id>/compose", methods=["POST"])
+def api_compose_screenplay(job_id):
+    """抽象台本に VideoStyle を当てて完全 screenplay を生成し、元ファイルに上書き。
+
+    body: {style_name: str, scene_overrides?: {<scene_idx>: {wardrobe?, location_ref?, tags?}}}
+    """
+    if not _JOB_ID_RE.match(job_id):
+        return jsonify({"error": "invalid job_id"}), 400
+    try:
+        j = analyze_job.get_job(job_id)
+    except KeyError:
+        return jsonify({"error": "job not found"}), 404
+
+    if not j.screenplay_path or not os.path.exists(j.screenplay_path):
+        return jsonify({
+            "error": "screenplay file not found (job may not be completed)",
+        }), 400
+
+    data = request.get_json(force=True) or {}
+    style_name = data.get("style_name") or ""
+    if not style_name:
+        return jsonify({"error": "style_name is required"}), 400
+
+    raw_overrides = data.get("scene_overrides") or {}
+    try:
+        overrides = {int(k): v for k, v in raw_overrides.items()}
+    except (ValueError, TypeError):
+        return jsonify({"error": "scene_overrides keys must be int"}), 400
+
+    try:
+        style = analyze_style.load_style(style_name)
+    except FileNotFoundError:
+        return jsonify({"error": f"style not found: {style_name}"}), 404
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+
+    with open(j.screenplay_path, encoding="utf-8") as f:
+        abstract = json.load(f)
+
+    from analyze.compose import compose_screenplay
+    from screenplay_validator import validate_screenplay
+    sp = compose_screenplay(abstract, style, overrides)
+    try:
+        validate_screenplay(sp, strict=True)
+    except ValueError as e:
+        return jsonify({
+            "error": "composed screenplay failed strict validation",
+            "details": str(e),
+        }), 422
+
+    tmp_path = j.screenplay_path + ".tmp"
+    with open(tmp_path, "w", encoding="utf-8") as f:
+        json.dump(sp, f, ensure_ascii=False, indent=2)
+    os.replace(tmp_path, j.screenplay_path)
+
+    return jsonify({
+        "screenplay_path": j.screenplay_path,
+        "style_name": style_name,
+        "scenes": len(sp.get("scenes", [])),
+    })
+
+
 @app.route("/api/screenplay/analyze/<job_id>", methods=["DELETE"])
 def api_cancel_analyze_job(job_id):
     """ジョブのキャンセルを要求 (各フェーズ境界で読まれて中断)。"""

@@ -27,7 +27,7 @@
     }
   },
   "default_location": "warm_cafe",
-  "default_tags": ["cafe"],
+  "default_tags": ["indoors"],
   "scoped_augmentations": [],
   "animation_style": "standard"
 }
