@@ -154,6 +154,13 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
           handlePhase(d.phase, { status: "running" });
           setPhaseStartTimes((prev) => ({ ...prev, [d.phase]: Date.now() }));
           if (d.phase === "claude") setClaudeChars(0);
+          // claude phase 開始 = cost gate 通過後なので job.status は running。
+          // confirm 成功時の UI 更新が遅れた場合の保険として同期する。
+          setJob((prev) =>
+            prev && prev.status === "awaiting_confirm"
+              ? { ...prev, status: "running" }
+              : prev,
+          );
         }
       } catch {}
     });
@@ -489,8 +496,25 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
                 setConfirmBusy(true);
                 try {
                   await api.confirmAnalyzeJob(jobId);
+                  // 成功: サーバが running に遷移済み。UI も同期してモーダルを閉じる。
+                  setJob((prev) =>
+                    prev ? { ...prev, status: "running" } : prev,
+                  );
+                  setDryrun(null);
+                  setError(null);
                 } catch (e) {
-                  setError(String(e));
+                  const msg = String(e);
+                  // 既に running (二重クリック等) は実害なし。状態を同期して
+                  // エラーを抑制する。
+                  if (msg.includes("409")) {
+                    setJob((prev) =>
+                      prev ? { ...prev, status: "running" } : prev,
+                    );
+                    setDryrun(null);
+                    setError(null);
+                  } else {
+                    setError(msg);
+                  }
                 } finally {
                   setConfirmBusy(false);
                 }
