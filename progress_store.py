@@ -113,3 +113,114 @@ def reset_stage(ts_path: str, stage: str) -> None:
         progress["stages"][s]["generated_at"] = None
         progress["stages"][s]["approved_at"] = None
     save(ts_path, progress)
+
+
+def revoke_all_approvals(ts_path: str) -> None:
+    """全 stage の承認だけを解除する。生成物 (assets) は保持したまま、
+    再承認/再生成を促す。Stage 1「素材編集」セクションで抽象台本 / VideoStyle
+    を差し替えたとき、後続 Stage が古い素材で承認済みのままにならないように
+    するため。
+    """
+    progress = load(ts_path)
+    for s in STAGES:
+        progress["stages"][s]["approved_at"] = None
+    save(ts_path, progress)
+
+
+# ───────────── stage 共通: cache decisions ─────────────
+#
+# bg / kling は scan / commit / generate の 3 段階に分かれており、
+# シーンごとに「キャッシュ採用 or 新規生成」をユーザが per-scene で判断する。
+# 判断状態は ``progress["stages"][<stage>]["scene_decisions"]`` に保存する。
+#
+# scene_decisions の形式:
+#   {
+#     "<scene_idx>": {
+#       "candidates": [{"key": ..., "fitness": ..., "warnings": [...], "meta": {...}}, ...],
+#       "decision": "pending" | "cache" | "fresh",
+#       "decided_key": <hash> | null,
+#       "decided_at": <iso8601> | null,
+#       "cache_key": <hash>,
+#       "diagnostics": [...],
+#     },
+#     ...
+#   }
+
+_DECISION_STAGES = ("bg", "kling")
+
+
+def _ensure_stage_block(progress: dict, stage: str) -> dict:
+    if stage not in _DECISION_STAGES:
+        raise ValueError(
+            f"stage {stage!r} は scene_decisions をサポートしません "
+            f"(対応: {_DECISION_STAGES})")
+    block = progress["stages"].setdefault(
+        stage, {"generated_at": None, "approved_at": None, "regen_count": 0})
+    block.setdefault("scene_decisions", {})
+    block.setdefault("cache_scanned_at", None)
+    return block
+
+
+def set_scan_result(ts_path: str, stage: str,
+                    scene_decisions: dict) -> None:
+    """scan の結果一式で scene_decisions を上書きする。"""
+    progress = load(ts_path)
+    block = _ensure_stage_block(progress, stage)
+    block["scene_decisions"] = scene_decisions
+    block["cache_scanned_at"] = _now()
+    save(ts_path, progress)
+
+
+def get_decisions(ts_path: str, stage: str) -> dict:
+    """{"cache_scanned_at": ..., "scene_decisions": {...}} を返す。"""
+    progress = load(ts_path)
+    block = _ensure_stage_block(progress, stage)
+    return {
+        "cache_scanned_at": block.get("cache_scanned_at"),
+        "scene_decisions": block.get("scene_decisions", {}),
+    }
+
+
+def set_scene_decision(ts_path: str, stage: str, scene_idx: int,
+                       decision: str,
+                       decided_key: str | None = None) -> None:
+    """1 シーンの判断を更新する。decision は "cache"/"fresh"/"pending"。"""
+    if decision not in ("cache", "fresh", "pending"):
+        raise ValueError(f"invalid decision: {decision}")
+    progress = load(ts_path)
+    block = _ensure_stage_block(progress, stage)
+    decisions = block["scene_decisions"]
+    rec = dict(decisions.get(str(scene_idx)) or {})
+    rec["decision"] = decision
+    rec["decided_key"] = decided_key if decision == "cache" else None
+    rec["decided_at"] = _now() if decision != "pending" else None
+    decisions[str(scene_idx)] = rec
+    save(ts_path, progress)
+
+
+def reset_decisions(ts_path: str, stage: str) -> None:
+    """scan 結果と判断状態をクリアする (= cache scan を再実行する前)。"""
+    progress = load(ts_path)
+    block = _ensure_stage_block(progress, stage)
+    block["scene_decisions"] = {}
+    block["cache_scanned_at"] = None
+    save(ts_path, progress)
+
+
+# ───────────── 旧名 (kling 専用) — 後方互換ラッパ ─────────────
+# 既存呼び出し元を壊さないため残す。新規コードは新名 (set_scan_result 等) を使うこと。
+
+def _ensure_kling_block(progress: dict) -> dict:
+    return _ensure_stage_block(progress, "kling")
+
+
+def set_kling_scan_result(ts_path: str, scene_decisions: dict) -> None:
+    set_scan_result(ts_path, "kling", scene_decisions)
+
+
+def get_kling_decisions(ts_path: str) -> dict:
+    return get_decisions(ts_path, "kling")
+
+
+def reset_kling_decisions(ts_path: str) -> None:
+    reset_decisions(ts_path, "kling")

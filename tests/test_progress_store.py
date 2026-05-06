@@ -76,3 +76,18 @@ def test_all_stages_complete_returns_none(tmp_path) -> None:
         progress_store.mark_approved(str(tmp_path), s)
     assert progress_store.next_stage(str(tmp_path)) is None
     assert progress_store.current_stage(str(tmp_path)) is None
+
+
+def test_revoke_all_approvals_keeps_generated(tmp_path) -> None:
+    """Stage 1「素材編集」で再合成した時に呼ぶ関数。承認だけ消えて assets は残る。"""
+    for s in progress_store.STAGES:
+        progress_store.mark_generated(str(tmp_path), s)
+        progress_store.mark_approved(str(tmp_path), s)
+    progress_store.revoke_all_approvals(str(tmp_path))
+    p = progress_store.load(str(tmp_path))
+    for s in progress_store.STAGES:
+        assert p["stages"][s]["approved_at"] is None
+        # generated_at (= asset 生成済みフラグ) は保持される
+        assert p["stages"][s]["generated_at"] is not None
+    # next_stage は最初の未承認 = script で停止
+    assert progress_store.current_stage(str(tmp_path)) == "script"
