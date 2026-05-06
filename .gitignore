@@ -18,6 +18,8 @@ data/*.db
 data/*.db-journal
 data/*.db-wal
 data/*.db-shm
+# 実コスト履歴 (cost_tracking が append-only で書く ローカル運用ファイル)
+data/cost_records.jsonl
 assets/bgm/*.wav
 assets/bgm/*.mp3
 assets/reference_videos/

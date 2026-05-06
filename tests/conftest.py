@@ -9,6 +9,20 @@ if _ROOT not in sys.path:
 
 
 @pytest.fixture(autouse=True)
+def _isolate_cost_records(tmp_path, monkeypatch):
+    """テスト実行中の cost recorder が本番 ``data/cost_records.jsonl`` を汚染
+    しないよう、COST_RECORDS_PATH を必ず tmp_path に向ける。
+
+    scene_gen / video_analyzer / lipsync 等の既存テストでも recorder 統合が
+    走るため、stage 個別テストでも自動で本番ファイルから隔離される。個別
+    テストは monkeypatch で同じ env を上書きして任意の path に向け直せる。
+    """
+    monkeypatch.setenv(
+        "COST_RECORDS_PATH", str(tmp_path / "cost_records.jsonl")
+    )
+
+
+@pytest.fixture(autouse=True)
 def _stub_character_images(request, monkeypatch):
     """validator / diagnose_abstract の character ref 物理存在検証は
     既定スキップ (= 開発機の characters/ に依存しない)。
