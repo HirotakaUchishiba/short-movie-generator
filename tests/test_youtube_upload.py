@@ -176,3 +176,101 @@ def test_parse_caption_md_empty_falls_to_untitled():
     from final_import.publish import parse_caption_md
     title, _, _ = parse_caption_md("")
     assert title == "untitled"
+
+
+# ─── 308 without Range header (status query path) ──────────────
+
+
+def test_upload_308_without_range_triggers_status_query(monkeypatch, fake_video):
+    """308 が Range 無しで返ったら status query で受領 offset を取り直す."""
+    from platform_clients import youtube
+
+    file_size = fake_video.stat().st_size
+    chunk_size = max(1024, file_size // 4)
+    state = {"put_count": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        state["put_count"] += 1
+        body = kw.get("data") or b""
+        body_len = len(body)
+        if body_len == 0:
+            # status query — server は 0 byte 受領済みとして応答
+            return _MockResp(308, headers={"Range": "bytes=0-0"})
+        # 1 chunk 目: 308 だが Range 無し (= server がまだ確定してない)
+        if state["put_count"] == 1:
+            return _MockResp(308, headers={})
+        # 2 chunk 目以降: 全部受領 → 完了
+        return _MockResp(200, json_data={"id": "vid_recovered"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = youtube.upload_video(
+        fake_video, "T", "D", chunk_size=chunk_size,
+    )
+    assert result["video_id"] == "vid_recovered"
+    # 楽観的に進めなかった (= status query が走った) ことの確認:
+    # - 1 回目の chunk PUT: 308 (no Range)
+    # - status query (data=b"")
+    # - 2 回目以降の chunk PUT
+    assert state["put_count"] >= 3
+
+
+def test_upload_aborts_when_range_is_persistently_missing(monkeypatch, fake_video):
+    """308 が Range 無しで返り続けるなら byte gap を避けて RuntimeError."""
+    from platform_clients import youtube
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        # chunk PUT も status query も全部 308 (no Range)
+        return _MockResp(308, headers={})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    with pytest.raises(RuntimeError, match="byte gap"):
+        youtube.upload_video(fake_video, "T", "D")
+
+
+def test_upload_status_query_returns_completion(monkeypatch, fake_video):
+    """status query が 200 で video resource を返したら完了扱い."""
+    from platform_clients import youtube
+
+    state = {"put_count": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        state["put_count"] += 1
+        if (kw.get("data") or b"") == b"":
+            # status query: 既に全部 server 側にある
+            return _MockResp(200, json_data={"id": "vid_already_uploaded"})
+        # chunk PUT: 308 no Range
+        return _MockResp(308, headers={})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = youtube.upload_video(fake_video, "T", "D")
+    assert result["video_id"] == "vid_already_uploaded"
+
+
+def test_parse_range_offset_helper():
+    from platform_clients.youtube import _parse_range_offset
+    assert _parse_range_offset({"Range": "bytes=0-1023"}) == 1024
+    assert _parse_range_offset({"range": "bytes=0-99"}) == 100
+    assert _parse_range_offset({}) is None
+    assert _parse_range_offset({"Range": "bytes="}) is None
+    assert _parse_range_offset({"Range": "weird"}) is None

@@ -114,25 +114,15 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
 
 
 def _ensure_video_in_analytics(ts: str, video: Path) -> None:
-    """publish 前に screenplay と video を analytics DB に登録する。
+    """publish 前に screenplay と video を analytics DB に登録 / 最新化する。
 
-    既に登録済みなら upsert で no-op。CapCut で取り込んだ canonical final
-    を analytics の output_path として記録する。
+    既に raw で ingest 済みの行があれば、`output_path` / `duration_sec` /
+    `final_imported` / `final_filename` / `final_audio_match_score` を
+    canonical final の値で UPDATE する (= screenplay_id / generation_cost_usd
+    は保持)。新規なら insert する。
     """
     from analytics import db as analytics_db
     ts_path = os.path.join(config.TEMP_DIR, ts)
-
-    with analytics_db.get_connection() as conn:
-        existing = conn.execute(
-            "SELECT id FROM videos WHERE id = ?", (ts,),
-        ).fetchone()
-    if existing:
-        return
-
-    snap_path = os.path.join(ts_path, "screenplay.json")
-    if not os.path.exists(snap_path):
-        raise RuntimeError(f"screenplay snapshot not found: {snap_path}")
-    sp_id = analytics_db.upsert_screenplay(snap_path)
 
     meta = staged_pipeline.read_metadata(ts_path) or {}
     final_meta = next(
@@ -145,6 +135,27 @@ def _ensure_video_in_analytics(ts: str, video: Path) -> None:
     score = float(final_meta["audio_match_score"]) if (
         final_meta and final_meta.get("audio_match_score") is not None
     ) else None
+
+    with analytics_db.get_connection() as conn:
+        existing = conn.execute(
+            "SELECT id FROM videos WHERE id = ?", (ts,),
+        ).fetchone()
+
+    if existing:
+        analytics_db.update_video_final(
+            video_id=ts,
+            output_path=str(video),
+            duration_sec=duration,
+            final_imported=bool(final_meta),
+            final_filename=final_meta["filename"] if final_meta else None,
+            final_audio_match_score=score,
+        )
+        return
+
+    snap_path = os.path.join(ts_path, "screenplay.json")
+    if not os.path.exists(snap_path):
+        raise RuntimeError(f"screenplay snapshot not found: {snap_path}")
+    sp_id = analytics_db.upsert_screenplay(snap_path)
 
     analytics_db.insert_video(
         video_id=ts, screenplay_id=sp_id,

@@ -64,7 +64,10 @@ export default function StageFinalImport() {
     setError(null);
     try {
       await api.setCanonicalFinal(ts, filename);
+      // backend 側で final_import 承認 + publish 進捗がリセットされるので
+      // shell 全体の progress を取り直して StageGate の表示を同期させる
       await reload();
+      await ctx.reload();
     } catch (e) {
       setError(String(e));
     }

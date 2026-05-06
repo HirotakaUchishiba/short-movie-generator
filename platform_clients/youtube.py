@@ -230,6 +230,8 @@ def upload_video(
     with open(file_path, "rb") as f:
         offset = 0
         last_response_data: dict = {}
+        unknown_range_retries = 0
+        max_unknown_range_retries = 5
         while offset < file_size:
             f.seek(offset)
             chunk = f.read(chunk_size)
@@ -252,15 +254,43 @@ def upload_video(
                     last_response_data = {}
                 break
             if r.status_code == 308:
-                range_header = r.headers.get("Range") or r.headers.get("range")
-                if range_header and "-" in range_header:
-                    end = int(range_header.rsplit("-", 1)[-1])
-                    offset = end + 1
-                else:
-                    offset += len(chunk)
-                logger.info(
-                    "youtube upload: %d / %d bytes (%.0f%%)",
-                    offset, file_size, offset / file_size * 100,
+                acked = _parse_range_offset(r.headers)
+                if acked is not None:
+                    offset = acked
+                    unknown_range_retries = 0
+                    logger.info(
+                        "youtube upload: %d / %d bytes (%.0f%%)",
+                        offset, file_size, offset / file_size * 100,
+                    )
+                    continue
+                # Range が無い 308 は server がどこまで受領したか不明 →
+                # 楽観的に offset を進めると byte gap で upload が壊れる。
+                # まず status query (空 PUT + `Content-Range: bytes */<size>`)
+                # で受領済み offset を取り直す。
+                queried = _query_resumable_offset(upload_url, file_size)
+                if queried == "complete":
+                    last_response_data = {}
+                    offset = file_size
+                    break
+                if isinstance(queried, dict):
+                    last_response_data = queried
+                    offset = file_size
+                    break
+                if isinstance(queried, int):
+                    offset = queried
+                    unknown_range_retries = 0
+                    continue
+                # status query でも Range 無し → 同じ offset で retry
+                unknown_range_retries += 1
+                if unknown_range_retries > max_unknown_range_retries:
+                    raise RuntimeError(
+                        f"308 from server without Range info "
+                        f"(retries={unknown_range_retries}, offset={offset}); "
+                        "upload aborted to avoid byte gap",
+                    )
+                logger.warning(
+                    "youtube upload: 308 without Range (retry %d/%d, offset=%d)",
+                    unknown_range_retries, max_unknown_range_retries, offset,
                 )
                 continue
             r.raise_for_status()
@@ -280,6 +310,63 @@ def upload_video(
         "url": url,
         "raw_response": last_response_data,
     }
+
+
+def _parse_range_offset(headers) -> int | None:
+    """`Range: bytes=0-N` から次に送るべき offset (= N+1) を返す。
+
+    ヘッダ欠落 / フォーマット不正は None。"""
+    rh = headers.get("Range") or headers.get("range")
+    if not rh:
+        return None
+    if "-" not in rh:
+        return None
+    try:
+        end = int(rh.rsplit("-", 1)[-1].strip())
+    except ValueError:
+        return None
+    if end < 0:
+        return None
+    return end + 1
+
+
+def _query_resumable_offset(upload_url: str, file_size: int):
+    """空 PUT で受領済み offset を server に問い合わせる。
+
+    Returns:
+      - int: server が受領済みの byte 数 (= 次の offset)
+      - "complete": 200/201 で完了応答 (= 既にアップロード済み)
+      - dict: 200/201 のレスポンス本文 (= video resource)
+      - None: 308 だが Range 無し (= server もまだわからない)
+    """
+    import requests
+    try:
+        r = requests.put(
+            upload_url, data=b"",
+            headers={
+                "Content-Length": "0",
+                "Content-Range": f"bytes */{file_size}",
+            },
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        logger.warning("status query 失敗: %s", e)
+        return None
+    if r.status_code in (200, 201):
+        try:
+            data = r.json()
+            if data:
+                return data
+        except Exception:
+            pass
+        return "complete"
+    if r.status_code == 308:
+        return _parse_range_offset(r.headers)
+    logger.warning(
+        "status query: unexpected status %d (%s)",
+        r.status_code, r.text[:200],
+    )
+    return None
 
 
 def fetch_metrics_for_post(post: dict) -> dict:

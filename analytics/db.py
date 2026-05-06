@@ -143,6 +143,36 @@ def update_screenplay_tags(screenplay_id: str, tags: dict) -> None:
         )
 
 
+def update_video_final(video_id: str, *, output_path: str,
+                       duration_sec: float | None = None,
+                       final_imported: bool = False,
+                       final_filename: str | None = None,
+                       final_audio_match_score: float | None = None) -> bool:
+    """既存 video 行の output_path / duration / final_* だけを更新する。
+
+    `screenplay_id` / `generation_cost_usd` / `generated_at` は触らない
+    (= ingest 時の値を保持)。Returns: 更新行があれば True、無ければ False。
+    """
+    with get_connection() as conn:
+        cur = conn.execute(
+            """UPDATE videos
+               SET output_path = ?, duration_sec = ?,
+                   final_imported = ?, final_filename = ?,
+                   final_audio_match_score = ?
+               WHERE id = ?""",
+            (os.path.abspath(output_path), duration_sec,
+             1 if final_imported else 0, final_filename,
+             final_audio_match_score, video_id),
+        )
+        updated = cur.rowcount > 0
+    if updated:
+        logger.info(
+            "video %s 更新 (final_imported=%s, final_filename=%s)",
+            video_id, final_imported, final_filename,
+        )
+    return updated
+
+
 def insert_video(video_id: str, screenplay_id: str, output_path: str,
                  duration_sec: float | None = None,
                  generation_cost_usd: float | None = None,

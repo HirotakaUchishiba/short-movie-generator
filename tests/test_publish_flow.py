@@ -250,3 +250,114 @@ def test_publish_semi_auto_success_when_only_clipboard_works(project, monkeypatc
     assert result["manual_status"]["clipboard"] is True
     assert result["manual_status"]["app_opened"] is False
     assert result["manual_status"]["finder_revealed"] is False
+
+
+def test_publish_updates_existing_raw_video_row(project, monkeypatch):
+    """既に raw で ingest 済みの video を canonical final 情報で UPDATE する.
+
+    publish 自体は YouTube だが、_ensure_video_in_analytics の挙動を確認するため
+    YouTube upload は mock。"""
+    from final_import.publish import publish
+    from analytics import db as analytics_db
+
+    ts, ts_path = project
+
+    # 1) raw で ingest 済みの状態を作る (= scripts/ingest_video.py 相当)
+    analytics_db.init_db()
+    sp_id = analytics_db.upsert_screenplay(f"{ts_path}/screenplay.json")
+    raw_path = f"/tmp/old_raw_{ts}.mp4"
+    analytics_db.insert_video(
+        video_id=ts, screenplay_id=sp_id,
+        output_path=raw_path, duration_sec=20.0,
+        generation_cost_usd=18.5,
+        final_imported=False, final_filename=None,
+    )
+
+    # 2) YouTube upload を mock
+    class _R:
+        status_code = 200
+        text = ""
+        headers = {"Location": "https://up/"}
+
+        def __init__(self, json_data=None):
+            self._j = json_data
+
+        def json(self):
+            return self._j
+
+        def raise_for_status(self):
+            pass
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _R(json_data={"access_token": "tok"})
+        return _R()
+
+    def fake_put(url, **kw):
+        r = _R()
+        r._j = {"id": "yt_after_final"}
+        return r
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    publish(ts, "youtube", privacy="unlisted")
+
+    # 3) videos 行が canonical final で UPDATE されている
+    with analytics_db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM videos WHERE id = ?", (ts,),
+        ).fetchone()
+    assert row["final_imported"] == 1
+    assert row["final_filename"] is not None
+    # output_path は raw でなく canonical final になっている
+    assert "/final/" in row["output_path"]
+    assert row["output_path"] != raw_path
+    # generation_cost_usd / screenplay_id は保持される (UPDATE で触らないため)
+    assert row["generation_cost_usd"] == 18.5
+    assert row["screenplay_id"] == sp_id
+
+
+def test_update_video_final_preserves_other_fields(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANALYTICS_DB_PATH", str(tmp_path / "a.db"))
+    from analytics import db as _db
+    _db.init_db()
+    sp_id = "x" * 12
+    with _db.get_connection() as conn:
+        conn.execute(
+            """INSERT INTO screenplays
+               (id, path, name, sha256, created_at, raw_json)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (sp_id, "/x", "x", "x" * 64, "2026-05-06T00:00:00", "{}"),
+        )
+    _db.insert_video(
+        video_id="v1", screenplay_id=sp_id,
+        output_path="/raw.mp4", duration_sec=10.0,
+        generation_cost_usd=12.3,
+    )
+    updated = _db.update_video_final(
+        video_id="v1", output_path="/final/142233.mp4",
+        duration_sec=15.0, final_imported=True,
+        final_filename="142233.mp4", final_audio_match_score=0.92,
+    )
+    assert updated is True
+    with _db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM videos WHERE id = 'v1'"
+        ).fetchone()
+    assert row["final_imported"] == 1
+    assert row["final_filename"] == "142233.mp4"
+    assert row["duration_sec"] == 15.0
+    assert row["output_path"].endswith("/final/142233.mp4")
+    # 触らないカラム
+    assert row["generation_cost_usd"] == 12.3
+    assert row["screenplay_id"] == sp_id
+
+
+def test_update_video_final_returns_false_for_missing_id(tmp_path, monkeypatch):
+    monkeypatch.setenv("ANALYTICS_DB_PATH", str(tmp_path / "a.db"))
+    from analytics import db as _db
+    _db.init_db()
+    assert _db.update_video_final(
+        video_id="nonexistent", output_path="/x.mp4",
+    ) is False
