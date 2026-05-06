@@ -4,7 +4,7 @@ interface Props {
   totalCount: number;
   decidedCount: number;
   freshCount: number;
-  totalFreshCost: number;
+  totalFreshCost: number | null;
   generating: boolean;
   busy: boolean;
   assetLabel: string; // "動画" | "画像" など stage 別
@@ -22,8 +22,10 @@ export default function GenerateRemainingBar({
   onGenerate,
 }: Props) {
   const allDecided = decidedCount === totalCount;
+  const costLabel =
+    totalFreshCost == null ? "履歴不足" : `約 $${totalFreshCost.toFixed(2)}`;
   const description = allDecided
-    ? `新規生成 ${freshCount} シーンを生成 (約 $${totalFreshCost.toFixed(2)})`
+    ? `新規生成 ${freshCount} シーンを生成 (${costLabel})`
     : `判断済み ${decidedCount}/${totalCount} — 全シーン判断後に有効化`;
   return (
     <div className="card border-emerald-700/40 bg-emerald-900/10 sticky bottom-2">

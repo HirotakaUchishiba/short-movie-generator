@@ -121,7 +121,6 @@ export interface TtsPricing {
   model: string;
   credit_multiplier: number;
   usd_per_credit: number;
-  plan_label: string;
   available_models: AvailableModel[];
   global_speed: number;
   speed_min: number;
@@ -147,6 +146,13 @@ export interface ServerConfig {
   video_height: number;
   subtitle_y_from_bottom: number;
   tts_pricing: TtsPricing;
+  cost_models: {
+    tts: string;
+    bg: string;
+    kling: string;
+    lipsync: string;
+    analyze: string;
+  };
 }
 
 export interface JobStatus {
@@ -230,8 +236,12 @@ export interface DryrunCompleteEvent {
   frame_count: number;
   input_tokens: number;
   output_tokens: number;
-  cost_usd: number;
-  cost_breakdown: Record<string, number>;
+  cost_usd: number | null;
+  cost_jpy: number | null;
+  confidence: "history" | "insufficient" | "partial";
+  sample_size: number;
+  token_breakdown?: Record<string, number>;
+  breakdown?: Record<string, unknown>;
 }
 
 // ─── Location / CharacterMeta ─────────
@@ -405,4 +415,58 @@ export interface KlingCacheEntry extends CacheEntryBase {
     approved_at_origin?: string | null;
     final_render_completed?: boolean;
   };
+}
+
+// ─────────────────── Cost Tracking ───────────────────
+export type CostStage = "tts" | "bg" | "kling" | "lipsync" | "analyze";
+
+export interface CostMedianRate {
+  stage: string;
+  model: string;
+  usd_per_unit: number | null;
+  unit_label: string;
+  confidence: "history" | "insufficient";
+  sample_size: number;
+  jpy_per_usd: number;
+}
+
+export interface CostEstimate {
+  cost_usd: number | null;
+  cost_jpy: number | null;
+  confidence: "history" | "insufficient" | "partial";
+  sample_size: number;
+  breakdown: Record<string, unknown>;
+  note: string;
+}
+
+export interface CostProjectReport {
+  project_ts: string;
+  record_count: number;
+  total_usd: number;
+  total_jpy: number;
+  per_stage: Record<string, number>;
+  per_provider: Record<string, number>;
+  per_scene: Record<string, number>;
+  generated_at: string;
+}
+
+export interface CostOverallReport {
+  project_count: number;
+  record_count: number;
+  total_usd: number;
+  total_jpy: number;
+  per_project: Record<string, number>;
+  per_stage: Record<string, number>;
+  per_provider: Record<string, number>;
+  generated_at: string;
+}
+
+export interface CostPricebookResponse {
+  pricebook: {
+    version: number;
+    updated_at?: string;
+    jpy_per_usd: number;
+    providers: Record<string, Record<string, Record<string, unknown>>>;
+  };
+  jpy_per_usd: number;
 }

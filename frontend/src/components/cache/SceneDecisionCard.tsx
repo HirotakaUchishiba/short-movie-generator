@@ -127,7 +127,7 @@ export default function SceneDecisionCard<TMeta>({
             disabled={busy}
             onClick={() => wrap(onQueueFresh)}
           >
-            ✨ 新規生成 (${cost.toFixed(2)})
+            ✨ 新規生成 ({cost == null ? "履歴不足" : `$${cost.toFixed(2)}`})
           </button>
         )}
       </div>

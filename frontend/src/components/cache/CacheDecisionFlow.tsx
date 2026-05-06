@@ -156,14 +156,18 @@ export default function CacheDecisionFlow<TMeta>({
       ).length,
     [sceneDecisions],
   );
-  const totalFreshCost = useMemo(() => {
+  const totalFreshCost = useMemo<number | null>(() => {
     let cost = 0;
+    let anyKnown = false;
     for (let i = 0; i < sceneCount; i++) {
       const d = sceneDecisions[String(i)];
       if (!d || d.decision === "cache") continue;
-      cost += presenter.costForScene(i);
+      const c = presenter.costForScene(i);
+      if (c == null) continue;
+      cost += c;
+      anyKnown = true;
     }
-    return cost;
+    return anyKnown ? cost : null;
   }, [sceneDecisions, sceneCount, presenter]);
 
   if (!decisions || (decisions.cache_scanned_at === null && scanning)) {

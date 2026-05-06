@@ -10,19 +10,28 @@ import SceneFieldEditor from "../SceneFieldEditor";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
 import type { CachePresenter, SceneContext } from "../cache/types";
 import type {
+  CostMedianRate,
   KlingCandidateMeta,
   KlingSceneDecision,
   Scene,
 } from "../../types";
+import { useCostMedianRate } from "../../useCostMedianRate";
 
-const KLING_COST_PER_SEC = 0.084;
-// config.KLING_DURATION_TOLERANCE_RATIO と同期。5.01s で即 10s 切替を避けるため
-// 5s 上限を 5.0 * 1.2 = 6.0s まで吸収する (超過分は slow_mo)。
+// Kling は audio_duration を 5/10s クリップに切り上げて課金する (= 課金 unit 確定ロジック、単価ではない)。
+// tolerance 1.2 倍 = 5.0s clip で 6.0s まで吸収 (超過分は slow_mo extension)。
 const KLING_DURATION_TOLERANCE_RATIO = 1.2;
 
-function klingSceneCost(durationSec: number): number {
+function klingBilledDuration(audioDurSec: number): number {
   const fiveSecMax = 5 * KLING_DURATION_TOLERANCE_RATIO;
-  return (durationSec <= fiveSecMax ? 5 : 10) * KLING_COST_PER_SEC;
+  return audioDurSec <= fiveSecMax ? 5 : 10;
+}
+
+function klingSceneCost(
+  audioDurSec: number,
+  rate: CostMedianRate | null,
+): number | null {
+  if (!rate || rate.usd_per_unit == null) return null;
+  return klingBilledDuration(audioDurSec) * rate.usd_per_unit;
 }
 
 export default function StageKling() {
@@ -59,6 +68,10 @@ function KlingDecisionFlow({
 }) {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
+  const { rate: klingRate } = useCostMedianRate(
+    "kling",
+    ctx.serverConfig.cost_models.kling,
+  );
 
   const presenter: CachePresenter<KlingCandidateMeta> = {
     renderPreview: (key) => (
@@ -114,7 +127,8 @@ function KlingDecisionFlow({
     },
     costForScene: (sceneIdx) => {
       const scene = sp.scenes[sceneIdx];
-      return scene ? klingSceneCost(scene.duration) : 0;
+      if (!scene) return null;
+      return klingSceneCost(scene.duration, klingRate);
     },
     contextForScene: (sceneIdx): SceneContext => ({
       newAudioDuration: sp.scenes[sceneIdx]?.duration,
@@ -158,23 +172,32 @@ function KlingDecisionFlow({
 function KlingResultsView() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
-  const totalCost = sp.scenes.reduce(
-    (a, s) => a + klingSceneCost(s.duration),
-    0,
+  const { rate: klingRate } = useCostMedianRate(
+    "kling",
+    ctx.serverConfig.cost_models.kling,
   );
+  const totalCost = sp.scenes.reduce<number | null>((a, s) => {
+    const c = klingSceneCost(s.duration, klingRate);
+    if (c == null) return a;
+    return (a ?? 0) + c;
+  }, null);
   return (
     <div>
       <BulkKlingRegenBar totalCost={totalCost} />
       <div className="flex flex-col gap-3">
         {sp.scenes.map((scene, i) => (
-          <KlingResultCard key={i} scene={scene} sIdx={i} />
+          <KlingResultCard key={i} scene={scene} sIdx={i} rate={klingRate} />
         ))}
       </div>
     </div>
   );
 }
 
-function BulkKlingRegenBar({ totalCost }: { totalCost: number }) {
+function _formatCost(usd: number | null): string {
+  return usd == null ? "履歴不足" : `$${usd.toFixed(2)}`;
+}
+
+function BulkKlingRegenBar({ totalCost }: { totalCost: number | null }) {
   const ctx = useShellCtx();
   const ts = ctx.detail.timestamp;
   const [confirming, setConfirming] = useState(false);
@@ -203,7 +226,7 @@ function BulkKlingRegenBar({ totalCost }: { totalCost: number }) {
           <span className="text-xs text-slate-400">
             合計コスト:{" "}
             <span className="text-rose-300 font-mono">
-              ${totalCost.toFixed(2)}
+              {_formatCost(totalCost)}
             </span>
           </span>
           {!confirming ? (
@@ -227,7 +250,7 @@ function BulkKlingRegenBar({ totalCost }: { totalCost: number }) {
                 disabled={running}
                 onClick={onResetToScan}
               >
-                本当に ${totalCost.toFixed(2)} 使う
+                本当に {_formatCost(totalCost)} 使う
               </button>
             </>
           )}
@@ -237,7 +260,15 @@ function BulkKlingRegenBar({ totalCost }: { totalCost: number }) {
   );
 }
 
-function KlingResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
+function KlingResultCard({
+  scene,
+  sIdx,
+  rate,
+}: {
+  scene: Scene;
+  sIdx: number;
+  rate: CostMedianRate | null;
+}) {
   const ctx = useShellCtx();
   const ts = ctx.detail.timestamp;
   const [showRaw, setShowRaw] = useState(false);
@@ -254,7 +285,7 @@ function KlingResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
       .catch(() => {});
   }, [ts, sIdx, ctx.detail.progress.stages.kling.regen_count]);
 
-  const cost = klingSceneCost(scene.duration);
+  const cost = klingSceneCost(scene.duration, rate);
   const isCached = decision?.decision === "cache";
   const altCandidates =
     (decision?.candidates ?? []).filter(
@@ -395,7 +426,7 @@ function KlingResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
               className="btn-secondary text-xs"
               onClick={() => setConfirming(true)}
             >
-              再生成 (${cost.toFixed(2)})
+              再生成 ({_formatCost(cost)})
             </button>
           ) : (
             <>
@@ -410,7 +441,7 @@ function KlingResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
                 disabled={saving}
                 onClick={onRegen}
               >
-                {saving ? "実行中..." : `本当に ${cost.toFixed(2)} 使う`}
+                {saving ? "実行中..." : `本当に ${_formatCost(cost)} 使う`}
               </button>
             </>
           )}

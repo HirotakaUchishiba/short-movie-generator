@@ -1,15 +1,17 @@
 import { useEffect, useMemo, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { ttsMergedAssetUrl, api } from "../../api";
-import type { Line, Scene, TtsPricing } from "../../types";
+import type { CostMedianRate, Line, Scene, TtsPricing } from "../../types";
+import { useCostMedianRate } from "../../useCostMedianRate";
 // シーン境界編集は Stage 1 (ScriptEditPanel) に移動済み。Stage 2 では扱わない。
 
 export default function StageTTS() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
+  const { rate } = useCostMedianRate("tts", ctx.serverConfig.cost_models.tts);
   const totalCost = useMemo(
-    () => estimateScreenplayCost(sp.scenes, ctx.serverConfig.tts_pricing),
-    [sp.scenes, ctx.serverConfig.tts_pricing],
+    () => screenplayCost(sp.scenes, ctx.serverConfig.tts_pricing, rate),
+    [sp.scenes, ctx.serverConfig.tts_pricing, rate],
   );
 
   return (
@@ -28,56 +30,96 @@ export default function StageTTS() {
       <MergedTTSPlayer />
       <div className="space-y-6 mt-4">
         {sp.scenes.map((scene, sIdx) => (
-          <SceneTTSCard key={sIdx} scene={scene} sIdx={sIdx} />
+          <SceneTTSCard
+            key={sIdx}
+            scene={scene}
+            sIdx={sIdx}
+            pricing={ctx.serverConfig.tts_pricing}
+            rate={rate}
+          />
         ))}
       </div>
     </StageGate>
   );
 }
 // ─────────────────────────────────────────────────────────
-// コスト計算
+// コスト計算 (= 履歴 median rate × 単位)。
+// 履歴不足なら usd / jpy は null。credits は ElevenLabs モデル仕様情報なので常に算出する。
 // ─────────────────────────────────────────────────────────
+
+interface CostBreakdown {
+  chars: number;
+  credits: number;
+  usd: number | null;
+  jpy: number | null;
+}
 
 function countChars(line: Line): number {
   return (line.text ?? "").length;
 }
 
-function estimateLineCost(line: Line, pricing: TtsPricing) {
+function lineCost(
+  line: Line,
+  pricing: TtsPricing,
+  rate: CostMedianRate | null,
+): CostBreakdown {
   const chars = countChars(line);
   const credits = chars * pricing.credit_multiplier;
-  const usd = credits * pricing.usd_per_credit;
-  return { chars, credits, usd, jpy: usd * 150 };
+  if (!rate || rate.usd_per_unit == null) {
+    return { chars, credits, usd: null, jpy: null };
+  }
+  const usd = chars * rate.usd_per_unit;
+  return { chars, credits, usd, jpy: usd * rate.jpy_per_usd };
 }
 
-function estimateSceneCost(scene: Scene, pricing: TtsPricing) {
-  const lines = scene.lines ?? [];
-  return lines.reduce(
-    (acc, l) => {
-      const c = estimateLineCost(l, pricing);
-      return {
-        chars: acc.chars + c.chars,
-        credits: acc.credits + c.credits,
-        usd: acc.usd + c.usd,
-        jpy: acc.jpy + c.jpy,
-      };
-    },
-    { chars: 0, credits: 0, usd: 0, jpy: 0 },
+function _sumCost(a: CostBreakdown, b: CostBreakdown): CostBreakdown {
+  const usd =
+    a.usd == null && b.usd == null ? null : (a.usd ?? 0) + (b.usd ?? 0);
+  const jpy =
+    a.jpy == null && b.jpy == null ? null : (a.jpy ?? 0) + (b.jpy ?? 0);
+  return {
+    chars: a.chars + b.chars,
+    credits: a.credits + b.credits,
+    usd,
+    jpy,
+  };
+}
+
+const _ZERO_COST: CostBreakdown = {
+  chars: 0,
+  credits: 0,
+  usd: null,
+  jpy: null,
+};
+
+function sceneCost(
+  scene: Scene,
+  pricing: TtsPricing,
+  rate: CostMedianRate | null,
+): CostBreakdown {
+  return (scene.lines ?? []).reduce(
+    (acc, l) => _sumCost(acc, lineCost(l, pricing, rate)),
+    _ZERO_COST,
   );
 }
 
-function estimateScreenplayCost(scenes: Scene[], pricing: TtsPricing) {
+function screenplayCost(
+  scenes: Scene[],
+  pricing: TtsPricing,
+  rate: CostMedianRate | null,
+): CostBreakdown {
   return scenes.reduce(
-    (acc, s) => {
-      const c = estimateSceneCost(s, pricing);
-      return {
-        chars: acc.chars + c.chars,
-        credits: acc.credits + c.credits,
-        usd: acc.usd + c.usd,
-        jpy: acc.jpy + c.jpy,
-      };
-    },
-    { chars: 0, credits: 0, usd: 0, jpy: 0 },
+    (acc, s) => _sumCost(acc, sceneCost(s, pricing, rate)),
+    _ZERO_COST,
   );
+}
+
+function _formatUsd(usd: number | null, digits = 4): string {
+  return usd == null ? "履歴不足" : `$${usd.toFixed(digits)}`;
+}
+
+function _formatJpy(jpy: number | null): string {
+  return jpy == null ? "—" : `¥${jpy.toFixed(2)}`;
 }
 
 // ─────────────────────────────────────────────────────────
@@ -89,7 +131,7 @@ function PricingBanner({
   totalCost,
 }: {
   pricing: TtsPricing;
-  totalCost: { chars: number; credits: number; usd: number; jpy: number };
+  totalCost: CostBreakdown;
 }) {
   const meta = modelMeta(pricing.model);
   return (
@@ -116,11 +158,8 @@ function PricingBanner({
             label="credits"
             value={`${totalCost.credits.toLocaleString()}`}
           />
-          <Stat
-            label="全シーン1回生成"
-            value={`$${totalCost.usd.toFixed(3)}`}
-          />
-          <Stat label="(円換算)" value={`¥${totalCost.jpy.toFixed(1)}`} />
+          <Stat label="全シーン1回生成" value={_formatUsd(totalCost.usd, 3)} />
+          <Stat label="(円換算)" value={_formatJpy(totalCost.jpy)} />
         </div>
       </div>
       <SpeedControl pricing={pricing} />
@@ -373,11 +412,7 @@ function Stat({ label, value }: { label: string; value: string }) {
 // 全シーン一括生成バー
 // ─────────────────────────────────────────────────────────
 
-function BulkRegenBar({
-  totalCost,
-}: {
-  totalCost: { chars: number; credits: number; usd: number; jpy: number };
-}) {
+function BulkRegenBar({ totalCost }: { totalCost: CostBreakdown }) {
   const ctx = useShellCtx();
   const [confirming, setConfirming] = useState(false);
   const running = ctx.jobStatus?.status === "running";
@@ -411,10 +446,10 @@ function BulkRegenBar({
           <span className="text-xs text-slate-400">
             コスト:{" "}
             <span className="text-emerald-300 font-mono">
-              ${totalCost.usd.toFixed(4)}
+              {_formatUsd(totalCost.usd, 4)}
             </span>
             <span className="text-slate-500 ml-1">
-              (¥{totalCost.jpy.toFixed(2)} / {totalCost.credits} credits)
+              ({_formatJpy(totalCost.jpy)} / {totalCost.credits} credits)
             </span>
           </span>
           <button
@@ -446,7 +481,7 @@ function BulkRegenBar({
                 disabled={running}
                 onClick={onForceRegen}
               >
-                本当に ${totalCost.usd.toFixed(4)} 使う
+                本当に {_formatUsd(totalCost.usd, 4)} 使う
               </button>
             </>
           )}
@@ -628,10 +663,19 @@ function MergedTTSPlayer() {
 // シーンカード
 // ─────────────────────────────────────────────────────────
 
-function SceneTTSCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
-  const ctx = useShellCtx();
+function SceneTTSCard({
+  scene,
+  sIdx,
+  pricing,
+  rate,
+}: {
+  scene: Scene;
+  sIdx: number;
+  pricing: TtsPricing;
+  rate: CostMedianRate | null;
+}) {
   const lines = scene.lines ?? [];
-  const cost = estimateSceneCost(scene, ctx.serverConfig.tts_pricing);
+  const cost = sceneCost(scene, pricing, rate);
   return (
     <div className="card">
       <div className="flex justify-between items-center mb-3">
@@ -644,16 +688,23 @@ function SceneTTSCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
         <span className="text-xs text-slate-400">
           このシーンの文字数 →{" "}
           <span className="text-emerald-300 font-mono">
-            ${cost.usd.toFixed(4)}
+            {_formatUsd(cost.usd, 4)}
           </span>
           <span className="text-slate-500 ml-1">
-            (¥{cost.jpy.toFixed(2)} / {cost.credits} credits)
+            ({_formatJpy(cost.jpy)} / {cost.credits} credits)
           </span>
         </span>
       </div>
       <div className="space-y-3">
         {lines.map((line, lIdx) => (
-          <LineTTSRow key={lIdx} line={line} sIdx={sIdx} lIdx={lIdx} />
+          <LineTTSRow
+            key={lIdx}
+            line={line}
+            sIdx={sIdx}
+            lIdx={lIdx}
+            pricing={pricing}
+            rate={rate}
+          />
         ))}
       </div>
     </div>
@@ -668,14 +719,17 @@ function LineTTSRow({
   line,
   sIdx,
   lIdx,
+  pricing,
+  rate,
 }: {
   line: Line;
   sIdx: number;
   lIdx: number;
+  pricing: TtsPricing;
+  rate: CostMedianRate | null;
 }) {
-  const ctx = useShellCtx();
   const [editing, setEditing] = useState(false);
-  const cost = estimateLineCost(line, ctx.serverConfig.tts_pricing);
+  const cost = lineCost(line, pricing, rate);
   return (
     <div className="rounded border border-slate-700 bg-slate-900/40 p-3">
       <div className="flex justify-between items-start mb-2 gap-3">
@@ -684,7 +738,7 @@ function LineTTSRow({
           <div className="text-xs text-slate-400 mt-1">
             start={line.start}s{line.end != null && `, end=${line.end}s`}
             <span className="mx-1">·</span>
-            {cost.chars}字 → ${cost.usd.toFixed(5)}
+            {cost.chars}字 → {_formatUsd(cost.usd, 5)}
           </div>
         </div>
         <div className="flex gap-2 items-center flex-shrink-0">

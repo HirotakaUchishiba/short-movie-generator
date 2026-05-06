@@ -17,8 +17,8 @@ export interface CachePresenter<TMeta> {
   renderCandidateMeta: (meta: TMeta, ctx: SceneContext) => ReactNode;
   /** 1 scene の judge UI 上に追加で表示する scene 別 extras (例: prompt preview)。 */
   renderSceneExtras?: (sceneIdx: number) => ReactNode;
-  /** 1 scene 分の新規生成コスト (USD)。 */
-  costForScene: (sceneIdx: number) => number;
+  /** 1 scene 分の新規生成コスト (USD)。履歴不足なら ``null``。 */
+  costForScene: (sceneIdx: number) => number | null;
   /** scene のコンテキスト (= duration 等を candidate と比較するため)。 */
   contextForScene: (sceneIdx: number) => SceneContext;
 }
