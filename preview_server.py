@@ -12,19 +12,27 @@ import sys
 import threading
 import time
 import uuid
+from dataclasses import asdict
 from flask import Flask, jsonify, request, send_file, abort, send_from_directory, Response
 from flask_cors import CORS
 
 import config
+import elevenlabs_client
+import fal_video_client
+import imagen_client
 import log_setup
 import progress_store
 import scene_gen
 import staged_pipeline
+import video_analyzer
 from analyze import job as analyze_job
 from analyze import progress as analyze_progress
 from analyze import runner as analyze_runner
 from analyze.cache import file_sha256
 from analytics import db as _analytics_db
+from cost_tracking import estimator as cost_estimator
+from cost_tracking import pricebook as cost_pricebook
+from cost_tracking import report as cost_report
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
@@ -53,14 +61,24 @@ FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
 
 def _tts_pricing() -> dict:
-    import elevenlabs_client
+    """ElevenLabs の表示用設定 (= 文字単価倍率 + 単価情報)。
+
+    ``usd_per_credit`` は ``data/pricebook.json`` から読む (= ハードコードしない)。
+    実コスト見積もりは ``cost_tracking`` の履歴ベース算定が SSOT。
+    """
     model = elevenlabs_client.MODEL_ID
     multiplier = elevenlabs_client.credit_multiplier(model)
+    try:
+        usd_per_credit = float(
+            cost_pricebook.get_unit_prices("elevenlabs", model)
+            .get("usd_per_credit", 0.0)
+        )
+    except KeyError:
+        usd_per_credit = 0.0
     return {
         "model": model,
         "credit_multiplier": multiplier,
-        "usd_per_credit": 0.000198,
-        "plan_label": "Pro plan ($99/500k credits)",
+        "usd_per_credit": usd_per_credit,
         "available_models": elevenlabs_client.available_models(),
         "global_speed": float(config.TTS_GLOBAL_SPEED),
         "speed_min": 0.5,
@@ -69,7 +87,7 @@ def _tts_pricing() -> dict:
         "max_silence_ms": float(getattr(config, "TTS_MAX_SILENCE_MS", 250)),
         "note": (
             f"{model} は1文字あたり {multiplier} credits 消費。"
-            "他プランの場合は usd_per_credit を上書き。"
+            "実コストは data/cost_records.jsonl の履歴 median から算定。"
         ),
     }
 
@@ -1242,6 +1260,17 @@ def api_config():
         "video_height": config.VIDEO_HEIGHT,
         "subtitle_y_from_bottom": config.SUBTITLE_Y_FROM_BOTTOM,
         "tts_pricing": _tts_pricing(),
+        "cost_models": {
+            "tts": elevenlabs_client.MODEL_ID,
+            "bg": imagen_client.MODEL,
+            "kling": fal_video_client.MODEL_ID,
+            "lipsync": (
+                config.SYNCSO_LIPSYNC_MODEL
+                if config.LIPSYNC_PROVIDER == "syncso"
+                else config.LIPSYNC_PROVIDER
+            ),
+            "analyze": video_analyzer.ANALYZER_MODEL,
+        },
     })
 
 
@@ -1700,6 +1729,89 @@ def api_kling_cache_delete(key):
 @app.route("/api/kling-cache/<key>/preview.mp4", methods=["GET"])
 def api_kling_cache_preview(key):
     return _stage_cache_preview("kling", key)
+
+
+# ───────────────── コスト記録 / 動的見積もり / レポート ─────────────────
+
+@app.route("/api/cost/pricebook", methods=["GET"])
+def api_cost_pricebook():
+    """単価カタログ (運用者管理) を JSON で返す。"""
+    return jsonify({
+        "pricebook": cost_pricebook.load(),
+        "jpy_per_usd": cost_pricebook.jpy_per_usd(),
+    })
+
+
+def _estimate_for_stage(stage: str, args) -> tuple[dict, int]:
+    """``/api/cost/estimate/<stage>`` の stage 別ロジック (純粋関数)。"""
+    model = args.get("model")
+    if not model:
+        return {"error": "model required"}, 400
+    try:
+        if stage == "tts":
+            est = cost_estimator.estimate_tts(
+                characters=int(args.get("characters", 0)),
+                model=model,
+            )
+        elif stage == "bg":
+            est = cost_estimator.estimate_imagen(
+                image_count=int(args.get("image_count", 1)),
+                model=model,
+            )
+        elif stage == "kling":
+            est = cost_estimator.estimate_kling(
+                duration_sec=float(args.get("duration_sec", 0)),
+                model=model,
+            )
+        elif stage == "lipsync":
+            est = cost_estimator.estimate_lipsync(
+                duration_sec=float(args.get("duration_sec", 0)),
+                model=model,
+            )
+        elif stage == "analyze":
+            est = cost_estimator.estimate_analyze(
+                input_tokens=int(args.get("input_tokens", 0)),
+                output_tokens=int(args.get("output_tokens", 0)),
+                model=model,
+            )
+        else:
+            return {"error": f"unknown stage: {stage}"}, 400
+    except (ValueError, TypeError) as e:
+        return {"error": str(e)}, 400
+    return asdict(est), 200
+
+
+@app.route("/api/cost/estimate/<stage>", methods=["GET"])
+def api_cost_estimate(stage):
+    """動的見積もり (履歴 only)。履歴が ``MIN_HISTORY_SAMPLES`` 未満なら ``confidence=insufficient``。"""
+    payload, status = _estimate_for_stage(stage, request.args)
+    return jsonify(payload), status
+
+
+@app.route("/api/cost/median/<stage>", methods=["GET"])
+def api_cost_median(stage):
+    """履歴から per-unit cost の median を返す (frontend で rate × units 計算用)。"""
+    model = request.args.get("model")
+    if not model:
+        return jsonify({"error": "model required"}), 400
+    try:
+        rate = cost_estimator.median_rate(stage, model)
+    except ValueError as e:
+        return jsonify({"error": str(e)}), 400
+    return jsonify(asdict(rate))
+
+
+@app.route("/api/cost/report/project/<ts>", methods=["GET"])
+def api_cost_report_project(ts):
+    """プロジェクト別の実コストレポート。"""
+    return jsonify(asdict(cost_report.report_for_project(ts)))
+
+
+@app.route("/api/cost/report", methods=["GET"])
+def api_cost_report_overall():
+    """全体レポート。``?since=<ISO8601>`` で期間絞り込み可。"""
+    since = request.args.get("since")
+    return jsonify(asdict(cost_report.report_overall(since=since)))
 
 
 # ───────────────── React 静的配信 ─────────────────
