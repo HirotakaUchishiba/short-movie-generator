@@ -9,14 +9,12 @@ import StageScene from "./components/stages/StageScene";
 import StageOverlay from "./components/stages/StageOverlay";
 import StageFinal from "./components/stages/StageFinal";
 import AnalyzePage from "./pages/AnalyzePage";
-import StyleEditorPage from "./pages/StyleEditorPage";
 
 export default function App() {
   return (
     <Routes>
       <Route path="/" element={<ProjectList />} />
       <Route path="/analyze" element={<AnalyzePage />} />
-      <Route path="/analyze/:job/style" element={<StyleEditorPage />} />
       <Route path="/project/:ts" element={<ProjectShell />}>
         <Route index element={<Navigate to="script" replace />} />
         <Route path="script" element={<StageScript />} />

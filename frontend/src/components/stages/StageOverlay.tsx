@@ -270,11 +270,6 @@ export default function StageOverlay() {
                     <span className="text-[11px] font-semibold text-slate-300">
                       Scene {sIdx + 1}
                     </span>
-                    {scene.label && (
-                      <span className="text-[10px] text-slate-500">
-                        {scene.label}
-                      </span>
-                    )}
                     <span className="text-[10px] text-slate-600">
                       {sceneOffsets[sIdx].toFixed(1)}s〜
                     </span>

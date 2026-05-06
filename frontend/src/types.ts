@@ -51,57 +51,31 @@ export interface Line {
   voice_overrides?: VoiceOverrides;
   pronunciation_hints?: Record<string, string>;
   speaker?: string;
-  silence_after_ms?: number;
   subtitles?: SubtitleChunk[];
   hidden?: boolean;
 }
 
 export interface CharacterDef {
   name?: string;
-  role?: string;
   ref?: string;
-  outfit?: string;
-}
-
-export interface Wardrobe {
-  identifier?: string;
-  top?: string;
-  bottom?: string;
-  accessories?: string;
-  hair?: string;
 }
 
 export interface Scene {
-  label?: string;
   duration: number;
   background_prompt?: string;
   animation_prompt?: string;
+  animation_style?: "subtle" | "standard" | "expressive";
   character_refs?: string[];
   characters?: CharacterDef[];
-  wardrobe?: Wardrobe;
   location_ref?: string;
-  facial_expression?: string;
-  hand_gesture?: string;
+  camera_distance?: CameraDistance;
   lipsync?: boolean;
   lines?: Line[];
-  tags?: string[];
-  emotion_cue_overrides?: Record<string, string>;
-}
-
-export interface ScopedAugmentation {
-  id?: string;
-  scope: { tag?: string; scene_idx?: number[] };
-  elements: string[];
 }
 
 export interface Screenplay {
   caption?: string;
-  audio_mode?: "voiced" | "silent";
-  bgm_path?: string;
-  bgm_volume_db?: number;
   subtitle_y_from_bottom?: number;
-  wardrobe_continuity?: Record<string, string>;
-  scoped_augmentations?: ScopedAugmentation[];
   scenes: Scene[];
 }
 
@@ -119,6 +93,7 @@ export interface ProjectDetail {
   screenplay: Screenplay;
   progress: Progress;
   current_stage: StageName | null;
+  analyze_job_id: string | null;
 }
 
 export interface VoiceLibraryEntry {
@@ -240,6 +215,7 @@ export interface AnalyzeJob {
   estimated_cost_usd: number | null;
   actual_cost_usd: number | null;
   screenplay_path: string | null;
+  style_name: string | null;
   created_at: string;
   started_at: string | null;
   finished_at: string | null;
@@ -258,44 +234,175 @@ export interface DryrunCompleteEvent {
   cost_breakdown: Record<string, number>;
 }
 
-// ─── VideoStyle (抽象台本合成テンプレ) ─────────
+// ─── Location / CharacterMeta ─────────
 
-export interface VideoStyleCharacter {
-  name: string;
-  role: string;
-  ref: string;
-  voice_overrides?: Record<string, unknown>;
-}
+export type CameraDistance = "close-up" | "medium-close" | "medium" | "wide";
 
-export interface VideoStyleLocation {
+// グローバルなロケ集 (locations/<id>.json)。
+export interface Location {
+  id: string;
   decor: string;
   lighting: string;
   color_palette: string;
   props: string;
-  camera_distance: "close-up" | "medium-close" | "medium" | "wide";
+  camera_distance: CameraDistance;
 }
 
-export interface VideoStyle {
-  name: string;
-  format: "narrator" | "dialogue";
-  characters: VideoStyleCharacter[];
-  wardrobe_continuity: Record<string, string>;
-  default_wardrobe: string | null;
-  location_continuity: Record<string, VideoStyleLocation>;
-  default_location: string | null;
-  default_tags: string[];
-  scoped_augmentations: unknown[];
-  animation_style: "subtle" | "standard" | "expressive";
+// グローバルなキャラ voice メタ (characters/<id>.json)。<id> は衣装込みの
+// 焼き込みキャラ ID。
+export interface CharacterMeta {
+  id: string;
+  voice_overrides?: Record<string, unknown>;
 }
 
-export interface SceneOverride {
-  wardrobe?: string;
+// ─── 抽象台本 (Stage 1「素材」セクション編集用) ─────────
+// 完全 screenplay とは別物。caption + scenes[].lines[] + シーンごとの設定。
+// compose で完全 screenplay に展開される。
+export interface AbstractLine {
+  text: string;
+  start: number;
+  end?: number;
+  emotion?: string;
+  delivery?: string;
+  speaker?: string;
+  rate?: string;
+  pronunciation_hints?: Record<string, string>;
+}
+
+export interface AbstractScene {
+  lines: AbstractLine[];
+  duration?: number;
+  // シーン別の人物指定 (= featured_characters の subset)
+  //   未定義 = featured_characters 全員 (= 主に単一キャラ動画用のショートカット)
+  //   []     = 0 人 (背景のみ)
+  //   [...]  = 指定された ID のキャラだけ
+  character_selection?: string[];
+  camera_distance?: CameraDistance;
   location_ref?: string;
-  tags?: string[];
+  animation_style?: "subtle" | "standard" | "expressive";
 }
 
-export interface ComposeResult {
+export interface AbstractScreenplay {
+  caption: string;
+  scenes: AbstractScene[];
+  // この動画に登場させる人物の characters/<id>.png キーのリスト。
+  // シーンの登場人物・話者の候補として使われる。
+  featured_characters?: string[];
+  // analyze 時に Claude が割り振った匿名 speaker_N を実 character ref に
+  // マッピングする辞書。compose で line.speaker と scene の登場人物を解決する。
+  speaker_to_ref?: Record<string, string>;
+  // future-proof で broadly に許容する。
+  [k: string]: unknown;
+}
+
+export interface AbstractDiagnostics {
+  unmapped_speakers: string[];
+  scenes_without_location: number[];
+  scenes_without_characters: number[];
+  invalid_camera_distance: { scene_idx: number; value: string }[];
+  unknown_character_refs: {
+    featured: string[];
+    speaker_to_ref: { speaker: string; ref: string }[];
+    character_selection: { scene_idx: number; ref: string }[];
+    speaker: { scene_idx: number; line_idx: number; ref: string }[];
+  };
+}
+
+export interface AbstractScreenplayResponse {
   screenplay_path: string;
-  style_name: string;
-  scenes: number;
+  abstract: AbstractScreenplay;
+}
+
+// ─── Stage 3 (BG) / Stage 4 (Kling) cache decision flow ─────────
+//
+// 同じ scan / use-cache / queue-fresh / generate-remaining モデルで両 stage を扱う。
+// stage 別の差分は CacheCandidate.meta の中身だけ。
+
+export interface CacheQuality {
+  blacklisted?: boolean;
+  blacklist_reason?: string | null;
+  ffprobe_ok?: boolean;
+  integrity_ok?: boolean;
+  approved_at_origin?: string | null;
+  final_render_completed?: boolean;
+}
+
+export interface BgCandidateMeta {
+  location_ref?: string | null;
+  camera_distance?: string | null;
+  character_refs?: string[];
+  background_prompt_resolved?: string | null;
+  created_at?: string | null;
+  hit_count?: number | null;
+  quality?: CacheQuality;
+}
+
+export interface KlingCandidateMeta {
+  kling_duration?: number | null;
+  original_audio_duration?: number | null;
+  location_ref?: string | null;
+  camera_distance?: string | null;
+  created_at?: string | null;
+  hit_count?: number | null;
+  quality?: CacheQuality;
+}
+
+export interface CacheCandidate<TMeta = unknown> {
+  key: string;
+  fitness: number;
+  warnings: string[];
+  meta: TMeta;
+}
+
+export type DecisionStatus = "pending" | "cache" | "fresh";
+
+export interface SceneDecision<TMeta = unknown> {
+  candidates: CacheCandidate<TMeta>[];
+  decision: DecisionStatus;
+  decided_key: string | null;
+  decided_at: string | null;
+  cache_key: string | null;
+  diagnostics: string[];
+  // Kling 固有 (BG では undefined)
+  kling_duration?: number | null;
+  final_duration?: number | null;
+}
+
+export interface DecisionsResponse<TMeta = unknown> {
+  cache_scanned_at: string | null;
+  scene_decisions: Record<string, SceneDecision<TMeta>>;
+}
+
+export type BgSceneDecision = SceneDecision<BgCandidateMeta>;
+export type BgDecisionsResponse = DecisionsResponse<BgCandidateMeta>;
+export type KlingSceneDecision = SceneDecision<KlingCandidateMeta>;
+export type KlingDecisionsResponse = DecisionsResponse<KlingCandidateMeta>;
+
+export interface CacheEntryBase {
+  key: string;
+  meta_path: string | null;
+  size_bytes: number;
+  hit_count: number;
+  last_used_at: string | null;
+  created_at: string | null;
+  location_ref: string | null;
+  quality: CacheQuality;
+}
+
+export interface BgCacheEntry extends CacheEntryBase {
+  image_path: string;
+  camera_distance?: string | null;
+}
+
+export interface KlingCacheEntry extends CacheEntryBase {
+  mp4_path: string;
+  kling_duration: number | null;
+  original_audio_duration: number | null;
+  quality: {
+    blacklisted?: boolean;
+    blacklist_reason?: string | null;
+    ffprobe_ok?: boolean;
+    approved_at_origin?: string | null;
+    final_render_completed?: boolean;
+  };
 }

@@ -31,6 +31,7 @@ export function useShellCtx() {
       scene_idx?: number;
       line_idx?: number;
       force?: boolean;
+      force_no_cache?: boolean;
     }) => Promise<void>;
     jobStatus: import("../types").JobStatus | null;
   };

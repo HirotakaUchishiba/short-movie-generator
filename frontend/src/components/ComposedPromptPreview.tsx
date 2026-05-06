@@ -1,8 +1,11 @@
 import { useEffect, useState } from "react";
 import { api } from "../api";
 
-// scene_gen の _build_background_prompt / _get_animation_prompt の合成結果を表示。
-// 透明性のため、何が Imagen / Kling に送られているかを UI で確認できる。
+// scene_gen の _build_background_prompt / _get_animation_prompt の合成結果を
+// read-only でプレビュー表示する。微修正は Stage 1 / Stage 3-4 の構造化
+// フィールド (location_ref / camera_distance / animation_style /
+// character_selection) を介して行い、ここから直接プロンプト文を書き換える
+// 経路は持たない (= SSOT 一本化、live derivation 維持)。
 export default function ComposedPromptPreview({
   ts,
   sceneIdx,
@@ -43,7 +46,7 @@ export default function ComposedPromptPreview({
         className="text-slate-400 hover:text-slate-200"
         onClick={() => setOpen((v) => !v)}
       >
-        {open ? "▼" : "▶"} 合成後のプロンプト ({fieldLabel(field)})
+        {open ? "▼" : "▶"} このシーンのプロンプト ({fieldLabel(field)})
       </button>
       {open && (
         <div className="mt-1 p-2 rounded bg-slate-950/70 border border-slate-800 font-mono whitespace-pre-wrap break-words text-slate-300">

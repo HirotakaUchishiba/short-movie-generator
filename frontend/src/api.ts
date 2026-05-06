@@ -1,20 +1,31 @@
 import type {
+  AbstractScreenplay,
+  AbstractScreenplayResponse,
   AnalyzeJob,
   AnalyzeJobDetail,
   AnalyzeOptions,
-  ComposeResult,
+  BgCacheEntry,
+  BgCandidateMeta,
+  BgDecisionsResponse,
+  BgSceneDecision,
+  CharacterMeta,
+  DecisionsResponse,
+  KlingCacheEntry,
+  KlingCandidateMeta,
+  KlingDecisionsResponse,
+  KlingSceneDecision,
+  Location,
   ProjectDetail,
   ProjectListItem,
   Progress,
   ReferenceVideo,
   ReferenceVideoUploadResult,
-  SceneOverride,
   Screenplay,
+  SceneDecision,
   ServerConfig,
   StageName,
   JobStatus,
   TtsPricing,
-  VideoStyle,
 } from "./types";
 
 const API_BASE = "";
@@ -52,10 +63,13 @@ export const api = {
     http<{ projects: ProjectListItem[]; screenplays: string[] }>(
       "/api/projects",
     ),
-  createProject: (screenplay_name: string) =>
+  createProject: (screenplay_name: string, analyzeJobId?: string) =>
     http<{ timestamp: string; current_stage: StageName }>("/api/projects", {
       method: "POST",
-      body: JSON.stringify({ screenplay_name }),
+      body: JSON.stringify({
+        screenplay_name,
+        ...(analyzeJobId ? { analyze_job_id: analyzeJobId } : {}),
+      }),
     }),
   project: (ts: string) => http<ProjectDetail>(`/api/projects/${ts}`),
   progress: (ts: string) =>
@@ -78,12 +92,21 @@ export const api = {
       scene_idx?: number;
       line_idx?: number;
       force?: boolean;
+      force_no_cache?: boolean;
     },
   ) =>
     http<{ job_id: string }>(`/api/projects/${ts}/regen`, {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  bgCacheInfo: (ts: string, sceneIdx: number) =>
+    http<{
+      cache_key: string;
+      cached: boolean;
+      hit_count?: number;
+      created_at?: string;
+      last_used_at?: string;
+    }>(`/api/projects/${ts}/scenes/${sceneIdx}/bg-cache-info`),
   saveScreenplay: (ts: string, screenplay: Screenplay) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay`, {
       method: "PUT",
@@ -112,13 +135,46 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ patch }),
     }),
+  // characters/ 配下の利用可能な ref 一覧 (拡張子なし)
+  listCharacters: () => http<{ characters: string[] }>("/api/characters"),
+  // グローバル locations/<id>.json
+  listLocations: () => http<{ locations: Location[] }>("/api/locations"),
+  getLocation: (id: string) => http<Location>(`/api/locations/${id}`),
+  createLocation: (loc: Location) =>
+    http<Location>("/api/locations", {
+      method: "POST",
+      body: JSON.stringify(loc),
+    }),
+  updateLocation: (id: string, loc: Location) =>
+    http<Location>(`/api/locations/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(loc),
+    }),
+  deleteLocation: (id: string) =>
+    http<{ id: string; deleted: true }>(`/api/locations/${id}`, {
+      method: "DELETE",
+    }),
+  // characters/<id>.json (= 衣装込みキャラの voice メタ)
+  listCharacterMetas: () =>
+    http<{ character_metas: CharacterMeta[]; image_ids: string[] }>(
+      "/api/character-metas",
+    ),
+  getCharacterMeta: (id: string) =>
+    http<CharacterMeta>(`/api/character-metas/${id}`),
+  updateCharacterMeta: (id: string, meta: CharacterMeta) =>
+    http<CharacterMeta>(`/api/character-metas/${id}`, {
+      method: "PUT",
+      body: JSON.stringify(meta),
+    }),
+  deleteCharacterMeta: (id: string) =>
+    http<{ id: string; deleted: true }>(`/api/character-metas/${id}`, {
+      method: "DELETE",
+    }),
   presets: () =>
     http<{
       libraries: Record<string, Record<string, string>>;
       labels_ja: Record<string, Record<string, string>>;
       category_labels_ja: Record<string, string>;
-      scene_tags: string[];
-      scene_tag_labels_ja: Record<string, string>;
       emotion_default_preset_ids: Record<string, Record<string, string>>;
     }>("/api/presets"),
   ttsSource: (ts: string) =>
@@ -198,37 +254,136 @@ export const api = {
   analyzeJobEventSource: (id: string): EventSource =>
     new EventSource(`${API_BASE}/api/screenplay/analyze/${id}/events`),
 
-  // ─── VideoStyle ────────────────────────────────
-  listStyles: () => http<{ styles: VideoStyle[] }>("/api/styles"),
-  getStyle: (name: string) => http<VideoStyle>(`/api/styles/${name}`),
-  createStyle: (style: VideoStyle) =>
-    http<VideoStyle>("/api/styles", {
-      method: "POST",
-      body: JSON.stringify(style),
-    }),
-  updateStyle: (name: string, style: VideoStyle) =>
-    http<VideoStyle>(`/api/styles/${name}`, {
-      method: "PUT",
-      body: JSON.stringify(style),
-    }),
-  deleteStyle: (name: string) =>
-    http<{ name: string; deleted: boolean }>(`/api/styles/${name}`, {
-      method: "DELETE",
-    }),
+  // ─── project snapshot (Stage 1 素材編集) ──────────
+  getProjectAbstract: (ts: string) =>
+    http<AbstractScreenplayResponse>(`/api/projects/${ts}/abstract`),
+  putProjectAbstract: (ts: string, abstract: AbstractScreenplay) =>
+    http<{ screenplay_path: string; scenes: number }>(
+      `/api/projects/${ts}/abstract`,
+      { method: "PUT", body: JSON.stringify({ abstract }) },
+    ),
 
-  // ─── 抽象台本 + VideoStyle 合成 ──────────────────
-  composeScreenplay: (
-    jobId: string,
-    styleName: string,
-    sceneOverrides?: Record<string, SceneOverride>,
-  ) =>
-    http<ComposeResult>(`/api/screenplay/analyze/${jobId}/compose`, {
-      method: "POST",
-      body: JSON.stringify({
-        style_name: styleName,
-        scene_overrides: sceneOverrides,
+  // ─── scene 境界の手動再定義 (TTS 完了後) ──────────
+  // line のテキスト・順序は変えず、scene の区切り位置だけを動かす。
+  // tts_full.mp3 は再利用されるので ElevenLabs API は呼ばれない。
+  // 副作用: bg / kling / scene / overlay 系は全削除 + 承認解除。
+  applySceneBoundaries: (ts: string, lineBoundaries: number[]) =>
+    http<{ ok: true; scenes: number; lines: number }>(
+      `/api/projects/${ts}/scene-boundaries`,
+      {
+        method: "POST",
+        body: JSON.stringify({ line_boundaries: lineBoundaries }),
+      },
+    ),
+
+  // ─── Stage 3 BG / Stage 4 Kling cache decision flow ──────────
+  // bg / kling は makeStageCacheApi で生成される (= scan / use-cache / queue-fresh /
+  // generate-remaining / entries / blacklist / delete を提供)。詳細は下記参照。
+  bgCache: undefined as unknown as ReturnType<
+    typeof makeStageCacheApi<BgCandidateMeta, BgCacheEntry>
+  >,
+  klingCache: undefined as unknown as ReturnType<
+    typeof makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>
+  >,
+};
+
+// ─── stage cache API factory (= 単一 stage 分の cache 操作を生成) ──────────
+
+interface StageCacheApi<TMeta, TEntry> {
+  scanCache: (ts: string) => Promise<DecisionsResponse<TMeta>>;
+  decisions: (ts: string) => Promise<DecisionsResponse<TMeta>>;
+  useCache: (
+    ts: string,
+    sceneIdx: number,
+    key: string,
+  ) => Promise<{ ok: true; decision: "cache"; key: string }>;
+  queueFresh: (
+    ts: string,
+    sceneIdx: number,
+  ) => Promise<{ ok: true; decision: "fresh" }>;
+  sceneRescan: (
+    ts: string,
+    sceneIdx: number,
+  ) => Promise<{ ok: true; scene_decision: SceneDecision<TMeta> }>;
+  decisionsBulk: (
+    ts: string,
+    action: "all-cache" | "all-fresh",
+  ) => Promise<{
+    ok: true;
+    summary: { adopted: number; queued_fresh: number; errors: unknown[] };
+    scene_decisions: Record<string, SceneDecision<TMeta>>;
+  }>;
+  generateRemaining: (
+    ts: string,
+  ) => Promise<{ job_id: string; fresh_scenes: number[] }>;
+  entries: () => Promise<{ entries: TEntry[] }>;
+  blacklist: (key: string, reason: string) => Promise<{ ok: true }>;
+  delete: (key: string) => Promise<{ ok: true; deleted: string }>;
+  previewUrl: (key: string) => string;
+}
+
+function makeStageCacheApi<TMeta, TEntry>(
+  stage: "bg" | "kling",
+  previewExt: "png" | "mp4",
+): StageCacheApi<TMeta, TEntry> {
+  const stageBase = (ts: string) => `/api/projects/${ts}/stages/${stage}`;
+  const cacheBase = `/api/${stage}-cache`;
+  return {
+    scanCache: (ts) =>
+      http<DecisionsResponse<TMeta>>(`${stageBase(ts)}/scan-cache`, {
+        method: "POST",
       }),
-    }),
+    decisions: (ts) =>
+      http<DecisionsResponse<TMeta>>(`${stageBase(ts)}/decisions`),
+    useCache: (ts, sceneIdx, key) =>
+      http(`${stageBase(ts)}/scenes/${sceneIdx}/use-cache`, {
+        method: "POST",
+        body: JSON.stringify({ key }),
+      }),
+    queueFresh: (ts, sceneIdx) =>
+      http(`${stageBase(ts)}/scenes/${sceneIdx}/queue-fresh`, {
+        method: "POST",
+      }),
+    sceneRescan: (ts, sceneIdx) =>
+      http(`${stageBase(ts)}/scenes/${sceneIdx}/rescan`, { method: "POST" }),
+    decisionsBulk: (ts, action) =>
+      http(`${stageBase(ts)}/decisions/bulk`, {
+        method: "POST",
+        body: JSON.stringify({ action }),
+      }),
+    generateRemaining: (ts) =>
+      http(`${stageBase(ts)}/generate-remaining`, { method: "POST" }),
+    entries: () => http<{ entries: TEntry[] }>(`${cacheBase}/entries`),
+    blacklist: (key, reason) =>
+      http(`${cacheBase}/${key}/blacklist`, {
+        method: "POST",
+        body: JSON.stringify({ reason }),
+      }),
+    delete: (key) => http(`${cacheBase}/${key}`, { method: "DELETE" }),
+    previewUrl: (key) => `${API_BASE}${cacheBase}/${key}/preview.${previewExt}`,
+  };
+}
+
+api.bgCache = makeStageCacheApi<BgCandidateMeta, BgCacheEntry>("bg", "png");
+api.klingCache = makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>(
+  "kling",
+  "mp4",
+);
+
+// 旧 API 互換 (= 既存のテスト / コードが klingCachePreviewUrl を import している)
+export function klingCachePreviewUrl(key: string): string {
+  return api.klingCache.previewUrl(key);
+}
+export function bgCachePreviewUrl(key: string): string {
+  return api.bgCache.previewUrl(key);
+}
+
+// 型を再エクスポート (= 必要な consumer 側で安く使えるように)
+export type {
+  BgSceneDecision,
+  KlingSceneDecision,
+  BgDecisionsResponse,
+  KlingDecisionsResponse,
 };
 
 function withVersion(url: string, v?: number | string): string {
@@ -290,4 +445,19 @@ export function overlayAssetUrl(ts: string, version?: number | string): string {
 }
 export function finalAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/final`, version);
+}
+export function referenceVideoAssetUrl(sha256: string): string {
+  return `${API_BASE}/asset/reference-video/${sha256}`;
+}
+export function characterAssetUrl(name: string): string {
+  return `${API_BASE}/asset/character/${encodeURIComponent(name)}`;
+}
+export function locationPreviewUrl(
+  id: string,
+  version?: number | string,
+): string {
+  return withVersion(
+    `${API_BASE}/asset/location/${encodeURIComponent(id)}/preview`,
+    version,
+  );
 }
