@@ -107,13 +107,19 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
           }
           return next;
         });
-        if (d.estimated_cost_usd !== null && d.status === "awaiting_confirm") {
+        if (d.status === "awaiting_confirm") {
+          // estimated_cost_usd が null (= 履歴不足) でも dryrun は復元する。
+          // モーダルを出さないと SSE を受け損ねた / リロード時に Claude 呼び出しを
+          // 再開できなくなるため。confidence は cost の有無で出し分け。
           setDryrun({
             frame_count: 0,
             input_tokens: 0,
             output_tokens: 0,
             cost_usd: d.estimated_cost_usd,
-            cost_breakdown: {},
+            cost_jpy: null,
+            confidence:
+              d.estimated_cost_usd == null ? "insufficient" : "history",
+            sample_size: 0,
           });
         }
         if (d.screenplay_path) setCompletedPath(d.screenplay_path);
@@ -475,11 +481,15 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
             <div>
               推定コスト:{" "}
               <span className="font-mono text-amber-300">
-                ${dryrun.cost_usd?.toFixed(3)}
+                {dryrun.cost_usd == null
+                  ? "履歴不足"
+                  : `$${dryrun.cost_usd.toFixed(3)}`}
               </span>
-              <span className="ml-2 text-xs text-slate-400">
-                (≈ ¥{Math.round((dryrun.cost_usd ?? 0) * 150)})
-              </span>
+              {dryrun.cost_jpy != null && (
+                <span className="ml-2 text-xs text-slate-400">
+                  (≈ ¥{Math.round(dryrun.cost_jpy)})
+                </span>
+              )}
             </div>
           </div>
           <div className="mt-3 flex gap-2">

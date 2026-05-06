@@ -27,7 +27,7 @@ from audio_features import (
     wpm_from_text,
 )
 from screenplay_validator import validate_screenplay
-from video_analyzer import build_screenplay
+from video_analyzer import ScreenplayParseError, build_screenplay
 from whisper_client import transcribe
 
 logger = logging.getLogger(__name__)
@@ -349,15 +349,23 @@ def run(
             "frame_count": len(frame_paths),
             "known_furigana_count": len(known_furigana),
         })
-        screenplay = build_screenplay(
-            frame_paths=frame_paths,
-            transcript=transcript,
-            phrase_features=phrase_features,
-            source_video_path=video_path,
-            extra_instructions=options.instructions,
-            frame_interval_sec=frame_interval_sec,
-            known_furigana=known_furigana,
-        )
+        try:
+            screenplay, claude_usage = build_screenplay(
+                frame_paths=frame_paths,
+                transcript=transcript,
+                phrase_features=phrase_features,
+                source_video_path=video_path,
+                extra_instructions=options.instructions,
+                frame_interval_sec=frame_interval_sec,
+                known_furigana=known_furigana,
+            )
+        except ScreenplayParseError as e:
+            # Claude 課金は発生済みなので、parse 失敗でも usage を emit して
+            # recorder に記録させてから re-raise する。
+            if e.usage:
+                _emit(on_progress, "claude_usage", e.usage)
+            raise
+        _emit(on_progress, "claude_usage", claude_usage)
         _emit(on_progress, "phase_complete", {"phase": "claude"})
         _check_cancel(cancel_token)
 

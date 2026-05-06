@@ -16,10 +16,10 @@
 
 ### コストのかかる操作を安易に実行しない
 
-- 動画の再生成（fal.ai Kling V3）は $0.084/秒のコストが発生する
-- 背景の再生成（Gemini）は $0.134/枚のコストが発生する
+- 動画再生成 (fal.ai Kling) / 背景再生成 (Imagen) / TTS 再生成 / リップシンクはすべて API 課金される
+- 単価カタログは `data/pricebook.json`、実コスト履歴は `data/cost_records.jsonl` を参照
 - 字幕を直すために動画や背景を再生成しない。字幕のみ再合成する
-- 音声（ElevenLabs）はプラン内だが、不要な再生成はしない
+- 音声 (ElevenLabs) はプラン内だが、不要な再生成はしない
 
 ### 指示の範囲を超えない
 
@@ -187,11 +187,21 @@ drafts/source_<チャンネル略称>_<トピック>.md
 
 ## 5. コスト管理
 
-### レポート
+### 記録 / 見積もり / レポートの分離 (cost_tracking モジュール)
 
-- `main.py` の最終ステージ完了時に `reports/report_<TS>.md` が自動生成される
-- 背景枚数 × $0.134 + 動画生成秒数 × $0.084 で計算
-- fal.ai ダッシュボードの実消費額と照合して単価を検証する
+- **記録**: 各 stage の API 呼び出し直後に `cost_tracking.recorder` が `data/cost_records.jsonl` に append-only で書き込む。記録失敗はパイプライン本流を止めない (try/except 隔離)
+- **単価カタログ**: `data/pricebook.json` (運用者管理) — provider 公式料金に追従して手で更新する。コードに単価ハードコードは置かない
+- **見積もり**: `cost_tracking.estimator` が実コスト履歴から per-unit median を取って算定。履歴 < 3 件なら `confidence="insufficient"` を返し、catalog fallback はしない
+- **レポート**: `cost_tracking.report` がプロジェクト別 / 全体の集計を提供
+- **為替**: `JPY_PER_USD` 環境変数 > `pricebook.json#jpy_per_usd` (既定 150)
+
+### API
+
+- `GET /api/cost/pricebook` 単価カタログ
+- `GET /api/cost/median/<stage>?model=...` 履歴 median rate (frontend で units × rate)
+- `GET /api/cost/estimate/<stage>?model=...&...` 動的見積もり
+- `GET /api/cost/report/project/<ts>` プロジェクト別実コスト
+- `GET /api/cost/report` 全体レポート
 
 ### コスト削減の方針
 

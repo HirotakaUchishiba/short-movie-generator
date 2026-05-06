@@ -9,6 +9,12 @@ import type {
   BgDecisionsResponse,
   BgSceneDecision,
   CharacterMeta,
+  CostEstimate,
+  CostMedianRate,
+  CostOverallReport,
+  CostPricebookResponse,
+  CostProjectReport,
+  CostStage,
   DecisionsResponse,
   KlingCacheEntry,
   KlingCandidateMeta,
@@ -285,6 +291,26 @@ export const api = {
   klingCache: undefined as unknown as ReturnType<
     typeof makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>
   >,
+
+  // ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
+  cost: {
+    pricebook: () => http<CostPricebookResponse>("/api/cost/pricebook"),
+    medianRate: (stage: CostStage, model: string) =>
+      http<CostMedianRate>(
+        `/api/cost/median/${stage}?model=${encodeURIComponent(model)}`,
+      ),
+    estimate: (stage: CostStage, params: Record<string, string | number>) => {
+      const q = new URLSearchParams();
+      Object.entries(params).forEach(([k, v]) => q.set(k, String(v)));
+      return http<CostEstimate>(`/api/cost/estimate/${stage}?${q.toString()}`);
+    },
+    projectReport: (ts: string) =>
+      http<CostProjectReport>(`/api/cost/report/project/${ts}`),
+    overallReport: (since?: string) => {
+      const q = since ? `?since=${encodeURIComponent(since)}` : "";
+      return http<CostOverallReport>(`/api/cost/report${q}`);
+    },
+  },
 };
 
 // ─── stage cache API factory (= 単一 stage 分の cache 操作を生成) ──────────

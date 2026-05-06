@@ -1,15 +1,9 @@
-"""Claude Opus 4.7 を使った analyze pipeline のコスト推定。
+"""Claude Opus 4.7 への入力 token 数の概算。
 
-Vision モデルへのフレーム画像入力、transcript / furigana 辞書の text 入力、
-output JSON の token 消費量を概算する。
-
-コストゲート (Phase 5 の awaiting_confirm) でユーザー confirm 前に推定値を
-見せる用途。
+USD 換算は ``cost_tracking.estimator.estimate_analyze()`` (= 履歴ベース) に集約。
+ここは「frame / transcript / shot / furigana → token 数」の推定だけを担う
+(= 単価ハードコードを置かない、純粋に token 数を見積もる単一責務)。
 """
-
-# Claude Opus 4.7 価格 (2026 時点)
-INPUT_USD_PER_MTOK = 15.0
-OUTPUT_USD_PER_MTOK = 75.0
 
 # 882×496 px JPEG 1 枚あたりの推定 token (Anthropic の image token 計算式から)
 TOKENS_PER_FRAME = 1568
@@ -24,7 +18,7 @@ PROMPT_OVERHEAD_TOKENS = 3000
 TYPICAL_OUTPUT_TOKENS = 12000
 
 
-def estimate(
+def estimate_tokens(
     *,
     frame_count: int,
     transcript: dict | None = None,
@@ -32,14 +26,13 @@ def estimate(
     known_furigana_count: int = 0,
     typical_output_tokens: int = TYPICAL_OUTPUT_TOKENS,
 ) -> dict:
-    """Claude 呼び出しの input/output tokens と USD コストを概算する。
+    """Claude 呼び出しの input/output tokens を概算する (USD 換算は呼び出し側で)。
 
     Returns:
         {
             "input_tokens": int,
             "output_tokens": int,
-            "cost_usd": float,
-            "cost_breakdown": {
+            "breakdown": {
                 "frames_tokens": int,
                 "transcript_tokens": int,
                 "shots_tokens": int,
@@ -66,18 +59,11 @@ def estimate(
         + shots_tokens
         + furigana_tokens
     )
-    output_tokens = typical_output_tokens
-
-    cost_usd = (
-        input_tokens * INPUT_USD_PER_MTOK / 1_000_000
-        + output_tokens * OUTPUT_USD_PER_MTOK / 1_000_000
-    )
 
     return {
         "input_tokens": input_tokens,
-        "output_tokens": output_tokens,
-        "cost_usd": round(cost_usd, 4),
-        "cost_breakdown": {
+        "output_tokens": typical_output_tokens,
+        "breakdown": {
             "frames_tokens": frames_tokens,
             "transcript_tokens": transcript_tokens,
             "shots_tokens": shots_tokens,
@@ -85,12 +71,3 @@ def estimate(
             "overhead_tokens": overhead_tokens,
         },
     }
-
-
-def actual_cost(input_tokens: int, output_tokens: int) -> float:
-    """実際のレスポンス usage から正確な USD コストを算出する。"""
-    return round(
-        input_tokens * INPUT_USD_PER_MTOK / 1_000_000
-        + output_tokens * OUTPUT_USD_PER_MTOK / 1_000_000,
-        4,
-    )

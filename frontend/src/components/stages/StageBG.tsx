@@ -11,8 +11,7 @@ import BgCacheBadge from "../BgCacheBadge";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
 import type { CachePresenter, SceneContext } from "../cache/types";
 import type { BgCandidateMeta, BgSceneDecision, Scene } from "../../types";
-
-const IMAGEN_COST_PER_IMAGE = 0.04;
+import { useCostMedianRate } from "../../useCostMedianRate";
 
 export default function StageBG() {
   const ctx = useShellCtx();
@@ -48,6 +47,10 @@ function BgDecisionFlow({
 }) {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
+  const { rate: bgRate } = useCostMedianRate(
+    "bg",
+    ctx.serverConfig.cost_models.bg,
+  );
 
   const presenter: CachePresenter<BgCandidateMeta> = {
     renderPreview: (key) => (
@@ -93,7 +96,7 @@ function BgDecisionFlow({
         )}
       </div>
     ),
-    costForScene: (_sceneIdx) => IMAGEN_COST_PER_IMAGE,
+    costForScene: (_sceneIdx) => bgRate?.usd_per_unit ?? null,
     contextForScene: (_sceneIdx): SceneContext => ({}),
     renderSceneExtras: (sceneIdx) => {
       const scene = sp.scenes[sceneIdx];
@@ -133,7 +136,14 @@ function BgDecisionFlow({
 function BgResultsView() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
-  const totalCost = sp.scenes.length * IMAGEN_COST_PER_IMAGE;
+  const { rate: bgRate } = useCostMedianRate(
+    "bg",
+    ctx.serverConfig.cost_models.bg,
+  );
+  const totalCost =
+    bgRate?.usd_per_unit != null
+      ? sp.scenes.length * bgRate.usd_per_unit
+      : null;
 
   return (
     <div>
@@ -147,11 +157,15 @@ function BgResultsView() {
   );
 }
 
+function _formatBgCost(usd: number | null): string {
+  return usd == null ? "履歴不足" : `$${usd.toFixed(2)}`;
+}
+
 function BulkBGRegenBar({
   totalCost,
   sceneCount,
 }: {
-  totalCost: number;
+  totalCost: number | null;
   sceneCount: number;
 }) {
   const ctx = useShellCtx();
@@ -183,7 +197,7 @@ function BulkBGRegenBar({
           <span className="text-xs text-slate-400">
             {sceneCount}枚 ・合計コスト{" "}
             <span className="text-amber-300 font-mono">
-              ${totalCost.toFixed(2)}
+              {_formatBgCost(totalCost)}
             </span>
           </span>
           {!confirming ? (
@@ -207,7 +221,7 @@ function BulkBGRegenBar({
                 disabled={running}
                 onClick={onResetToScan}
               >
-                本当に ${totalCost.toFixed(2)} 使う
+                本当に {_formatBgCost(totalCost)} 使う
               </button>
             </>
           )}

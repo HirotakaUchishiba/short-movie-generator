@@ -2,22 +2,12 @@ import os
 
 import requests
 import config
+from cost_tracking import pricebook as _pricebook
 
 API_BASE = "https://api.elevenlabs.io/v1"
 MODEL_ID = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
 
 MODELS_WITHOUT_CONTEXT = {"eleven_v3"}
-
-MODEL_CREDIT_MULTIPLIERS = {
-    "eleven_v3": 2.0,
-    "eleven_multilingual_v2": 1.0,
-    "eleven_multilingual_v1": 1.0,
-    "eleven_monolingual_v1": 1.0,
-    "eleven_turbo_v2_5": 0.5,
-    "eleven_turbo_v2": 0.5,
-    "eleven_flash_v2_5": 0.33,
-    "eleven_flash_v2": 0.33,
-}
 
 # UIから選択可能なモデルを制限する。
 # v2 は [delivery] タグをそのまま音声化してしまうため除外。
@@ -26,8 +16,19 @@ ALLOWED_MODELS = {"eleven_v3"}
 
 
 def credit_multiplier(model_id: str | None = None) -> float:
-    """指定モデルの 1文字あたり credits 消費係数を返す。未知モデルは 1.0。"""
-    return MODEL_CREDIT_MULTIPLIERS.get(model_id or MODEL_ID, 1.0)
+    """指定モデルの 1文字あたり credits 消費係数を pricebook から返す。
+
+    pricebook 未登録モデルは 1.0 にフォールバック (= 課金しないモデル相当)。
+    """
+    target = model_id or MODEL_ID
+    try:
+        return float(
+            _pricebook.get_unit_prices("elevenlabs", target).get(
+                "credit_multiplier", 1.0,
+            )
+        )
+    except (KeyError, FileNotFoundError):
+        return 1.0
 
 
 def set_model(model_id: str) -> None:
@@ -41,10 +42,13 @@ def set_model(model_id: str) -> None:
 
 
 def available_models() -> list[dict]:
-    """UIから切替可能なモデル一覧 (ALLOWED_MODELSのみ)。"""
+    """UIから切替可能なモデル一覧 (ALLOWED_MODELS のみ、単価は pricebook から)。"""
     return [
-        {"id": m, "credit_multiplier": MODEL_CREDIT_MULTIPLIERS.get(m, 1.0),
-         "supports_context": m not in MODELS_WITHOUT_CONTEXT}
+        {
+            "id": m,
+            "credit_multiplier": credit_multiplier(m),
+            "supports_context": m not in MODELS_WITHOUT_CONTEXT,
+        }
         for m in sorted(ALLOWED_MODELS)
     ]
 

@@ -247,7 +247,7 @@ python3 scripts/analyze_video.py path/to/reference.mov --instructions "TikTok UI
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
 - librosa で各phraseの pitch/rms/wpm を抽出
 - 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・匿名 speaker_N のみ、ビジュアル要素は scene 個別フィールド + speaker_to_ref で後段に注入)。詳細は `docs/abstract-screenplay-design.md`
-- 所要コスト: 約250〜400円/本（フレーム数に応じて変動）
+- 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
 ## 感情→TTS/モーション自動適用

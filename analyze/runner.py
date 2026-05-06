@@ -10,9 +10,13 @@
 import logging
 import threading
 import time
+from dataclasses import asdict
 
+import video_analyzer
 from analyze import cost, job, pipeline, progress
 from analyze.pipeline import AnalyzeCancelled, AnalyzeOptions, default_output_path
+from cost_tracking import estimator as cost_estimator
+from cost_tracking import recorder as cost_recorder
 
 logger = logging.getLogger(__name__)
 
@@ -124,6 +128,20 @@ def _run_job_impl(job_id: str) -> None:
                 job.skip_phase(job_id, phase)
             except Exception:
                 logger.exception("skip_phase failed: %s/%s", job_id, phase)
+        elif event == "claude_usage":
+            input_tokens = data.get("input_tokens")
+            output_tokens = data.get("output_tokens")
+            if input_tokens is not None and output_tokens is not None:
+                try:
+                    rec = cost_recorder.record_analyze(
+                        project_ts=job_id,
+                        model=video_analyzer.ANALYZER_MODEL,
+                        input_tokens=int(input_tokens),
+                        output_tokens=int(output_tokens),
+                    )
+                    job.update_job(job_id, actual_cost_usd=rec.cost_usd)
+                except Exception:
+                    logger.exception("cost recording failed (analyze): %s", job_id)
         progress.publish(job_id, event, data)
 
     def cancel_token() -> bool:
@@ -133,24 +151,31 @@ def _run_job_impl(job_id: str) -> None:
                    shot_count: int, known_furigana_count: int) -> bool:
         """Claude 呼び出し直前。awaiting_confirm に遷移して confirm を待つ。
 
-        confirm = job.transition_status(job_id, "running")  (preview_server の
-                                                             confirm endpoint)
-        cancel  = job.request_cancellation(job_id)          (DELETE endpoint)
-        timeout = _wait_for_confirm が CostGateTimeout を raise
+        token 数は ``analyze.cost.estimate_tokens`` で概算し、USD 換算は
+        実コスト履歴から ``cost_tracking.estimator.estimate_analyze`` で算定する
+        (= 履歴不足なら ``cost_usd`` は ``None``)。
         """
-        estimate = cost.estimate(
+        tokens = cost.estimate_tokens(
             frame_count=frame_count,
             transcript=transcript,
             shot_count=shot_count,
             known_furigana_count=known_furigana_count,
         )
+        estimate = cost_estimator.estimate_analyze(
+            input_tokens=tokens["input_tokens"],
+            output_tokens=tokens["output_tokens"],
+            model=video_analyzer.ANALYZER_MODEL,
+        )
         job.transition_status(
             job_id, "awaiting_confirm",
-            estimated_cost_usd=estimate["cost_usd"],
+            estimated_cost_usd=estimate.cost_usd,
         )
         progress.publish(job_id, "dryrun_complete", {
             "frame_count": frame_count,
-            **estimate,
+            "input_tokens": tokens["input_tokens"],
+            "output_tokens": tokens["output_tokens"],
+            "token_breakdown": tokens["breakdown"],
+            **asdict(estimate),
         })
         return _wait_for_confirm(job_id)
 
@@ -168,7 +193,6 @@ def _run_job_impl(job_id: str) -> None:
         finished = job.transition_status(
             job_id, "completed",
             screenplay_path=out_path,
-            actual_cost_usd=job.get_job(job_id).estimated_cost_usd,
         )
         progress.publish(job_id, "completed", {
             "output_path": out_path,

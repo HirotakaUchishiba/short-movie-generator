@@ -16,10 +16,16 @@ import bg_cache
 import imagen_client
 import kling_cache
 import lipsync_client
+from cost_tracking import recorder as cost_recorder
 
 SCREENPLAY_TEXT_SEPARATOR = "  "  # 半角スペース×2: line間/scene間の区切り
 
 logger = logging.getLogger(__name__)
+
+
+def _project_ts(temp_dir: str) -> str:
+    """``temp/<TS>/...`` 規約から TS 文字列を抽出 (cost 記録用)。"""
+    return os.path.basename(temp_dir.rstrip(os.sep))
 
 BG_PARALLEL_WORKERS = 4
 
@@ -802,6 +808,15 @@ def _generate_single_background(scene_idx: int, scene: dict, temp_dir: str,
     logger.info("%s 生成中 (参照キャラ: %d枚)", bg_key, len(refs))
     imagen_client.generate_image(full_prompt, path, reference_images=refs or None)
     logger.info("%s → %s", bg_key, path)
+    try:
+        cost_recorder.record_imagen(
+            project_ts=_project_ts(temp_dir),
+            model=imagen_client.MODEL,
+            scene_index=scene_idx,
+            operation="regenerate" if force_fresh else "generate",
+        )
+    except Exception:
+        logger.exception("cost recording failed (bg, scene=%d)", scene_idx)
     if cache_key:
         scene["_bg_cache_hit"] = False
         scene["_bg_cache_key"] = cache_key
@@ -1561,6 +1576,14 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
             language=config.LANGUAGE,
             keep_whitespace=True,
         )
+        try:
+            cost_recorder.record_tts(
+                project_ts=_project_ts(ts_path),
+                model=elevenlabs_client.MODEL_ID,
+                characters=len(full_text),
+            )
+        except Exception:
+            logger.exception("cost recording failed (tts one-shot)")
 
     # per-line audio + scene audio を 既存tts_full.mp3 から再構築
     # (silenceremove + atempo は per-line で適用)
@@ -1845,6 +1868,16 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
             _generate_kling(bg_path, anim_prompt, kling_duration,
                             kling_raw_path, scene_idx)
             scene["_kling_cache_hit"] = False
+            try:
+                cost_recorder.record_kling(
+                    project_ts=_project_ts(temp_dir),
+                    model=fal_video_client.MODEL_ID,
+                    duration_sec=kling_duration,
+                    scene_index=scene_idx,
+                    operation="regenerate" if force_fresh else "generate",
+                )
+            except Exception:
+                logger.exception("cost recording failed (kling, scene=%d)", scene_idx)
             # 生成に成功したら cache に store する (idempotent)
             try:
                 inputs = _scene_kling_inputs(
@@ -2058,6 +2091,17 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
             logger.info("シーン%d リップシンク処理中 (%s)",
                         scene_idx + 1, config.LIPSYNC_PROVIDER)
             lipsync_client.apply(video_path, audio_path, final_path)
+            if config.LIPSYNC_PROVIDER == "syncso":
+                try:
+                    cost_recorder.record_lipsync(
+                        project_ts=_project_ts(temp_dir),
+                        model=config.SYNCSO_LIPSYNC_MODEL,
+                        duration_sec=audio_dur,
+                        scene_index=scene_idx,
+                    )
+                except Exception:
+                    logger.exception(
+                        "cost recording failed (lipsync, scene=%d)", scene_idx)
         else:
             _replace_audio(video_path, audio_path, final_path)
 

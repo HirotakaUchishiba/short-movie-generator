@@ -686,7 +686,8 @@ LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
 LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "syncso")
 LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")  # fal-sync 用
 LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")     # 各 provider 共通
-LIPSYNC_COST_PER_SECOND = 0.05
+# コスト単価は data/pricebook.json で管理し、実コストは cost_tracking モジュールが
+# data/cost_records.jsonl に記録する (= ハードコード単価は廃止)。
 
 # DomoAI talking-avatar 用
 DOMOAI_BASE_URL = os.getenv("DOMOAI_BASE_URL", "https://api.domoai.com/v1")

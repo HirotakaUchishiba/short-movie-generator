@@ -6,7 +6,7 @@ interface Props {
   decidedCount: number;
   totalCount: number;
   candidatesCount: number;
-  totalFreshCost: number;
+  totalFreshCost: number | null;
   scanning: boolean;
   busy: boolean;
   onRescan: () => Promise<void>;
@@ -47,7 +47,9 @@ export default function BulkDecisionBar({
           <p className="text-xs text-slate-400 mt-1">
             新規生成予定の合計コスト:{" "}
             <span className="text-rose-300 font-mono">
-              ${totalFreshCost.toFixed(2)}
+              {totalFreshCost == null
+                ? "履歴不足"
+                : `$${totalFreshCost.toFixed(2)}`}
             </span>
           </p>
         </div>
