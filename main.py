@@ -116,9 +116,11 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
         logger.exception("stage実行エラー: %s", e)
         sys.exit(1)
 
-    if executed == "final":
+    if executed == "overlay":
         logger.info(
-            "動画完成しました。CapCut で編集後 `--import-final <path>` で取り込んでください",
+            "字幕焼き込み + pipeline raw 出力完了。プレビューUIで確認後、"
+            "CapCut 編集を経て `--import-final <path>` で取り込んでください: %s",
+            _ui_url(ts),
         )
     else:
         logger.info(

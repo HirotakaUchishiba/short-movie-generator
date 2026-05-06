@@ -14,7 +14,7 @@ export default function StageScene() {
   return (
     <StageGate
       stage="scene"
-      title="Stage 5+6: シーン動画 (音声+リップシンク)"
+      title="Stage 5+6: 音声/リップシンク合成"
       description="Stage 4 のKling動画 + Stage 2 のTTS音声を合成しリップシンクを適用します。TTSは Stage 2 で確定済みなのでここでは編集できません。"
       needsRunFirst
     >

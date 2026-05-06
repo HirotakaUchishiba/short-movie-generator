@@ -5,7 +5,6 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
-  | "final"
   | "final_import"
   | "publish";
 

@@ -3,7 +3,7 @@ import os
 from datetime import datetime
 
 STAGES = [
-    "script", "tts", "bg", "kling", "scene", "overlay", "final",
+    "script", "tts", "bg", "kling", "scene", "overlay",
     "final_import", "publish",
 ]
 # CLI / UI から自動 run_next で起動できないステージ。ユーザの外部アクション

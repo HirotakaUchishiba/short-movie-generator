@@ -169,7 +169,7 @@ def test_apply_progress_reset_correctly(project, monkeypatch) -> None:
     assert pg["stages"]["tts"]["generated_at"] is not None
     assert pg["stages"]["tts"]["approved_at"] is None
     # bg 以降: 全 reset
-    for stage in ["bg", "kling", "scene", "overlay", "final"]:
+    for stage in ["bg", "kling", "scene", "overlay"]:
         assert pg["stages"][stage]["generated_at"] is None
         assert pg["stages"][stage]["approved_at"] is None
 

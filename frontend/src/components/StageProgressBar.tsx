@@ -6,9 +6,8 @@ const STAGES: { key: StageName; label: string }[] = [
   { key: "tts", label: "2.TTS" },
   { key: "bg", label: "3.背景" },
   { key: "kling", label: "4.Kling" },
-  { key: "scene", label: "5+6.シーン" },
+  { key: "scene", label: "5+6.音声/リップシンク合成" },
   { key: "overlay", label: "7.字幕" },
-  { key: "final", label: "完成" },
   { key: "final_import", label: "8.取込" },
   { key: "publish", label: "9.公開" },
 ];

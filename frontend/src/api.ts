@@ -531,9 +531,6 @@ export function sceneAudioAssetUrl(
 export function overlayAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/overlay`, version);
 }
-export function finalAssetUrl(ts: string, version?: number | string): string {
-  return withVersion(`${API_BASE}/asset/${ts}/final`, version);
-}
 export function finalVersionAssetUrl(
   ts: string,
   filename: string,

@@ -349,8 +349,12 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
     logger.info("[Stage 5+6] シーン動画完成 — %d本", len(paths))
 
 
-def run_overlay(screenplay: dict, ts_path: str) -> None:
-    """Stage 7: シーン連結 + 字幕焼き込み。"""
+def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
+    """Stage 7: シーン連結 + 字幕焼き込み + 最終出力配置。
+
+    pipeline raw である ``output/reels_<TS>.mp4`` と SNS 投稿キャプション、
+    Stage 8 (final_import) 用の drop folder までこの stage で生成する。
+    """
     _ensure_prev_approved("scene", ts_path)
     scene_videos = scene_gen.collect_scene_videos(screenplay, ts_path)
     scene_durations = [float(s["duration"]) for s in screenplay["scenes"]]
@@ -360,30 +364,17 @@ def run_overlay(screenplay: dict, ts_path: str) -> None:
         os.remove(overlaid)
     _apply_overlays(merged, screenplay, ts_path, overlaid,
                       scene_videos=scene_videos)
-    progress_store.mark_generated(ts_path, "overlay")
-    logger.info("[Stage 7] 字幕焼き込み完了")
-
-
-def run_final(screenplay: dict, screenplay_name: str, ts_path: str) -> str:
-    """最終: 出力配置 + キャプション。"""
-    _ensure_prev_approved("overlay", ts_path)
-    overlaid = os.path.join(ts_path, "overlaid.mp4")
-    if not os.path.exists(overlaid):
-        raise FileNotFoundError(f"overlaid.mp4が見つかりません: {overlaid}")
 
     ts = os.path.basename(ts_path)
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     shutil.copyfile(overlaid, output_path)
-
     caption_path = generate_post_captions(screenplay, screenplay_name, output_path)
-    progress_store.mark_generated(ts_path, "final")
-    progress_store.mark_approved(ts_path, "final")
 
     # Stage 8 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
     os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
 
-    # cache promote: 最終納品まで到達した = 高信頼な素材として将来の hit
+    # cache promote: pipeline raw まで生成完了 = 高信頼な素材として将来の hit
     # 候補に格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
         try:
@@ -391,9 +382,9 @@ def run_final(screenplay: dict, screenplay_name: str, ts_path: str) -> str:
         except Exception as e:
             logger.warning("%s promote failed: %s", module, e)
 
-    logger.info("[最終] 完成: %s", output_path)
+    progress_store.mark_generated(ts_path, "overlay")
+    logger.info("[Stage 7] 字幕焼き込み完了 — %s", output_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
-    return output_path
 
 
 def _promote_cache_entries(ts_path: str, stage: str, module_name: str) -> None:
@@ -434,31 +425,21 @@ STAGE_RUNNERS = {
 def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str | None:
     """次に実行すべきstageを1つだけ実行する。
 
-    - 全 generate 系 stage が完了 (overlay 承認済み) なら final を実行
     - final_import / publish はユーザの外部アクション (CapCut 取り込み /
       プラットフォーム公開) で発火するため、ここでは実行せず None を返す
     - すでに全完了なら None
     """
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
-        if not progress_store.is_approved(ts_path, "overlay"):
-            return None
-        if not progress_store.is_generated(ts_path, "final"):
-            run_final(screenplay, screenplay_name, ts_path)
-            return "final"
         return None
 
     if nxt in progress_store.EXTERNAL_ACTION_STAGES:
         return None
 
-    if nxt == "final":
-        run_final(screenplay, screenplay_name, ts_path)
-        return "final"
-
     runner = STAGE_RUNNERS.get(nxt)
     if not runner:
         raise RuntimeError(f"unknown stage: {nxt}")
-    if nxt == "script":
+    if nxt in ("script", "overlay"):
         runner(screenplay, screenplay_name, ts_path)
     else:
         runner(screenplay, ts_path)
@@ -587,11 +568,12 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
 
 def regen(stage: str, screenplay: dict, ts_path: str,
           scene_idx: int | None = None, line_idx: int | None = None,
-          force: bool = True) -> None:
+          force: bool = True, screenplay_name: str | None = None) -> None:
     """指定stage・scene・lineの単独再生成。承認をリセット。
 
     force=False (TTSのみ): text_hash不変ならAPIスキップでaudio再構築のみ。
     bg / kling / scene で scene_idx=None の場合は全シーン一括再生成。
+    overlay は screenplay_name 必須 (= post caption ファイル名に使う)。
     """
     n_scenes = len(screenplay.get("scenes") or [])
     if stage == "tts":
@@ -615,7 +597,9 @@ def regen(stage: str, screenplay: dict, ts_path: str,
         else:
             scene_gen.regen_scene_video(scene_idx, screenplay, ts_path)
     elif stage == "overlay":
-        run_overlay(screenplay, ts_path)
+        if screenplay_name is None:
+            raise ValueError("overlay 再生成には screenplay_name が必要です")
+        run_overlay(screenplay, screenplay_name, ts_path)
     else:
         raise ValueError(f"このstageは個別再生成に対応していません: {stage}")
     progress_store.increment_regen(ts_path, stage)

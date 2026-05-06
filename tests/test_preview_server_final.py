@@ -64,8 +64,6 @@ def app(tmp_path, monkeypatch):
     for s in ["script", "tts", "bg", "kling", "scene", "overlay"]:
         progress_store.mark_generated(str(ts_path), s)
         progress_store.mark_approved(str(ts_path), s)
-    progress_store.mark_generated(str(ts_path), "final")
-    progress_store.mark_approved(str(ts_path), "final")
 
     cap = Path(config.POST_CAPTIONS_DIR) / "x.md"
     cap.write_text("# x\n\n本文\n#tag1 #tag2\n")
