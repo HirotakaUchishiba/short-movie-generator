@@ -6,6 +6,7 @@ fal-client>=0.13.0
 flask>=3.0.0
 jsonschema>=4.20.0
 pytest>=8.0.0
+watchdog>=4.0.0  # Stage 8 final/ ドロップ検知
 
 # 動画分析 (scripts/analyze_video.py)
 openai>=1.30.0

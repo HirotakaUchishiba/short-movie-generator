@@ -1,0 +1,200 @@
+import json
+import os
+import shutil
+import subprocess
+from pathlib import Path
+
+import pytest
+
+import config
+import progress_store
+import staged_pipeline
+from final_import import core as fi
+
+
+def _make_overlay_approved_project(tmp_path: Path, ts: str) -> Path:
+    """`temp/<ts>/` を作って overlay まで承認済み + final 生成済みの状態にする。"""
+    temp_dir = tmp_path / "temp" / ts
+    temp_dir.mkdir(parents=True)
+    (temp_dir / "metadata.json").write_text(json.dumps({
+        "screenplay_name": "x.json",
+        "screenplay_path": "screenplay.json",
+        "screenplay_sha256": "x" * 64,
+        "created_at": "2026-05-06T00:00:00",
+    }))
+    for s in ["script", "tts", "bg", "kling", "scene", "overlay"]:
+        progress_store.mark_generated(str(temp_dir), s)
+        progress_store.mark_approved(str(temp_dir), s)
+    progress_store.mark_generated(str(temp_dir), "final")
+    progress_store.mark_approved(str(temp_dir), "final")
+    return temp_dir
+
+
+def _make_dummy_mp4(path: Path, duration: float = 1.0) -> None:
+    """ffmpeg で短い無音 mp4 を生成する。"""
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", f"color=c=black:s=64x64:d={duration}",
+        "-f", "lavfi", "-i", f"anullsrc=cl=mono:r=8000:d={duration}",
+        "-c:v", "libx264", "-preset", "ultrafast", "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-shortest", str(path),
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def _ffmpeg_available() -> bool:
+    return shutil.which("ffmpeg") is not None and shutil.which("ffprobe") is not None
+
+
+pytestmark = pytest.mark.skipif(
+    not _ffmpeg_available(),
+    reason="ffmpeg/ffprobe が必要なテスト",
+)
+
+
+@pytest.fixture
+def project(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "TEMP_DIR", str(tmp_path / "temp"))
+    monkeypatch.setattr(config, "OUTPUT_DIR", str(tmp_path / "output"))
+    Path(config.OUTPUT_DIR).mkdir(parents=True, exist_ok=True)
+    ts = "20260506_120000"
+    ts_path = _make_overlay_approved_project(tmp_path, ts)
+    return ts, str(ts_path)
+
+
+def test_progress_store_has_new_stages():
+    assert "final_import" in progress_store.STAGES
+    assert "publish" in progress_store.STAGES
+    assert "final_import" in progress_store.EXTERNAL_ACTION_STAGES
+    assert "publish" in progress_store.EXTERNAL_ACTION_STAGES
+
+
+def test_import_final_creates_canonical(project, tmp_path):
+    ts, ts_path = project
+    src = tmp_path / "capcut.mp4"
+    _make_dummy_mp4(src, duration=2.0)
+
+    v = fi.import_final(ts, src, source="cli", skip_fingerprint=True)
+    assert v.is_canonical is True
+    assert v.size_bytes > 0
+    assert v.duration_sec is not None and v.duration_sec > 0
+    assert v.source == "cli"
+
+    final_d = fi.final_dir(ts_path)
+    assert (final_d / v.filename).exists()
+    assert progress_store.is_generated(ts_path, "final_import")
+
+
+def test_import_final_requires_overlay_approval(tmp_path, monkeypatch):
+    monkeypatch.setattr(config, "TEMP_DIR", str(tmp_path / "temp"))
+    monkeypatch.setattr(config, "OUTPUT_DIR", str(tmp_path / "output"))
+    ts = "20260506_130000"
+    ts_path = tmp_path / "temp" / ts
+    ts_path.mkdir(parents=True)
+    (ts_path / "metadata.json").write_text("{}")
+    src = tmp_path / "x.mp4"
+    _make_dummy_mp4(src, duration=1.0)
+    with pytest.raises(RuntimeError, match="overlay"):
+        fi.import_final(ts, src, skip_fingerprint=True)
+
+
+def test_import_final_rejects_unknown_extension(project, tmp_path):
+    ts, _ = project
+    src = tmp_path / "weird.mkv"
+    src.write_bytes(b"x")
+    with pytest.raises(ValueError, match="unsupported"):
+        fi.import_final(ts, src, skip_fingerprint=True)
+
+
+def test_import_final_multiple_versions_canonical_is_latest(project, tmp_path):
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1, duration=1.0)
+    _make_dummy_mp4(src2, duration=2.0)
+
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    assert v1.filename != v2.filename
+
+    versions = fi.list_final_versions(ts_path)
+    assert len(versions) == 2
+    canonical_filenames = [v.filename for v in versions if v.is_canonical]
+    assert canonical_filenames == [v2.filename]
+
+
+def test_import_final_resets_approval_on_new_version(project, tmp_path):
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    _make_dummy_mp4(src1, duration=1.0)
+    fi.import_final(ts, src1, skip_fingerprint=True)
+    progress_store.mark_approved(ts_path, "final_import")
+    assert progress_store.is_approved(ts_path, "final_import")
+
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src2, duration=2.0)
+    fi.import_final(ts, src2, skip_fingerprint=True)
+    assert not progress_store.is_approved(ts_path, "final_import")
+
+
+def test_set_canonical_final(project, tmp_path):
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1)
+    _make_dummy_mp4(src2)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    fi.import_final(ts, src2, skip_fingerprint=True)
+
+    fi.set_canonical_final(ts_path, v1.filename)
+    canonical = [v for v in fi.list_final_versions(ts_path) if v.is_canonical]
+    assert len(canonical) == 1
+    assert canonical[0].filename == v1.filename
+
+
+def test_delete_canonical_promotes_latest_remaining(project, tmp_path):
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1)
+    _make_dummy_mp4(src2)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    assert v2.is_canonical
+
+    fi.delete_final_version(ts_path, v2.filename)
+    versions = fi.list_final_versions(ts_path)
+    assert len(versions) == 1
+    assert versions[0].filename == v1.filename
+    assert versions[0].is_canonical
+
+
+def test_delete_all_resets_progress(project, tmp_path):
+    ts, ts_path = project
+    src = tmp_path / "a.mp4"
+    _make_dummy_mp4(src)
+    v = fi.import_final(ts, src, skip_fingerprint=True)
+    assert progress_store.is_generated(ts_path, "final_import")
+
+    fi.delete_final_version(ts_path, v.filename)
+    assert not progress_store.is_generated(ts_path, "final_import")
+
+
+def test_resolve_canonical_falls_back_to_pipeline_raw(project, tmp_path):
+    ts, ts_path = project
+    raw = Path(config.OUTPUT_DIR) / f"reels_{ts}.mp4"
+    raw.write_bytes(b"fake")
+    resolved = fi.resolve_canonical_video(ts_path)
+    assert resolved == raw
+
+
+def test_resolve_canonical_prefers_final(project, tmp_path):
+    ts, ts_path = project
+    raw = Path(config.OUTPUT_DIR) / f"reels_{ts}.mp4"
+    raw.write_bytes(b"fake")
+    src = tmp_path / "capcut.mp4"
+    _make_dummy_mp4(src)
+    v = fi.import_final(ts, src, skip_fingerprint=True)
+    resolved = fi.resolve_canonical_video(ts_path)
+    assert resolved.name == v.filename
+    assert resolved.parent == fi.final_dir(ts_path)

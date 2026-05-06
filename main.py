@@ -1,5 +1,5 @@
 #!/usr/bin/env python3
-import json
+import argparse
 import logging
 import os
 import sys
@@ -14,48 +14,65 @@ log_setup.setup()
 logger = logging.getLogger(__name__)
 
 
-def _print_usage() -> None:
-    print("使い方:")
-    print("  python main.py <台本>                次stageを1つだけ実行 (新規TS自動生成)")
-    print("  python main.py <台本> --resume <TS>  既存TSの次stageを実行")
-    print(f"\n台本ディレクトリ: {config.SCREENPLAYS_DIR}")
-    if os.path.isdir(config.SCREENPLAYS_DIR):
-        names = sorted(f for f in os.listdir(config.SCREENPLAYS_DIR) if f.endswith(".json"))
-        if names:
-            print("利用可能な台本:")
-            for n in names:
-                print(f"  - {n}")
-    sys.exit(1)
+def _build_parser() -> argparse.ArgumentParser:
+    p = argparse.ArgumentParser(
+        prog="main.py",
+        description="段階的ゲート方式の動画パイプライン CLI",
+    )
+    p.add_argument("screenplay_name", nargs="?",
+                   help="台本ファイル名 (拡張子省略可)")
+    p.add_argument("--resume", dest="resume_ts", metavar="TS",
+                   help="既存 TS の次 stage を実行")
+
+    g = p.add_argument_group("Stage 8 / 9 (CapCut 取込 + 公開)")
+    g.add_argument("--import-final", dest="import_final", metavar="PATH",
+                   help="CapCut 出力を Stage 8 に取り込む")
+    g.add_argument("--list-finals", dest="list_finals", action="store_true",
+                   help="このプロジェクトの final 取込履歴を表示")
+    g.add_argument("--canonical", metavar="FILENAME",
+                   help="--list-finals の中から canonical を切替える")
+    g.add_argument("--no-fingerprint", action="store_true",
+                   help="--import-final 時に音声指紋検証をスキップ")
+    g.add_argument("--publish", choices=["youtube", "instagram", "tiktok"],
+                   help="canonical な final をプラットフォームに公開")
+    g.add_argument("--privacy", choices=["private", "unlisted", "public"],
+                   default="private",
+                   help="--publish youtube の公開範囲 (既定: private)")
+    return p
 
 
-def _parse_args() -> dict:
-    args = {"screenplay_name": None, "resume_ts": None}
-    positional: list[str] = []
-    i = 1
-    while i < len(sys.argv):
-        a = sys.argv[i]
-        if a == "--resume" and i + 1 < len(sys.argv):
-            args["resume_ts"] = sys.argv[i + 1]
-            i += 2
-        else:
-            positional.append(a)
-            i += 1
-    if positional:
-        args["screenplay_name"] = positional[0]
-    return args
+def _print_screenplays() -> None:
+    if not os.path.isdir(config.SCREENPLAYS_DIR):
+        return
+    names = sorted(f for f in os.listdir(config.SCREENPLAYS_DIR) if f.endswith(".json"))
+    if names:
+        print(f"\n台本ディレクトリ: {config.SCREENPLAYS_DIR}")
+        print("利用可能な台本:")
+        for n in names:
+            print(f"  - {n}")
 
 
 def main() -> None:
-    if len(sys.argv) < 2:
-        _print_usage()
+    parser = _build_parser()
+    args = parser.parse_args()
 
-    args = _parse_args()
-    if not args["screenplay_name"]:
-        _print_usage()
+    if args.import_final or args.list_finals or args.canonical or args.publish:
+        ts = args.resume_ts
+        if not ts:
+            parser.error("--import-final / --list-finals / --canonical / "
+                         "--publish には --resume <TS> が必要です")
+        return _run_stage8_9(args, ts)
 
-    screenplay_name = args["screenplay_name"]
-    ts = args["resume_ts"] or datetime.now().strftime("%Y%m%d_%H%M%S")
+    if not args.screenplay_name:
+        parser.print_help()
+        _print_screenplays()
+        sys.exit(1)
 
+    _run_pipeline(args.screenplay_name, args.resume_ts)
+
+
+def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
+    ts = resume_ts or datetime.now().strftime("%Y%m%d_%H%M%S")
     os.makedirs(config.TEMP_DIR, exist_ok=True)
     ts_path = os.path.join(config.TEMP_DIR, ts)
     os.makedirs(ts_path, exist_ok=True)
@@ -70,10 +87,25 @@ def main() -> None:
         if cur is None:
             logger.info("全stage完了済み — 何もすることがありません")
             return
+        if cur in progress_store.EXTERNAL_ACTION_STAGES:
+            logger.info(
+                "stage '%s' はユーザの外部アクション待ちです — "
+                "`--import-final` / `--publish` を使ってください",
+                cur,
+            )
+            return
         logger.info(
             "stage '%s' は生成済みですが未承認です。"
             "プレビューUIで承認してください: %s",
             cur, _ui_url(ts),
+        )
+        return
+
+    if nxt in progress_store.EXTERNAL_ACTION_STAGES:
+        logger.info(
+            "次 stage '%s' はユーザの外部アクション待ちです — "
+            "`--import-final` / `--publish` を使ってください",
+            nxt,
         )
         return
 
@@ -85,7 +117,9 @@ def main() -> None:
         sys.exit(1)
 
     if executed == "final":
-        logger.info("動画完成しました")
+        logger.info(
+            "動画完成しました。CapCut で編集後 `--import-final <path>` で取り込んでください",
+        )
     else:
         logger.info(
             "stage '%s' 生成完了。プレビューUIで確認・承認してください: %s",
@@ -93,6 +127,63 @@ def main() -> None:
         )
         logger.info("承認後 `python main.py %s --resume %s` で次stage実行",
                     screenplay_name, ts)
+
+
+def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
+    import final_import
+    ts_path = os.path.join(config.TEMP_DIR, ts)
+    if not os.path.isdir(ts_path):
+        logger.error("プロジェクトが見つかりません: %s", ts_path)
+        sys.exit(1)
+
+    if args.list_finals or args.canonical:
+        if args.canonical:
+            try:
+                v = final_import.set_canonical_final(ts_path, args.canonical)
+            except ValueError as e:
+                logger.error(str(e))
+                sys.exit(1)
+            logger.info("canonical 切替: %s", v.filename)
+        versions = final_import.list_final_versions(ts_path)
+        if not versions:
+            logger.info("final バージョンはまだありません")
+            return
+        for v in versions:
+            mark = "★" if v.is_canonical else " "
+            score = f"{v.audio_match_score:.2f}" if v.audio_match_score is not None else "-"
+            print(
+                f"{mark} {v.filename}  imported_at={v.imported_at}  "
+                f"size={v.size_bytes}  duration={v.duration_sec or 0:.1f}s  "
+                f"score={score}  source={v.source}",
+            )
+        return
+
+    if args.import_final:
+        try:
+            v = final_import.import_final(
+                ts, args.import_final, source="cli",
+                skip_fingerprint=args.no_fingerprint,
+            )
+        except (FileNotFoundError, ValueError, RuntimeError) as e:
+            logger.error("取込失敗: %s", e)
+            sys.exit(1)
+        logger.info(
+            "[Stage 8] 取込完了: %s (canonical=%s) → UI で確認後 `--publish` で公開",
+            v.filename, v.is_canonical,
+        )
+        return
+
+    if args.publish:
+        from final_import.publish import publish
+        try:
+            result = publish(
+                ts, args.publish,
+                privacy=args.privacy,
+            )
+        except Exception as e:
+            logger.exception("公開失敗: %s", e)
+            sys.exit(1)
+        logger.info("[Stage 9] 公開完了: %s %s", args.publish, result.get("url") or "")
 
 
 def _ui_url(ts: str) -> str:

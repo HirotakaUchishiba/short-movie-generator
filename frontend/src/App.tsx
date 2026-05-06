@@ -8,6 +8,8 @@ import StageKling from "./components/stages/StageKling";
 import StageScene from "./components/stages/StageScene";
 import StageOverlay from "./components/stages/StageOverlay";
 import StageFinal from "./components/stages/StageFinal";
+import StageFinalImport from "./components/stages/StageFinalImport";
+import StagePublish from "./components/stages/StagePublish";
 import AnalyzePage from "./pages/AnalyzePage";
 
 export default function App() {
@@ -24,6 +26,8 @@ export default function App() {
         <Route path="scene" element={<StageScene />} />
         <Route path="overlay" element={<StageOverlay />} />
         <Route path="final" element={<StageFinal />} />
+        <Route path="final_import" element={<StageFinalImport />} />
+        <Route path="publish" element={<StagePublish />} />
       </Route>
     </Routes>
   );

@@ -5,7 +5,28 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
-  | "final";
+  | "final"
+  | "final_import"
+  | "publish";
+
+// Stage 8 / 9 用の型
+export interface FinalVersion {
+  filename: string;
+  imported_at: string;
+  duration_sec: number | null;
+  size_bytes: number;
+  audio_match_score: number | null;
+  source: "watch" | "ui" | "cli";
+  is_canonical: boolean;
+}
+
+export interface PublishedPost {
+  platform: "youtube" | "instagram" | "tiktok";
+  video_id: string | null;
+  url: string | null;
+  manual: boolean;
+  published_at: string;
+}
 
 export interface StageStatus {
   generated_at: string | null;

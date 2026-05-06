@@ -380,6 +380,9 @@ def run_final(screenplay: dict, screenplay_name: str, ts_path: str) -> str:
     progress_store.mark_generated(ts_path, "final")
     progress_store.mark_approved(ts_path, "final")
 
+    # Stage 8 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
+    os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
+
     # cache promote: 最終納品まで到達した = 高信頼な素材として将来の hit
     # 候補に格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
@@ -429,13 +432,24 @@ STAGE_RUNNERS = {
 
 
 def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str | None:
-    """次に実行すべきstageを1つだけ実行する。すでに最終まで完了していれば None を返す。"""
+    """次に実行すべきstageを1つだけ実行する。
+
+    - 全 generate 系 stage が完了 (overlay 承認済み) なら final を実行
+    - final_import / publish はユーザの外部アクション (CapCut 取り込み /
+      プラットフォーム公開) で発火するため、ここでは実行せず None を返す
+    - すでに全完了なら None
+    """
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
         if not progress_store.is_approved(ts_path, "overlay"):
             return None
-        run_final(screenplay, screenplay_name, ts_path)
-        return "final"
+        if not progress_store.is_generated(ts_path, "final"):
+            run_final(screenplay, screenplay_name, ts_path)
+            return "final"
+        return None
+
+    if nxt in progress_store.EXTERNAL_ACTION_STAGES:
+        return None
 
     if nxt == "final":
         run_final(screenplay, screenplay_name, ts_path)

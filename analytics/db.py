@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 3
+CURRENT_SCHEMA_VERSION = 4
 
 
 def _now() -> str:
@@ -46,6 +46,12 @@ def init_db() -> None:
     with get_connection() as conn:
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
+        # 既存 DB の videos に final_* カラムが無い場合に追加 (additive migration)
+        _ensure_column(conn, "videos", "final_imported",
+                       "final_imported INTEGER NOT NULL DEFAULT 0")
+        _ensure_column(conn, "videos", "final_filename", "final_filename TEXT")
+        _ensure_column(conn, "videos", "final_audio_match_score",
+                       "final_audio_match_score REAL")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -54,6 +60,13 @@ def init_db() -> None:
                 (CURRENT_SCHEMA_VERSION, _now()),
             )
     logger.info("analytics DB initialized at %s", _db_path())
+
+
+def _ensure_column(conn: sqlite3.Connection, table: str,
+                   column: str, ddl: str) -> None:
+    cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
+    if column not in cols:
+        conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
 
 
 def _sha256_file(path: str) -> str:
@@ -132,16 +145,24 @@ def update_screenplay_tags(screenplay_id: str, tags: dict) -> None:
 
 def insert_video(video_id: str, screenplay_id: str, output_path: str,
                  duration_sec: float | None = None,
-                 generation_cost_usd: float | None = None) -> None:
+                 generation_cost_usd: float | None = None,
+                 final_imported: bool = False,
+                 final_filename: str | None = None,
+                 final_audio_match_score: float | None = None) -> None:
     with get_connection() as conn:
         conn.execute(
             """INSERT OR REPLACE INTO videos
-               (id, screenplay_id, output_path, duration_sec, generation_cost_usd, generated_at)
-               VALUES (?, ?, ?, ?, ?, ?)""",
+               (id, screenplay_id, output_path, duration_sec, generation_cost_usd,
+                generated_at, final_imported, final_filename,
+                final_audio_match_score)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (video_id, screenplay_id, os.path.abspath(output_path),
-             duration_sec, generation_cost_usd, _now()),
+             duration_sec, generation_cost_usd, _now(),
+             1 if final_imported else 0, final_filename,
+             final_audio_match_score),
         )
-        logger.info("video %s (screenplay=%s) 登録", video_id, screenplay_id)
+        logger.info("video %s (screenplay=%s, final_imported=%s) 登録",
+                    video_id, screenplay_id, final_imported)
 
 
 def register_post(video_id: str, platform: str, platform_post_id: str,

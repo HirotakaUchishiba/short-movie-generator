@@ -9,6 +9,8 @@ const STAGES: { key: StageName; label: string }[] = [
   { key: "scene", label: "5+6.シーン" },
   { key: "overlay", label: "7.字幕" },
   { key: "final", label: "完成" },
+  { key: "final_import", label: "8.取込" },
+  { key: "publish", label: "9.公開" },
 ];
 
 export default function StageProgressBar({
