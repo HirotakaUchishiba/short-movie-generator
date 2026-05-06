@@ -1,12 +1,11 @@
 #!/usr/bin/env python3
-"""screenplays/*.json と screenplays/drafts/*.json から廃止フィールドを除去する v3 migration。
+"""screenplays/*.json と screenplays/drafts/*.json から下記フィールドを除去する。
 
-廃止フィールド (feat/abstract-screenplay-phase で削除):
   - root: audio_mode, bgm_path, bgm_volume_db
   - scenes[]: label, emotion_cue_overrides
   - lines[]: silence_after_ms
 
-styles/ や VideoStyle ファイルは対象外 (これらはまた別の schema)。
+styles/ や VideoStyle ファイルは対象外 (別 schema)。
 
 使い方:
     python3 scripts/migrate_screenplay_v3.py            # dry-run

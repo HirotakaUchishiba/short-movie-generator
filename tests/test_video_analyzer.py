@@ -31,7 +31,6 @@ def test_build_screenplay_parses_response(tmp_path) -> None:
 
     body = {
         "caption": "test",
-        "audio_mode": "voiced",
         "scenes": [{
             "duration": 5.0,
             "background_prompt": "bg",

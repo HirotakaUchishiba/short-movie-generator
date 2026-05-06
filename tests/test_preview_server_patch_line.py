@@ -1,9 +1,9 @@
-"""line patch API の単体テスト。
+"""line / scene patch API の単体テスト。
 
-server-side merge により並行 patch が race しないことを検証。
+snapshot は abstract 形式のまま読み書きされる (= live derivation)。
+allowlist は abstract schema に揃う。並行 patch は per-ts lock で直列化。
 """
 import json
-import os
 import threading
 
 import pytest
@@ -14,7 +14,6 @@ import staged_pipeline
 
 @pytest.fixture
 def project(tmp_path, monkeypatch):
-    """temp_dir + screenplay を用意した1プロジェクト。"""
     sp_dir = tmp_path / "screenplays"
     sp_dir.mkdir()
     temp_dir = tmp_path / "temp"
@@ -25,16 +24,16 @@ def project(tmp_path, monkeypatch):
     monkeypatch.setattr(staged_pipeline.config, "SCREENPLAYS_DIR", str(sp_dir))
 
     name = "test_screenplay"
+    # snapshot は abstract 形式 (= 派生フィールド無し) で保持される
     sp = {
         "caption": "x",
         "scenes": [
             {
-                "duration": 3,
-                "background_prompt": "x",
+                "duration": 5,
                 "lines": [
-                    {"text": "line A", "start": 0, "silence_after_ms": 100},
-                    {"text": "line B", "start": 1, "silence_after_ms": 200},
-                    {"text": "line C", "start": 2},
+                    {"text": "line A", "start": 0, "end": 1.0, "rate": "+10%"},
+                    {"text": "line B", "start": 1, "end": 2.0, "rate": "+5%"},
+                    {"text": "line C", "start": 2, "end": 3.0},
                 ],
             },
         ],
@@ -46,8 +45,13 @@ def project(tmp_path, monkeypatch):
     ts_dir = temp_dir / ts
     ts_dir.mkdir()
     with open(ts_dir / "metadata.json", "w") as f:
-        json.dump({"screenplay_name": f"{name}.json"}, f)
-    return {"ts": ts, "name": name, "sp_path": str(sp_dir / f"{name}.json")}
+        json.dump({
+            "screenplay_name": f"{name}.json",
+            "screenplay_path": "screenplay.json",
+        }, f)
+    with open(ts_dir / "screenplay.json", "w") as f:
+        json.dump(sp, f, ensure_ascii=False)
+    return {"ts": ts, "name": name, "sp_path": str(ts_dir / "screenplay.json")}
 
 
 @pytest.fixture
@@ -56,29 +60,82 @@ def client():
     return preview_server.app.test_client()
 
 
-def test_patch_line_updates_single_field(client, project):
+# ─── line patch ──────────────────────────────────────────
+
+
+def test_patch_line_updates_rate(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"silence_after_ms": 999}},
+        json={"patch": {"rate": "+50%"}},
     )
-    assert r.status_code == 200
+    assert r.status_code == 200, r.get_json()
     sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["lines"][0]["silence_after_ms"] == 999
+    assert sp["scenes"][0]["lines"][0]["rate"] == "+50%"
     # 他 line に影響なし
-    assert sp["scenes"][0]["lines"][1]["silence_after_ms"] == 200
-    assert "silence_after_ms" not in sp["scenes"][0]["lines"][2]
+    assert sp["scenes"][0]["lines"][1]["rate"] == "+5%"
+    assert "rate" not in sp["scenes"][0]["lines"][2]
 
 
 def test_patch_line_null_deletes_field(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"silence_after_ms": None}},
+        json={"patch": {"rate": None}},
     )
     assert r.status_code == 200
     sp = json.load(open(project["sp_path"]))
-    assert "silence_after_ms" not in sp["scenes"][0]["lines"][0]
-    # 他は無傷
-    assert sp["scenes"][0]["lines"][1]["silence_after_ms"] == 200
+    assert "rate" not in sp["scenes"][0]["lines"][0]
+
+
+def test_patch_line_rejects_start_end(client, project):
+    """start/end は TTS が SSOT — 手動 patch は 400 で reject。"""
+    for field in ("start", "end"):
+        r = client.patch(
+            f"/api/projects/{project['ts']}/lines/0/1",
+            json={"patch": {field: 0.5}},
+        )
+        assert r.status_code == 400, f"{field} の patch が通った"
+        assert "許可されていない" in r.get_json()["error"]
+    # 元の値は不変
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["lines"][1]["start"] == 1
+    assert sp["scenes"][0]["lines"][1]["end"] == 2.0
+
+
+def test_patch_line_updates_subtitles(client, project):
+    r = client.patch(
+        f"/api/projects/{project['ts']}/lines/0/0",
+        json={"patch": {"subtitles": [
+            {"text": "やばい"},
+            {"text": "セーフ"},
+        ]}},
+    )
+    assert r.status_code == 200, r.get_json()
+    sp = json.load(open(project["sp_path"]))
+    assert len(sp["scenes"][0]["lines"][0]["subtitles"]) == 2
+
+
+def test_patch_line_updates_hidden(client, project):
+    r = client.patch(
+        f"/api/projects/{project['ts']}/lines/0/0",
+        json={"patch": {"hidden": True}},
+    )
+    assert r.status_code == 200
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["lines"][0]["hidden"] is True
+
+
+def test_patch_line_updates_acoustic(client, project):
+    r = client.patch(
+        f"/api/projects/{project['ts']}/lines/0/0",
+        json={"patch": {"acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.5,
+            "wpm": 320,
+        }}},
+    )
+    assert r.status_code == 200, r.get_json()
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["lines"][0]["acoustic"]["pitch_trend"] == "rising"
 
 
 def test_patch_line_rejects_unknown_field(client, project):
@@ -93,25 +150,25 @@ def test_patch_line_rejects_unknown_field(client, project):
 def test_patch_line_rejects_out_of_range(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/99",
-        json={"patch": {"silence_after_ms": 100}},
+        json={"patch": {"rate": "+10%"}},
     )
     assert r.status_code == 400
 
 
 def test_patch_line_validation_failure_rolls_back(client, project):
-    # 範囲外 (max=2000) → validator失敗 → save されない
+    """schema 違反 (= subtitles の text 空) で validator が reject、save されない。"""
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"silence_after_ms": 99999}},
+        json={"patch": {"subtitles": [{"text": ""}]}},
     )
     assert r.status_code == 400
     sp = json.load(open(project["sp_path"]))
-    # 元の値 (100) のまま
-    assert sp["scenes"][0]["lines"][0]["silence_after_ms"] == 100
+    # 元の line には subtitles が入らないまま
+    assert "subtitles" not in sp["scenes"][0]["lines"][0]
 
 
 def test_patch_line_concurrent_updates_preserve_each_other(client, project):
-    """3 line を並行 patch しても全て保存される (server-side merge)。"""
+    """3 line を並行 patch しても全て保存される (per-ts lock + server-side merge)。"""
     barrier = threading.Barrier(3)
     results = [None, None, None]
 
@@ -119,14 +176,14 @@ def test_patch_line_concurrent_updates_preserve_each_other(client, project):
         barrier.wait()
         r = client.patch(
             f"/api/projects/{project['ts']}/lines/0/{idx}",
-            json={"patch": {"silence_after_ms": value}},
+            json={"patch": {"rate": value}},
         )
         results[idx] = r.status_code
 
     threads = [
-        threading.Thread(target=patch_line, args=(0, 1000)),
-        threading.Thread(target=patch_line, args=(1, 1500)),
-        threading.Thread(target=patch_line, args=(2, 500)),
+        threading.Thread(target=patch_line, args=(0, "+10%")),
+        threading.Thread(target=patch_line, args=(1, "+15%")),
+        threading.Thread(target=patch_line, args=(2, "+5%")),
     ]
     for t in threads:
         t.start()
@@ -135,41 +192,69 @@ def test_patch_line_concurrent_updates_preserve_each_other(client, project):
 
     assert all(s == 200 for s in results)
     sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["lines"][0]["silence_after_ms"] == 1000
-    assert sp["scenes"][0]["lines"][1]["silence_after_ms"] == 1500
-    assert sp["scenes"][0]["lines"][2]["silence_after_ms"] == 500
+    assert sp["scenes"][0]["lines"][0]["rate"] == "+10%"
+    assert sp["scenes"][0]["lines"][1]["rate"] == "+15%"
+    assert sp["scenes"][0]["lines"][2]["rate"] == "+5%"
 
 
-def test_tts_source_returns_joined_text_and_specs(client, project):
-    r = client.get(f"/api/projects/{project['ts']}/tts-source")
-    assert r.status_code == 200
-    data = r.get_json()
-    # line A + sep + line B + sep + line C
-    assert data["text"] == "line A  line B  line C"
-    assert data["char_count"] == len("line A  line B  line C")
-    assert data["separator"] == "  "
-    specs = data["line_specs"]
-    assert len(specs) == 3
-    # A: 0..6, B: 8..14, C: 16..22
-    assert specs[0]["char_start"] == 0 and specs[0]["char_end"] == 6
-    assert specs[1]["char_start"] == 8 and specs[1]["char_end"] == 14
-    assert specs[2]["char_start"] == 16 and specs[2]["char_end"] == 22
+def test_patch_line_does_not_bake_derived_fields(client, project):
+    """live derivation: snapshot に派生フィールドは焼かれない。
 
-
-def test_patch_scene_updates_emotion_cue_overrides(client, project):
+    背景プロンプト・animation_prompt・character_refs などは compose が読み出し
+    時に毎回再生成するので、snapshot 上には登場してはいけない。
+    """
     r = client.patch(
-        f"/api/projects/{project['ts']}/scenes/0",
-        json={"patch": {"emotion_cue_overrides": {"facial": "neutral"}}},
+        f"/api/projects/{project['ts']}/lines/0/0",
+        json={"patch": {"rate": "+20%"}},
     )
     assert r.status_code == 200
     sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["emotion_cue_overrides"] == {"facial": "neutral"}
+    scene = sp["scenes"][0]
+    for derived in (
+        "background_prompt", "animation_prompt", "character_refs",
+        "characters", "lipsync",
+    ):
+        assert derived not in scene, f"派生 '{derived}' が snapshot に焼かれた"
 
 
-def test_patch_scene_rejects_invalid_preset_id(client, project):
+# ─── scene patch ─────────────────────────────────────────
+
+
+def test_patch_scene_updates_animation_style(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/scenes/0",
-        json={"patch": {"emotion_cue_overrides": {"facial": "fake_preset"}}},
+        json={"patch": {"animation_style": "expressive"}},
+    )
+    assert r.status_code == 200, r.get_json()
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["animation_style"] == "expressive"
+
+
+def test_patch_scene_updates_character_selection(client, project):
+    """空 list = 0 人 (背景のみ) の意思表示も patch できる。"""
+    r = client.patch(
+        f"/api/projects/{project['ts']}/scenes/0",
+        json={"patch": {"character_selection": []}},
+    )
+    assert r.status_code == 200
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["character_selection"] == []
+
+
+def test_patch_scene_updates_camera_distance(client, project):
+    r = client.patch(
+        f"/api/projects/{project['ts']}/scenes/0",
+        json={"patch": {"camera_distance": "wide"}},
+    )
+    assert r.status_code == 200
+    sp = json.load(open(project["sp_path"]))
+    assert sp["scenes"][0]["camera_distance"] == "wide"
+
+
+def test_patch_scene_rejects_invalid_animation_style(client, project):
+    r = client.patch(
+        f"/api/projects/{project['ts']}/scenes/0",
+        json={"patch": {"animation_style": "wild_invalid"}},
     )
     assert r.status_code == 400
 
@@ -182,33 +267,60 @@ def test_patch_scene_rejects_unknown_field(client, project):
     assert r.status_code == 400
 
 
-def test_patch_scene_updates_tags(client, project):
+def test_patch_scene_rejects_derived_fields(client, project):
+    """派生フィールド (background_prompt 等) は snapshot に焼かない方針なので 400。"""
+    for derived in (
+        "background_prompt", "animation_prompt", "character_refs", "lipsync",
+    ):
+        r = client.patch(
+            f"/api/projects/{project['ts']}/scenes/0",
+            json={"patch": {derived: "x"}},
+        )
+        assert r.status_code == 400, f"派生 '{derived}' が patch を通った"
+
+
+def test_patch_scene_rejects_deprecated_fields(client, project):
+    """廃止フィールド (emotion_cue_overrides / label) は 400。"""
+    for legacy in ("emotion_cue_overrides", "label"):
+        r = client.patch(
+            f"/api/projects/{project['ts']}/scenes/0",
+            json={"patch": {legacy: "x"}},
+        )
+        assert r.status_code == 400, f"廃止 '{legacy}' が patch を通った"
+
+
+def test_patch_scene_rejects_tags(client, project):
+    """scene.tags は scoped_augmentations 廃止に伴い削除済み (allowlist 外)。"""
     r = client.patch(
         f"/api/projects/{project['ts']}/scenes/0",
-        json={"patch": {"tags": ["home_office", "morning"]}},
+        json={"patch": {"tags": ["home_office"]}},
     )
-    assert r.status_code == 200
-    sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["tags"] == ["home_office", "morning"]
+    assert r.status_code == 400
 
 
-def test_patch_screenplay_meta_scoped_augmentations(client, project):
+# ─── screenplay-meta patch ─────────────────────────────
+
+
+def test_patch_screenplay_meta_subtitle_y_from_bottom(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/screenplay-meta",
-        json={
-            "patch": {
-                "scoped_augmentations": [
-                    {
-                        "scope": {"tag": "home_office"},
-                        "elements": ["standing_desk", "plants_background"],
-                    },
-                ],
-            },
-        },
+        json={"patch": {"subtitle_y_from_bottom": 200}},
     )
-    assert r.status_code == 200
+    assert r.status_code == 200, r.get_json()
     sp = json.load(open(project["sp_path"]))
-    assert len(sp["scoped_augmentations"]) == 1
+    assert sp["subtitle_y_from_bottom"] == 200
+
+
+def test_patch_screenplay_meta_rejects_scoped_augmentations(client, project):
+    """scoped_augmentations は廃止済み — patch_screenplay_meta allowlist 外。"""
+    r = client.patch(
+        f"/api/projects/{project['ts']}/screenplay-meta",
+        json={"patch": {"scoped_augmentations": []}},
+    )
+    assert r.status_code == 400
+
+
+# ─── 横断的サニティチェック ─────────────────────────
 
 
 def test_get_presets_returns_libraries(client, project):
@@ -216,6 +328,18 @@ def test_get_presets_returns_libraries(client, project):
     assert r.status_code == 200
     data = r.get_json()
     assert "libraries" in data
-    assert "scene_tags" in data
     assert "facial" in data["libraries"]
-    assert len(data["libraries"]["facial"]) > 10
+
+
+def test_tts_source_returns_joined_text_and_specs(client, project):
+    r = client.get(f"/api/projects/{project['ts']}/tts-source")
+    assert r.status_code == 200
+    data = r.get_json()
+    assert data["text"] == "line A  line B  line C"
+    assert data["char_count"] == len("line A  line B  line C")
+    assert data["separator"] == "  "
+    specs = data["line_specs"]
+    assert len(specs) == 3
+    assert specs[0]["char_start"] == 0 and specs[0]["char_end"] == 6
+    assert specs[1]["char_start"] == 8 and specs[1]["char_end"] == 14
+    assert specs[2]["char_start"] == 16 and specs[2]["char_end"] == 22

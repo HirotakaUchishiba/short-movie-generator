@@ -100,7 +100,8 @@ CREATE TABLE IF NOT EXISTS analyze_jobs (
     error TEXT,
     estimated_cost_usd REAL,
     actual_cost_usd REAL,
-    screenplay_path TEXT,                      -- 完了時の出力パス
+    screenplay_path TEXT,                      -- 完了時の出力パス (compose 後は完全 screenplay)
+    style_name TEXT,                           -- 最後に compose した VideoStyle 名 (Stage 0 の再合成デフォルト値)
     created_at TEXT NOT NULL,
     started_at TEXT,
     finished_at TEXT,

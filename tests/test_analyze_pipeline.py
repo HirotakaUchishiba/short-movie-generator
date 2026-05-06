@@ -151,51 +151,6 @@ def test_normalize_scene_pronunciation_hints_noop_for_clean_screenplay() -> None
     assert _normalize_scene_pronunciation_hints(sp) == 0
 
 
-def test_ensure_min_duration_adjusts_short_scenes() -> None:
-    from analyze.pipeline import _ensure_min_duration
-    sp = {
-        "scenes": [
-            {"duration": 2, "lines": [{"text": "a", "start": 0, "end": 1.5}]},
-            {"duration": 5, "lines": [{"text": "b", "start": 0, "end": 4}]},
-            {"duration": 1.0, "lines": []},
-        ],
-    }
-    n = _ensure_min_duration(sp, min_sec=3.0)
-    assert n == 2
-    assert sp["scenes"][0]["duration"] == 3.0
-    assert sp["scenes"][1]["duration"] == 5
-    assert sp["scenes"][2]["duration"] == 3.0
-
-
-def test_ensure_min_duration_clamps_line_endpoints() -> None:
-    from analyze.pipeline import _ensure_min_duration
-    sp = {
-        "scenes": [
-            {
-                "duration": 2,
-                "lines": [
-                    {"text": "x", "start": 0, "end": 5.0},
-                    {"text": "y", "start": 4.0, "end": 4.5},
-                ],
-            },
-        ],
-    }
-    _ensure_min_duration(sp, min_sec=3.0)
-    assert sp["scenes"][0]["duration"] == 3.0
-    assert sp["scenes"][0]["lines"][0]["end"] == 3.0
-    assert sp["scenes"][0]["lines"][1]["start"] == 3.0
-    assert sp["scenes"][0]["lines"][1]["end"] == 3.0
-
-
-def test_ensure_min_duration_noop_for_valid_screenplay() -> None:
-    from analyze.pipeline import _ensure_min_duration
-    sp = {"scenes": [{"duration": 4}, {"duration": 3.0}]}
-    n = _ensure_min_duration(sp, min_sec=3.0)
-    assert n == 0
-    assert sp["scenes"][0]["duration"] == 4
-    assert sp["scenes"][1]["duration"] == 3.0
-
-
 def test_run_progress_callback_exception_is_swallowed(tmp_path) -> None:
     """progress callback が例外を出してもパイプライン全体は壊れない。"""
     fake_video = tmp_path / "v.mov"

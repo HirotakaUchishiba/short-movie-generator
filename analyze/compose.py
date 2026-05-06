@@ -1,24 +1,29 @@
-"""抽象台本 + VideoStyle → 完全 screenplay の合成 (決定論的)。
+"""抽象台本 → 完全 screenplay の合成 (決定論的)。
 
-抽象台本 (analyze.pipeline が生成) には構成・セリフ・感情・話し方しか入っていない。
-ここで VideoStyle (キャラ + ロケ + 衣装) を当てはめて、screenplay_validator
-strict が通る完全 screenplay を生成する。
+各シーンが自分自身で持つフィールドだけで完結する:
+  - scene.animation_style ("subtle" | "standard" | "expressive")
+  - scene.location_ref (locations/<id>.json)
+  - scene.character_selection (= featured_characters の subset)
 
-合成は決定論的 (テンプレ + 動作キーワードを文字列連結)。Claude を呼ばないので
-コストゼロ・キャッシュ可能・再現性が高い。
+ロケ詳細は locations/<id>.json から、キャラ voice は characters/<id>.json から
+グローバルに引き当てる。
 """
 from __future__ import annotations
 
 import logging
-from dataclasses import asdict
+import re
 from typing import Any
 
-from analyze.style import CharacterDef, VideoStyle
+from analyze import character_meta as cmeta_mod
+from analyze import location as loc_mod
 
 logger = logging.getLogger(__name__)
 
+# raw 匿名 ID (= speaker_1, speaker_2, ...) — frontend collectRawSpeakers と
+# 同じ正規表現で判定する。"speaker_xyz" のような変則値は ref 扱い。
+_RAW_SPEAKER_RE = re.compile(r"^speaker_\d+$", re.IGNORECASE)
 
-# camera_distance ID → 英語 shot ラベル
+
 _CAMERA_LABELS = {
     "close-up": "close-up shot",
     "medium-close": "medium close-up shot",
@@ -26,82 +31,226 @@ _CAMERA_LABELS = {
     "wide": "wide shot",
 }
 
-# animation_style ID → 動きの英語修飾
 _ANIMATION_STYLE_MODIFIERS = {
     "subtle": "with minimal hand movement, mostly facial expression",
     "standard": "with natural hand gestures and body language",
     "expressive": "with energetic gestures and pronounced movement",
 }
 
+DEFAULT_ANIMATION_STYLE = "standard"
 
-def compose_screenplay(
-    abstract: dict,
-    style: VideoStyle,
-    overrides: dict[int, dict[str, Any]] | None = None,
-) -> dict:
-    """抽象台本に VideoStyle を当てて完全 screenplay を生成。
 
-    Args:
-        abstract: pipeline.run() が生成した抽象台本 (caption + scenes[].lines[])
-        style: 適用する VideoStyle
-        overrides: シーン別 override。{scene_idx: {wardrobe?, location_ref?, tags?}}
+def _resolve_speaker_to_ref(
+    raw_speaker: str | None,
+    speaker_to_ref: dict[str, str],
+    available_refs: list[str],
+    fallback_ref: str | None,
+) -> str | None:
+    """abstract の line.speaker (匿名 ID or ref) を ref に解決する。
+
+    優先順位:
+      1. speaker_to_ref に明示マッピングあり → その値
+      2. raw_speaker 自体が available_refs に含まれる ref → そのまま
+      3. raw_speaker が空 (単一キャラ動画) → fallback_ref
+      4. 未解決 → None
+    """
+    if not raw_speaker:
+        return fallback_ref
+    if raw_speaker in speaker_to_ref:
+        return speaker_to_ref[raw_speaker]
+    if raw_speaker in available_refs:
+        return raw_speaker
+    return None
+
+
+def diagnose_abstract(abstract: dict) -> dict:
+    """compose 出力の品質に影響する不整合を抽出する (UI 警告バナー用)。
 
     Returns:
-        screenplay_validator strict を通せる完全 screenplay 辞書
+        {
+          "unmapped_speakers": [str, ...],          # speaker_N で speaker_to_ref に
+                                                     # 載っていないもの
+          "scenes_without_location": [int, ...],    # location_ref 未設定のシーン idx
+          "scenes_without_characters": [int, ...],  # character_selection=[] かつ
+                                                     # speaker からの推論も空のシーン
+          "invalid_camera_distance": [{...}, ...],  # _CAMERA_LABELS にない値
+          "unknown_character_refs": {               # characters/ に存在しない ref
+              "featured": [str, ...],
+              "speaker_to_ref": [{speaker, ref}, ...],
+              "character_selection": [{scene_idx, ref}, ...],
+              "speaker": [{scene_idx, line_idx, ref}, ...],
+          },
+        }
     """
-    overrides = overrides or {}
+    from analyze import character_meta as cmeta_mod
+
+    speaker_to_ref = abstract.get("speaker_to_ref") or {}
+    featured = [str(c) for c in (abstract.get("featured_characters") or []) if c]
+    available_chars = set(cmeta_mod.list_character_images())
+
+    unmapped: set[str] = set()
+    no_location: list[int] = []
+    no_characters: list[int] = []
+    invalid_camera: list[dict] = []
+
+    unknown_refs: dict[str, list] = {
+        "featured": [],
+        "speaker_to_ref": [],
+        "character_selection": [],
+        "speaker": [],
+    }
+
+    def _ref_unknown(ref: object) -> bool:
+        # characters/ が空 (= テスト環境) なら検証スキップ
+        if not available_chars:
+            return False
+        return isinstance(ref, str) and bool(ref) and ref not in available_chars
+
+    for ref in featured:
+        if _ref_unknown(ref):
+            unknown_refs["featured"].append(ref)
+
+    if isinstance(speaker_to_ref, dict):
+        for sp_id, ref in speaker_to_ref.items():
+            if _ref_unknown(ref):
+                unknown_refs["speaker_to_ref"].append(
+                    {"speaker": sp_id, "ref": ref},
+                )
+
+    for s_idx, src in enumerate(abstract.get("scenes") or []):
+        if not src.get("location_ref"):
+            no_location.append(s_idx)
+
+        cd = src.get("camera_distance")
+        if cd is not None and cd not in _CAMERA_LABELS:
+            invalid_camera.append({"scene_idx": s_idx, "value": cd})
+
+        sel = src.get("character_selection")
+        if isinstance(sel, list):
+            for ref in sel:
+                if _ref_unknown(ref):
+                    unknown_refs["character_selection"].append(
+                        {"scene_idx": s_idx, "ref": ref},
+                    )
+
+        for l_idx, line in enumerate(src.get("lines") or []):
+            sp = line.get("speaker")
+            if not sp:
+                continue
+            if isinstance(sp, str) and _RAW_SPEAKER_RE.match(sp):
+                if sp not in speaker_to_ref:
+                    unmapped.add(sp)
+                continue
+            # raw speaker_N+ で無い値は ref として扱われる前提
+            if _ref_unknown(sp):
+                unknown_refs["speaker"].append(
+                    {"scene_idx": s_idx, "line_idx": l_idx, "ref": sp},
+                )
+
+        # シーン人物推論を再現して 0 人になるかチェック
+        if "character_selection" in src:
+            sel = src.get("character_selection") or []
+            if isinstance(sel, list) and len(sel) == 0:
+                no_characters.append(s_idx)
+            continue
+        speakers = {
+            l.get("speaker") for l in src.get("lines") or []
+            if l.get("speaker")
+        }
+        resolved = set()
+        for sp in speakers:
+            ref = speaker_to_ref.get(sp) or (sp if sp in featured else None)
+            if ref:
+                resolved.add(ref)
+        if not resolved and not featured:
+            no_characters.append(s_idx)
+
+    return {
+        "unmapped_speakers": sorted(unmapped),
+        "scenes_without_location": no_location,
+        "scenes_without_characters": no_characters,
+        "invalid_camera_distance": invalid_camera,
+        "unknown_character_refs": unknown_refs,
+    }
+
+
+def compose_screenplay(abstract: dict) -> dict:
+    """抽象台本を完全 screenplay に変換する。
+
+    シーンごとに animation_style / location_ref / character_selection
+    を持つ前提。voice_overrides は characters/<id>.json から引く。
+    """
+    featured = abstract.get("featured_characters") or []
+    char_ids = [str(c) for c in featured if c]
+
+    voice_by_id: dict[str, dict] = {}
+    for cid in char_ids:
+        try:
+            meta = cmeta_mod.load_character_meta(cid)
+            voice_by_id[cid] = dict(meta.voice_overrides)
+        except Exception as e:
+            logger.warning("character meta 読み込み失敗 %s: %s", cid, e)
+            voice_by_id[cid] = {}
+
+    fallback_ref = char_ids[0] if char_ids else None
+    default_voice = voice_by_id.get(fallback_ref or "", {}) if fallback_ref else {}
+
+    raw_speaker_to_ref = abstract.get("speaker_to_ref") or {}
+    speaker_to_ref: dict[str, str] = {
+        str(k): str(v) for k, v in raw_speaker_to_ref.items()
+        if isinstance(k, str) and isinstance(v, str)
+    }
+
     sp: dict[str, Any] = {
         "caption": abstract.get("caption", ""),
-        "wardrobe_continuity": dict(style.wardrobe_continuity),
-        "location_continuity": {
-            k: asdict(v) for k, v in style.location_continuity.items()
-        },
-        "scoped_augmentations": list(style.scoped_augmentations),
         "scenes": [],
     }
 
-    voice_by_speaker = {
-        c.name: dict(c.voice_overrides) for c in style.characters
-    }
-    default_voice = (
-        dict(style.characters[0].voice_overrides) if style.characters else {}
-    )
-
     for i, src in enumerate(abstract.get("scenes") or []):
-        sov = overrides.get(i) or {}
-        scene_chars = _resolve_scene_characters(src, style)
+        scene_anim = src.get("animation_style") or DEFAULT_ANIMATION_STYLE
+        scene_chars = _resolve_scene_characters(src, char_ids, speaker_to_ref)
+        location_ref = src.get("location_ref") or ""
 
         scene: dict[str, Any] = {
-            "duration": float(src.get("duration", 0)),
-            "characters": [
-                {"name": c.name, "role": c.role} for c in scene_chars
-            ],
-            "character_refs": [c.ref for c in scene_chars],
-            "wardrobe": {
-                "identifier": sov.get(
-                    "wardrobe", style.default_wardrobe or "",
-                ),
-            },
-            "location_ref": sov.get(
-                "location_ref", style.default_location or "",
-            ),
-            "tags": list(sov.get("tags", style.default_tags)),
+            "characters": [{"name": cid} for cid in scene_chars],
+            "character_refs": list(scene_chars),
+            "location_ref": location_ref,
             "lipsync": True,
             "lines": [],
         }
+        if "duration" in src:
+            scene["duration"] = float(src["duration"])
+        if src.get("camera_distance"):
+            scene["camera_distance"] = src["camera_distance"]
 
-        scene["background_prompt"] = _compose_background(scene, style)
-        scene["animation_prompt"] = _compose_animation(src, style)
+        scene["background_prompt"] = _compose_background(scene, location_ref)
+        scene["animation_prompt"] = _compose_animation(src, scene_anim)
 
-        # lines に voice_overrides を speaker から自動注入
         for line in src.get("lines") or []:
             new_line = dict(line)
-            speaker = line.get("speaker")
-            if speaker and speaker in voice_by_speaker:
-                new_line["voice_overrides"] = dict(voice_by_speaker[speaker])
-            elif default_voice and not speaker:
-                # 単一キャラ動画: speaker 省略 → デフォルト voice
-                new_line["voice_overrides"] = dict(default_voice)
+            raw_speaker = line.get("speaker")
+            resolved_ref = _resolve_speaker_to_ref(
+                raw_speaker, speaker_to_ref, char_ids, fallback_ref,
+            )
+            # line 個別の voice_overrides は キャラの base voice よりも優先する
+            # (= UI から line に直接書いた override は compose で潰さない)
+            line_explicit = dict(line.get("voice_overrides") or {})
+            if resolved_ref:
+                new_line["speaker"] = resolved_ref
+                base_voice = voice_by_id.get(resolved_ref) or {}
+                merged = {**base_voice, **line_explicit}
+                if merged:
+                    new_line["voice_overrides"] = merged
+            else:
+                new_line.pop("speaker", None)
+                merged = {**default_voice, **line_explicit}
+                if merged:
+                    new_line["voice_overrides"] = merged
+                if raw_speaker:
+                    logger.warning(
+                        "speaker '%s' を ref に解決できませんでした (scene=%d)",
+                        raw_speaker, i,
+                    )
             scene["lines"].append(new_line)
 
         sp["scenes"].append(scene)
@@ -110,79 +259,119 @@ def compose_screenplay(
 
 
 def _resolve_scene_characters(
-    src_scene: dict, style: VideoStyle,
-) -> list[CharacterDef]:
-    """シーンに登場するキャラを VideoStyle から解決する。
+    src_scene: dict,
+    available_ids: list[str],
+    speaker_to_ref: dict[str, str],
+) -> list[str]:
+    """シーンに登場するキャラ ID のリストを解決する。
 
-    - narrator モード: 全シーン共通で style.characters 全部 (= 通常は 1 人)
-    - dialogue モード: 抽象台本の lines[].speaker に出る名前のキャラだけ subset
-                       (出てこない場合は安全側で全キャラ)
+    優先順位:
+      1. ``src_scene["character_selection"]`` が **明示的に存在** すれば、その
+         ID list を available_ids と突合せて選ぶ (= ユーザの override)。
+         - ``[]`` (空 list)         = 登場人物 0 人 (背景だけ生成)
+         - ``[...]``                = 指定された ID のキャラだけ
+      2. lines[].speaker を speaker_to_ref で解決 → 出現する ref の subset。
+         multi-speaker 動画はここで自動的に「シーンに映るキャラ」が決まる。
+      3. fallback: 全 available_ids (= 単一キャラ動画 / speaker タグ無しシーン)
     """
-    if style.format == "narrator" or not style.characters:
-        return list(style.characters)
+    if "character_selection" in src_scene:
+        selection = src_scene.get("character_selection") or []
+        if not isinstance(selection, list):
+            raise ValueError(
+                f"character_selection は list である必要があります: {selection!r}",
+            )
+        wanted = set(selection)
+        return [cid for cid in available_ids if cid in wanted]
+
     speakers = {
         l.get("speaker") for l in src_scene.get("lines") or []
         if l.get("speaker")
     }
-    if not speakers:
-        return list(style.characters)
-    matched = [c for c in style.characters if c.name in speakers]
-    return matched or list(style.characters)
+    resolved: set[str] = set()
+    for sp in speakers:
+        ref = speaker_to_ref.get(sp) or (sp if sp in available_ids else None)
+        if ref:
+            resolved.add(ref)
+    if resolved:
+        return [cid for cid in available_ids if cid in resolved]
+
+    return list(available_ids)
 
 
-def _compose_background(scene: dict, style: VideoStyle) -> str:
-    """ロケ + 衣装 + カメラ距離 + キャラから 1 文を生成 (決定論的)。"""
-    loc_id = scene.get("location_ref", "")
-    wardrobe_id = (scene.get("wardrobe") or {}).get("identifier", "")
-    loc = style.location_continuity.get(loc_id)
-    wardrobe_text = style.wardrobe_continuity.get(wardrobe_id, "")
-    chars_str = "、".join(c["name"] for c in scene.get("characters", []))
+def _subject_phrase(num_chars: int) -> str:
+    """登場人数から人物表現を派生させる (= キャラ ID は reference 画像が SSOT)。
 
-    if not loc:
-        # ロケ未指定: 最低限の被写体 + キャラ
-        body = f"medium shot of {chars_str}"
-        if wardrobe_text:
-            body += f" wearing {wardrobe_text}"
-        return f"{body}, single moment in time"
-
-    distance_label = _CAMERA_LABELS.get(loc.camera_distance, "medium shot")
-    body = f"{distance_label} of {chars_str}"
-    if wardrobe_text:
-        body += f" wearing {wardrobe_text}"
-
-    extras: list[str] = []
-    if loc.decor:
-        extras.append(loc.decor)
-    if loc.props:
-        extras.append(loc.props)
-    if loc.color_palette:
-        extras.append(f"color palette: {loc.color_palette}")
-    if loc.lighting:
-        extras.append(loc.lighting)
-
-    extras_text = "、".join(extras)
-    if extras_text:
-        return f"{body}、{extras_text}, single moment in time"
-    return f"{body}, single moment in time"
+    1 人 → the depicted subject
+    2 人 → the two depicted people facing each other in conversation
+    N 人 (>=3) → a group of {N} depicted people
+    0 人 → no people, scenery only
+    """
+    if num_chars == 0:
+        return "no people, scenery only"
+    if num_chars == 1:
+        return "the depicted subject"
+    if num_chars == 2:
+        return "the two depicted people facing each other in conversation"
+    return f"a group of {num_chars} depicted people"
 
 
-def _compose_animation(src_scene: dict, style: VideoStyle) -> str:
-    """emotion arc + animation_style から 1 文を生成 (英語)。"""
+def _compose_background(scene: dict, location_ref: str) -> str:
+    """カメラ距離 + 人物表現の 1 文を返す (決定論的・英文)。
+
+    ロケ詳細 (decor/lighting/color_palette/props) は SSOT 1 箇所 = scene_gen の
+    `_build_background_prompt` で `locations/<id>.json` から直接注入する
+    (= compose 側では引かない、二重注入を避ける)。
+    camera_distance だけはここで 1 回だけ解決する (= scene_gen 側でも引かない、
+    1 値の SSOT 経路を確保するため)。
+    衣装は characters/<id>.png reference 画像が SSOT (prompt 側では触れない)。
+    """
+    base_loc = None
+    if location_ref:
+        try:
+            base_loc = loc_mod.load_location(location_ref)
+        except FileNotFoundError:
+            logger.warning("location '%s' が見つかりません", location_ref)
+
+    camera_distance = (
+        scene.get("camera_distance")
+        or (base_loc.camera_distance if base_loc else None)
+        or "medium"
+    )
+    if camera_distance not in _CAMERA_LABELS:
+        logger.warning(
+            "camera_distance '%s' は未知の値です (allowed=%s)。'medium' にフォールバック",
+            camera_distance, sorted(_CAMERA_LABELS.keys()),
+        )
+        camera_distance = "medium"
+
+    characters = scene.get("characters") or []
+    distance_label = _CAMERA_LABELS[camera_distance]
+    subject = _subject_phrase(len(characters))
+    if len(characters) == 0:
+        return f"{distance_label}, {subject}"
+    return f"{distance_label} of {subject}"
+
+
+def _compose_animation(src_scene: dict, animation_style: str) -> str:
+    """emotion arc + animation_style から 1 文を生成 (英語)。
+
+    arc は config.EMOTION_EN で日本語 emotion を英訳する (= プロンプト完全英文化)。
+    """
+    import config as _config
     emotions = [
         l.get("emotion") for l in src_scene.get("lines") or []
         if l.get("emotion")
     ]
-    # 重複排除しつつ順序維持
     arc_parts: list[str] = []
     seen: set[str] = set()
     for e in emotions:
         if e not in seen:
-            arc_parts.append(e)
+            arc_parts.append(_config.EMOTION_EN.get(e, e))
             seen.add(e)
     arc = " → ".join(arc_parts) if arc_parts else "neutral"
 
     modifier = _ANIMATION_STYLE_MODIFIERS.get(
-        style.animation_style, _ANIMATION_STYLE_MODIFIERS["standard"],
+        animation_style, _ANIMATION_STYLE_MODIFIERS["standard"],
     )
     return (
         f"subject speaks naturally following the emotion arc ({arc}), "

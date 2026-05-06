@@ -12,8 +12,6 @@ _BODY_POSTURE_KEYS = list(config.BODY_POSTURE_PRESETS.keys())
 _LIGHTING_KEYS = list(config.LIGHTING_PRESETS.keys())
 _CAMERA_KEYS = list(config.CAMERA_PRESETS.keys())
 _TONE_KEYS = list(config.TONE_PRESETS.keys())
-_SCENE_ELEMENT_KEYS = list(config.SCENE_ELEMENT_PRESETS.keys())
-_SCENE_TAGS = list(config.SCENE_TAGS)
 
 SCHEMA: dict = {
     "$schema": "https://json-schema.org/draft/2020-12/schema",
@@ -27,6 +25,25 @@ SCHEMA: dict = {
             "minLength": 1,
             "description": "SNS投稿用キャプション本文（ハッシュタグ含む）",
         },
+        "featured_characters": {
+            "type": "array",
+            "items": {"type": "string", "minLength": 1},
+            "description": (
+                "動画全体の登場人物 (= 解決済み character ref のリスト)。"
+                "compose 入力で各シーンの character_refs / character_selection の"
+                "候補として使われる。abstract 形式専用フィールドだが、composed "
+                "snapshot にも残しても無害なので schema は両方を許容する"
+            ),
+        },
+        "speaker_to_ref": {
+            "type": "object",
+            "additionalProperties": {"type": "string", "minLength": 1},
+            "description": (
+                "anonymous speaker (= speaker_1, speaker_2, ...) → 解決済み ref の"
+                "マッピング。multi-speaker 動画専用、compose で line.speaker と "
+                "line.voice_overrides の解決に使う"
+            ),
+        },
         "subtitle_y_from_bottom": {
             "type": "integer",
             "minimum": 0,
@@ -35,102 +52,53 @@ SCHEMA: dict = {
                 "未指定なら config.SUBTITLE_Y_FROM_BOTTOM を使用"
             ),
         },
-        "wardrobe_continuity": {
-            "type": "object",
-            "additionalProperties": {"type": "string"},
-            "description": "衣装識別子→説明 のマップ。scenes[].wardrobe.identifier と紐付け、Imagenプロンプトに自動展開",
-        },
-        "location_continuity": {
-            "type": "object",
-            "description": (
-                "ロケーション識別子→属性辞書のマップ。"
-                "scenes[].location_ref と紐付けて、同一動画内でロケの装飾・ライティング・"
-                "色味・小道具・カメラ距離を一貫させる。各属性は background_prompt の先頭に注入される"
-            ),
-            "additionalProperties": {
-                "type": "object",
-                "additionalProperties": False,
-                "properties": {
-                    "decor": {
-                        "type": "string",
-                        "description": "家具・壁・床・建材などのレイアウト記述",
-                    },
-                    "lighting": {
-                        "type": "string",
-                        "description": "光源・色温度・影の質感",
-                    },
-                    "color_palette": {
-                        "type": "string",
-                        "description": "全体の配色トーン",
-                    },
-                    "props": {
-                        "type": "string",
-                        "description": "小道具 (PC, マグカップ, 書類 等)",
-                    },
-                    "camera_distance": {
-                        "type": "string",
-                        "description": "推奨カメラ距離 (close-up / medium-close / medium / wide 等)",
-                    },
-                },
-            },
-        },
-        "scoped_augmentations": {
-            "type": "array",
-            "description": (
-                "横断適用ルール。scope 一致するシーンに scene_element preset を追加挿入する。"
-                "値はすべて preset ID (enum) で SSOT 厳格"
-            ),
-            "items": {
-                "type": "object",
-                "additionalProperties": False,
-                "required": ["scope", "elements"],
-                "properties": {
-                    "id": {"type": "string"},
-                    "scope": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "properties": {
-                            "tag": {"enum": _SCENE_TAGS},
-                            "scene_idx": {
-                                "type": "array",
-                                "items": {"type": "integer", "minimum": 0},
-                            },
-                        },
-                    },
-                    "elements": {
-                        "type": "array",
-                        "items": {"enum": _SCENE_ELEMENT_KEYS},
-                        "minItems": 1,
-                    },
-                },
-            },
-        },
         "scenes": {
             "type": "array",
             "minItems": 1,
             "items": {
                 "type": "object",
-                "required": ["duration", "background_prompt"],
-                # SSOT 強制: 未定義のキーは拒否 (廃止フィールドの再混入を防ぐ)
+                # background_prompt は composed 形式でのみ必須。
+                # abstract 形式 (= snapshot 上) では未生成の状態で許容され、
+                # `validate_screenplay(..., require_composed=True)` で後段直前に
+                # 強制チェックされる
                 "additionalProperties": False,
                 "properties": {
                     "duration": {
                         "type": "number",
-                        "minimum": 3,
-                        "description": "シーン秒数。Klingは5/10秒生成しこの値にtrim",
+                        "description": (
+                            "シーン秒数。Stage 2 (TTS) が実音声長から書き込む。"
+                            "Stage 1 抽象台本では未指定が正常"
+                        ),
                     },
                     "background_prompt": {
                         "type": "string",
                         "minLength": 1,
-                        "description": "Imagenに渡す背景プロンプト（被写体=日本語+スタイル修飾=英語）",
+                        "description": (
+                            "Imagenに渡す背景プロンプト (composed 形式で必須、"
+                            "abstract では未生成)"
+                        ),
+                    },
+                    "character_selection": {
+                        "type": "array",
+                        "items": {"type": "string", "minLength": 1},
+                        "description": (
+                            "compose 入力でこのシーンに登場させるキャラ ref の "
+                            "subset。空配列は人物 0 人 (背景のみ)。abstract 専用"
+                            "フィールドで composed 結果には残らない"
+                        ),
                     },
                     "location_ref": {
                         "type": "string",
                         "description": (
-                            "root.location_continuity のキーを参照。"
-                            "ロケの装飾・ライティング・色味・小道具・カメラ距離が"
+                            "グローバル locations/<id>.json のキーを参照。"
+                            "ロケの装飾・光源・色味・小道具・カメラ距離が "
                             "background_prompt の先頭に自動注入される"
                         ),
+                    },
+                    "camera_distance": {
+                        "type": "string",
+                        "enum": ["close-up", "medium-close", "medium", "wide"],
+                        "description": "シーンごとのカメラ距離 override",
                     },
                     "animation_prompt": {
                         "type": "string",
@@ -143,47 +111,36 @@ SCHEMA: dict = {
                     },
                     "lipsync": {
                         "type": "boolean",
-                        "description": "このシーンでリップシンクを適用するか（既定true、audio_mode=silentなら無視）",
+                        "description": "このシーンでリップシンクを適用するか（既定true）",
                     },
                     "characters": {
                         "type": "array",
                         "description": (
                             "シーンに登場する人物一覧 (多人数シーン時に使用)。"
-                            "name / role のみ。outfit / ref は廃止 (SSOT原則)"
+                            "name には characters/<name>.png の ref が入る "
+                            "(= scene.character_refs[] と一致する想定)"
                         ),
                         "items": {
                             "type": "object",
                             "additionalProperties": False,
                             "properties": {
-                                "name": {"type": "string"},
-                                "role": {"type": "string", "description": "主役/相手/通行人 など"},
+                                "name": {
+                                    "type": "string",
+                                    "description": "characters/<name>.png の ref",
+                                },
                             },
                         },
                     },
-                    "wardrobe": {
-                        "type": "object",
-                        "additionalProperties": False,
-                        "description": (
-                            "シーン内の服装。identifier だけを書き、"
-                            "実際の説明は root.wardrobe_continuity[identifier] を参照する"
-                        ),
-                        "properties": {
-                            "identifier": {"type": "string"},
-                        },
-                    },
-                    "tags": {
-                        "type": "array",
-                        "items": {"enum": _SCENE_TAGS},
-                        "description": (
-                            "scope 解決用のタグ。config.SCENE_TAGS の値のみ許容。"
-                            "scoped_augmentations の scope.tag と照合される"
-                        ),
+                    "animation_style": {
+                        "type": "string",
+                        "enum": ["subtle", "standard", "expressive"],
+                        "description": "シーンごとのアニメーションの強さ",
                     },
                     "lines": {
                         "type": "array",
                         "items": {
                             "type": "object",
-                            "required": ["text", "start"],
+                            "required": ["text"],
                             "additionalProperties": False,
                             "properties": {
                                 "text": {
@@ -256,9 +213,10 @@ SCHEMA: dict = {
                                 "speaker": {
                                     "type": "string",
                                     "description": (
-                                        "発話者の name (scene.characters[].name と一致)。"
-                                        "複数キャラのシーンで「誰のセリフか」を識別するために使う。"
-                                        "単一キャラのシーンでは省略可 (主人公とみなす)。"
+                                        "発話者の ref (= characters/<ref>.png のキー、"
+                                        "scene.character_refs[] / scene.characters[].name "
+                                        "と一致)。複数キャラのシーンで「誰のセリフか」を "
+                                        "識別する。単一キャラのシーンでは省略可。"
                                     ),
                                 },
                                 "hidden": {
@@ -313,15 +271,14 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
     errors: list[str] = []
     for s_idx, scene in enumerate(screenplay.get("scenes", [])):
         duration = scene.get("duration")
-        if not isinstance(duration, (int, float)):
-            continue
+        has_duration = isinstance(duration, (int, float))
         for l_idx, line in enumerate(scene.get("lines", []) or []):
             start = line.get("start")
             end = line.get("end")
             path = f"scenes/{s_idx}/lines/{l_idx}"
-            if isinstance(start, (int, float)) and start > duration:
+            if has_duration and isinstance(start, (int, float)) and start > duration:
                 errors.append(f"{path}/start: start={start}がシーン長{duration}を超えています")
-            if isinstance(end, (int, float)) and end > duration + 0.01:
+            if has_duration and isinstance(end, (int, float)) and end > duration + 0.01:
                 errors.append(f"{path}/end: end={end}がシーン長{duration}を超えています")
             if (isinstance(start, (int, float)) and isinstance(end, (int, float))
                     and end <= start):
@@ -337,11 +294,11 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
                     )
                 s_start = sub.get("start")
                 s_end = sub.get("end")
-                if isinstance(s_start, (int, float)) and s_start > duration:
+                if has_duration and isinstance(s_start, (int, float)) and s_start > duration:
                     errors.append(
                         f"{sub_path}/start: start={s_start}がシーン長{duration}を超えています"
                     )
-                if isinstance(s_end, (int, float)) and s_end > duration + 0.01:
+                if has_duration and isinstance(s_end, (int, float)) and s_end > duration + 0.01:
                     errors.append(
                         f"{sub_path}/end: end={s_end}がシーン長{duration}を超えています"
                     )
@@ -352,23 +309,122 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
 
 
 def _check_location_refs(screenplay: dict) -> list[str]:
-    """scenes[].location_ref が root.location_continuity に存在するか検証。"""
+    """scenes[].location_ref が グローバル locations/<id>.json に存在するか検証。"""
+    from analyze import location as loc_mod
     errors: list[str] = []
-    locations = screenplay.get("location_continuity") or {}
+    available = set(loc_mod.list_locations())
     for s_idx, scene in enumerate(screenplay.get("scenes", [])):
         ref = scene.get("location_ref")
-        if ref is None:
+        if ref is None or ref == "":
             continue
-        if ref not in locations:
-            keys = ", ".join(sorted(locations.keys())) or "(空)"
+        if ref not in available:
+            keys = ", ".join(sorted(available)) or "(空)"
             errors.append(
-                f"scenes/{s_idx}/location_ref: '{ref}' は location_continuity に未定義 "
+                f"scenes/{s_idx}/location_ref: '{ref}' は locations/ に未定義 "
                 f"(定義済み: {keys})"
             )
     return errors
 
 
-def validate_screenplay(screenplay: dict, strict: bool = True) -> list[str]:
+def _check_character_refs(screenplay: dict) -> list[str]:
+    """character ref が characters/ ディレクトリに物理存在するか検証する。
+
+    対象:
+        featured_characters / speaker_to_ref の値 / scene.character_selection /
+        scene.character_refs / line.speaker (speaker_N raw 匿名 ID は除外)
+
+    characters/ が空 (= テスト環境) の場合は検証スキップする。
+    Stage 3 (Imagen 背景合成) でファイル参照失敗するのを台本作成段階で弾くのが
+    目的。
+    """
+    from analyze import character_meta as cmeta_mod
+    errors: list[str] = []
+    available = set(cmeta_mod.list_character_images())
+    if not available:
+        return errors
+
+    available_str = ", ".join(sorted(available))
+
+    def _missing(ref: str) -> bool:
+        return isinstance(ref, str) and bool(ref) and ref not in available
+
+    for ref in screenplay.get("featured_characters") or []:
+        if _missing(ref):
+            errors.append(
+                f"featured_characters: '{ref}' は characters/ に未定義 "
+                f"(定義済み: {available_str})",
+            )
+
+    spk_to_ref = screenplay.get("speaker_to_ref") or {}
+    if isinstance(spk_to_ref, dict):
+        for k, v in spk_to_ref.items():
+            if _missing(v):
+                errors.append(
+                    f"speaker_to_ref/{k}: '{v}' は characters/ に未定義",
+                )
+
+    for s_idx, scene in enumerate(screenplay.get("scenes") or []):
+        sel = scene.get("character_selection")
+        if isinstance(sel, list):
+            for ref in sel:
+                if _missing(ref):
+                    errors.append(
+                        f"scenes/{s_idx}/character_selection: '{ref}' は "
+                        f"characters/ に未定義",
+                    )
+        for ref in scene.get("character_refs") or []:
+            if _missing(ref):
+                errors.append(
+                    f"scenes/{s_idx}/character_refs: '{ref}' は "
+                    f"characters/ に未定義",
+                )
+        for l_idx, line in enumerate(scene.get("lines") or []):
+            sp = line.get("speaker")
+            if not isinstance(sp, str) or not sp:
+                continue
+            # raw 匿名 ID (speaker_1, speaker_2, ...) は speaker_to_ref で
+            # 後段解決される前提なのでスキップ。マッピング不在は
+            # diagnose_abstract.unmapped_speakers で別途警告される
+            if sp.startswith("speaker_"):
+                continue
+            if sp not in available:
+                errors.append(
+                    f"scenes/{s_idx}/lines/{l_idx}/speaker: '{sp}' は "
+                    f"characters/ に未定義",
+                )
+    return errors
+
+
+def _check_composed_required(screenplay: dict) -> list[str]:
+    """composed 形式 (= Stage 2 以降が読む形) で必須のフィールドをチェック。
+
+    abstract 形式では `background_prompt` が未生成でも許容するが、後段
+    (TTS / 背景 / Kling) に渡す直前にはこの形に解決済みである必要がある。
+    """
+    errors: list[str] = []
+    for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
+        bg = scene.get("background_prompt")
+        if not isinstance(bg, str) or not bg.strip():
+            errors.append(
+                f"scenes/{s_idx}/background_prompt: composed 形式では必須 "
+                "(abstract 形式なら compose を経由してください)",
+            )
+    return errors
+
+
+def validate_screenplay(screenplay: dict,
+                         strict: bool = True,
+                         require_composed: bool = True) -> list[str]:
+    """台本 JSON を検証する。
+
+    Args:
+        screenplay: 検証対象 dict
+        strict: True なら検出エラーで raise する。False ならエラー list を返す
+        require_composed: True なら composed 形式必須項目 (= background_prompt)
+            までチェックする。False なら abstract 形式 (= snapshot 直書き) でも
+            通る。Stage 2 以降に渡す直前は True、PUT abstract / pipeline 出力
+            検証は False を渡す
+    """
     errors: list[str] = []
 
     for err in _VALIDATOR.iter_errors(screenplay):
@@ -377,9 +433,21 @@ def validate_screenplay(screenplay: dict, strict: bool = True) -> list[str]:
 
     errors.extend(_check_line_bounds(screenplay))
     errors.extend(_check_location_refs(screenplay))
+    errors.extend(_check_character_refs(screenplay))
+    if require_composed:
+        errors.extend(_check_composed_required(screenplay))
 
     if strict and errors:
         raise ValueError(
             "台本バリデーションエラー:\n" + "\n".join(f"  - {e}" for e in errors)
         )
     return errors
+
+
+def validate_abstract(abstract: dict, strict: bool = True) -> list[str]:
+    """abstract 形式 (= snapshot 直書き) 用の軽量 validate。
+
+    `validate_screenplay(..., require_composed=False)` のショートカット。
+    PUT /api/projects/<ts>/abstract 等で使用。
+    """
+    return validate_screenplay(abstract, strict=strict, require_composed=False)

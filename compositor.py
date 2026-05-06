@@ -53,7 +53,7 @@ def _scene_offsets_from_videos(scene_videos: list[str]) -> list[float]:
 
 
 def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
-                  temp_dir: str, silent: bool) -> str:
+                  temp_dir: str) -> str:
     n = len(scene_videos)
     if n == 1:
         return scene_videos[0]
@@ -72,15 +72,8 @@ def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
             f"setsar=1,fps={config.FPS}{pad}[v{i}]"
         )
 
-    if silent:
-        concat_inputs = "".join(f"[v{i}]" for i in range(n))
-        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=0[merged]")
-        maps = ["-map", "[merged]"]
-    else:
-        concat_inputs = "".join(f"[v{i}][{i}:a]" for i in range(n))
-        filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[mv][ma]")
-        maps = ["-map", "[mv]", "-map", "[ma]"]
-
+    concat_inputs = "".join(f"[v{i}][{i}:a]" for i in range(n))
+    filter_parts.append(f"{concat_inputs}concat=n={n}:v=1:a=1[mv][ma]")
     filter_complex = ";\n".join(filter_parts)
     merged_path = os.path.join(temp_dir, "merged.mp4")
 
@@ -89,13 +82,12 @@ def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
         cmd.extend(["-i", v])
     cmd.extend([
         "-filter_complex", filter_complex,
-        *maps,
+        "-map", "[mv]", "-map", "[ma]",
         "-c:v", "libx264", "-preset", "medium", "-crf", "18",
         "-pix_fmt", "yuv420p",
+        "-c:a", "aac", "-b:a", "192k",
+        merged_path,
     ])
-    if not silent:
-        cmd.extend(["-c:a", "aac", "-b:a", "192k"])
-    cmd.append(merged_path)
 
     logger.info("シーン結合中")
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -444,7 +436,7 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
     scene_videos が指定されたら **実 timeline ベース** で字幕の絶対時刻を
     計算する (= scene_<S>.mp4 の実尺累積で offset を決め、シーン内の
     line.start / end も scene_real / scene_sp 比でリスケール)。
-    指定しない場合は scene.duration ベースで動く (後方互換)。
+    指定しない場合は scene.duration ベースで動く。
     """
     font = _escape_fontfile(config.FONT_PATH)
     H = config.VIDEO_HEIGHT
@@ -565,7 +557,7 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
 
 
 def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
-                    output_path: str, silent: bool,
+                    output_path: str,
                     scene_videos: list[str] | None = None) -> None:
     """base_video に字幕を焼き込む。scene_videos が渡されたら、
     各 scene_<S>.mp4 の実尺ベースで字幕タイミングを計算する。"""
@@ -578,18 +570,11 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
 
     cmd = ["ffmpeg", "-y", "-i", base_video,
            "-filter_complex", filter_complex,
-           "-map", "[vout]"]
-    if not silent:
-        cmd.extend(["-map", "0:a?"])
-    cmd.extend([
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-pix_fmt", "yuv420p",
-    ])
-    if not silent:
-        cmd.extend(["-c:a", "aac", "-b:a", "192k"])
-    else:
-        cmd.append("-an")
-    cmd.append(output_path)
+           "-map", "[vout]", "-map", "0:a?",
+           "-c:v", "libx264", "-preset", "medium", "-crf", "18",
+           "-pix_fmt", "yuv420p",
+           "-c:a", "aac", "-b:a", "192k",
+           output_path]
 
     logger.info("テロップ焼き込み中")
     r = subprocess.run(cmd, capture_output=True, text=True)
@@ -598,53 +583,16 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
         raise RuntimeError("Overlay application failed")
 
 
-def _mix_bgm(video_path: str, bgm_path: str, bgm_db: float,
-             temp_dir: str, output_path: str) -> None:
-    """既存video(voice音声込み)に BGM を低音量で重ねる。"""
-    total_dur = _get_duration(video_path)
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-stream_loop", "-1", "-i", bgm_path,
-        "-filter_complex",
-        f"[1:a]volume={bgm_db:+.1f}dB,atrim=0:{total_dur:.3f},asetpts=N/SR/TB[bgm];"
-        f"[0:a][bgm]amix=inputs=2:duration=first:dropout_transition=0:normalize=0[aout]",
-        "-map", "0:v", "-map", "[aout]",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        output_path,
-    ]
-    logger.info("BGM mix中 (volume=%+0.1fdB)", bgm_db)
-    r = subprocess.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        logger.error("BGM mix error: %s", r.stderr[-1500:])
-        raise RuntimeError("BGM mix failed")
-
-
 def compose_video(
     scene_videos: list[str],
     screenplay: dict,
     temp_dir: str,
     output_path: str,
 ) -> str:
-    silent = screenplay.get("audio_mode") == "silent"
     scenes = screenplay["scenes"]
     scene_durations = [float(s["duration"]) for s in scenes]
 
-    merged_path = _merge_scenes(scene_videos, scene_durations, temp_dir, silent)
-
-    bgm_path = screenplay.get("bgm_path")
-    use_bgm = bool(bgm_path) and not silent and os.path.exists(bgm_path or "")
-
-    if use_bgm:
-        overlaid_tmp = os.path.join(temp_dir, "overlaid.mp4")
-        _apply_overlays(merged_path, screenplay, temp_dir, overlaid_tmp,
-                          silent, scene_videos=scene_videos)
-        bgm_db = float(screenplay.get("bgm_volume_db", config.BGM_DEFAULT_VOLUME_DB))
-        _mix_bgm(overlaid_tmp, bgm_path, bgm_db, temp_dir, output_path)
-    else:
-        _apply_overlays(merged_path, screenplay, temp_dir, output_path,
-                          silent, scene_videos=scene_videos)
-
+    merged_path = _merge_scenes(scene_videos, scene_durations, temp_dir)
+    _apply_overlays(merged_path, screenplay, temp_dir, output_path,
+                      scene_videos=scene_videos)
     return output_path
