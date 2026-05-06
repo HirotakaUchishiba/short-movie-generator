@@ -111,7 +111,7 @@ def import_final(
 
     if not progress_store.is_approved(ts_path, "overlay"):
         raise RuntimeError(
-            "Stage 7 (overlay) が未承認のため取り込めません — UI で承認してください",
+            "字幕 が未承認のため取り込めません — UI で承認してください",
         )
 
     ext = src.suffix.lower()
@@ -177,7 +177,7 @@ def import_final(
 
     score_label = f"{score:.2f}" if score is not None else "-"
     logger.info(
-        "[Stage 8] 取込完了: %s (source=%s, duration=%.1fs, score=%s)",
+        "[取込] 完了: %s (source=%s, duration=%.1fs, score=%s)",
         dst_name, source, duration or 0, score_label,
     )
     return new_version

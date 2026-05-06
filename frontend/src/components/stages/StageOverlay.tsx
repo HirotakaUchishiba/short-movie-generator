@@ -198,8 +198,8 @@ export default function StageOverlay() {
   return (
     <StageGate
       stage="overlay"
-      title="Stage 7: 字幕オーバーレイ"
-      description="Stage 5+6 のシーン動画を連結し、字幕を焼き込み。各 line を「手動」に切り替えると自動分割を完全にスキップ。チャンクは text だけ書けば line 範囲を文字数比例で自動配分し、動画の現在位置をスナップして個別微調整できます。👁 ボタンで line / シーン単位で字幕の表示/非表示を切替可 (TTS は通常通り)。"
+      title="字幕オーバーレイ"
+      description="音声/リップシンク合成 のシーン動画を連結し、字幕を焼き込み。各 line を「手動」に切り替えると自動分割を完全にスキップ。チャンクは text だけ書けば line 範囲を文字数比例で自動配分し、動画の現在位置をスナップして個別微調整できます。👁 ボタンで line / シーン単位で字幕の表示/非表示を切替可 (TTS は通常通り)。"
       needsRunFirst
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

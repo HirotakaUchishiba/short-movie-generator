@@ -42,7 +42,7 @@ export default function StageKling() {
   return (
     <StageGate
       stage="kling"
-      title="Stage 4: Kling動画"
+      title="Kling動画"
       description="cache スキャン → シーンごとに『キャッシュ採用 / 新規生成』を判断 → 残りを一括生成。最高額のステージなので慎重に。"
     >
       {generated ? (

@@ -137,7 +137,7 @@ def test_publish_blocked_when_stage8_unapproved(project, monkeypatch):
     prog["stages"]["final_import"]["approved_at"] = None
     progress_store.save(ts_path, prog)
 
-    with pytest.raises(RuntimeError, match="final_import"):
+    with pytest.raises(RuntimeError, match="取込"):
         publish(ts, "youtube")
 
 

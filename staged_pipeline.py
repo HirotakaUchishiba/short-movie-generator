@@ -292,7 +292,7 @@ def run_script(screenplay: dict, screenplay_name: str, ts_path: str,
     )
     progress_store.mark_generated(ts_path, "script")
     logger.info(
-        "[Stage 1] 台本検証完了 — %dシーン (snapshot=%s, sha=%s)",
+        "[台本] 検証完了 — %dシーン (snapshot=%s, sha=%s)",
         len(screenplay["scenes"]),
         project_screenplay_path(ts_path),
         sha[:12],
@@ -304,7 +304,7 @@ def run_tts(screenplay: dict, ts_path: str) -> None:
     _ensure_prev_approved("script", ts_path)
     scene_gen.generate_tts_for_screenplay(screenplay, ts_path)
     progress_store.mark_generated(ts_path, "tts")
-    logger.info("[Stage 2] TTS生成完了")
+    logger.info("[TTS] 生成完了")
 
 
 def run_bg(screenplay: dict, ts_path: str) -> None:
@@ -321,7 +321,7 @@ def run_bg(screenplay: dict, ts_path: str) -> None:
     bg_paths = scene_gen.generate_backgrounds(
         screenplay, ts_path, scene_decisions=decisions or None)
     progress_store.mark_generated(ts_path, "bg")
-    logger.info("[Stage 3] 背景生成完了 — %d枚", len(bg_paths))
+    logger.info("[背景] 生成完了 — %d枚", len(bg_paths))
 
 
 def run_kling(screenplay: dict, ts_path: str) -> None:
@@ -338,7 +338,7 @@ def run_kling(screenplay: dict, ts_path: str) -> None:
     scene_gen.generate_kling_for_screenplay(
         screenplay, ts_path, scene_decisions=decisions or None)
     progress_store.mark_generated(ts_path, "kling")
-    logger.info("[Stage 4] Kling生成完了")
+    logger.info("[Kling] 生成完了")
 
 
 def run_scene(screenplay: dict, ts_path: str) -> None:
@@ -346,7 +346,7 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
     _ensure_prev_approved("kling", ts_path)
     paths = scene_gen.assemble_scene_videos(screenplay, ts_path)
     progress_store.mark_generated(ts_path, "scene")
-    logger.info("[Stage 5+6] シーン動画完成 — %d本", len(paths))
+    logger.info("[音声/リップシンク合成] 完了 — %d本", len(paths))
 
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
@@ -383,7 +383,7 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
             logger.warning("%s promote failed: %s", module, e)
 
     progress_store.mark_generated(ts_path, "overlay")
-    logger.info("[Stage 7] 字幕焼き込み完了 — %s", output_path)
+    logger.info("[字幕] 焼き込み完了 — %s", output_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
 
 

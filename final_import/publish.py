@@ -41,14 +41,14 @@ def publish(ts: str, platform: str, **opts) -> dict:
 
     if not progress_store.is_approved(ts_path, "final_import"):
         raise RuntimeError(
-            "Stage 8 (final_import) が未承認のため公開できません — "
+            "取込 が未承認のため公開できません — "
             "UI または `--canonical` で承認してください",
         )
 
     video = resolve_canonical_video(ts_path)
     title, description, tags = read_post_caption_for_ts(ts)
     logger.info(
-        "[Stage 9] %s 公開準備: video=%s, title=%r, tags=%s",
+        "[公開] %s 準備: video=%s, title=%r, tags=%s",
         platform, video.name, title[:30], tags[:5],
     )
 
@@ -70,7 +70,7 @@ def publish(ts: str, platform: str, **opts) -> dict:
         if not (ms.get("app_opened") or ms.get("finder_revealed")
                 or ms.get("clipboard")):
             raise RuntimeError(
-                f"Stage 9 {platform}: アプリ起動 / Finder reveal / クリップボード "
+                f"公開 {platform}: アプリ起動 / Finder reveal / クリップボード "
                 f"のすべてが失敗しました。手動で動画 ({video}) を開いてください — "
                 f"diagnostics: {ms.get('diagnostics')}",
             )
@@ -213,13 +213,13 @@ def _publish_semi_auto(platform: str, ts: str, video: Path, title: str,
 
     if sys.platform == "darwin" and not (app_opened or finder_revealed):
         logger.warning(
-            "[Stage 9 %s] アプリ起動 / Finder reveal の両方が失敗 — "
+            "[公開 %s] アプリ起動 / Finder reveal の両方が失敗 — "
             "ユーザが手動で動画ファイルを開く必要があります: %s",
             platform, video,
         )
     else:
         logger.info(
-            "[Stage 9 %s] caption=%s, app_opened=%s, finder=%s — "
+            "[公開 %s] caption=%s, app_opened=%s, finder=%s — "
             "アプリ側でアップロード完了後、URL を register_post で登録してください",
             platform, "OK" if clipboard_ok else "FAIL",
             app_opened, finder_revealed,

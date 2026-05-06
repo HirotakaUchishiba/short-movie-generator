@@ -585,7 +585,7 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
           </div>
           <div className="mt-2 text-xs text-slate-400">
             ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
-            作成後 Stage 1 で各シーンを編集できます。
+            作成後 台本タブで各シーンを編集できます。
           </div>
         </div>
       )}

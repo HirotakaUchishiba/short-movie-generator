@@ -89,12 +89,12 @@ export default function StageFinalImport() {
   return (
     <StageGate
       stage="final_import"
-      title="Stage 8: CapCut 出力の取り込み"
+      title="CapCut 出力の取り込み"
       description="CapCut 等で手動編集した最終動画を取り込み、analytics と公開フローの正本にする。temp/<TS>/final/ にファイルを置けば watchdog が自動検知。"
     >
       {!overlayApproved ? (
         <div className="card text-center text-slate-400">
-          まだ Stage 7 (字幕焼き込み) が承認されていません。pipeline raw
+          まだ 字幕 が承認されていません。pipeline raw
           が出力されてから取り込みます。
         </div>
       ) : (

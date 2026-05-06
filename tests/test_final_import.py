@@ -92,7 +92,7 @@ def test_import_final_requires_overlay_approval(tmp_path, monkeypatch):
     (ts_path / "metadata.json").write_text("{}")
     src = tmp_path / "x.mp4"
     _make_dummy_mp4(src, duration=1.0)
-    with pytest.raises(RuntimeError, match="overlay"):
+    with pytest.raises(RuntimeError, match="字幕"):
         fi.import_final(ts, src, skip_fingerprint=True)
 
 

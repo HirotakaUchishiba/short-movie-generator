@@ -24,9 +24,9 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", dest="resume_ts", metavar="TS",
                    help="既存 TS の次 stage を実行")
 
-    g = p.add_argument_group("Stage 8 / 9 (CapCut 取込 + 公開)")
+    g = p.add_argument_group("取込 / 公開 (CapCut 編集後)")
     g.add_argument("--import-final", dest="import_final", metavar="PATH",
-                   help="CapCut 出力を Stage 8 に取り込む")
+                   help="CapCut 出力を取込ステージに渡す")
     g.add_argument("--list-finals", dest="list_finals", action="store_true",
                    help="このプロジェクトの final 取込履歴を表示")
     g.add_argument("--canonical", metavar="FILENAME",
@@ -170,7 +170,7 @@ def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
             logger.error("取込失敗: %s", e)
             sys.exit(1)
         logger.info(
-            "[Stage 8] 取込完了: %s (canonical=%s) → UI で確認後 `--publish` で公開",
+            "[取込] 完了: %s (canonical=%s) → UI で確認後 `--publish` で公開",
             v.filename, v.is_canonical,
         )
         return
@@ -185,7 +185,7 @@ def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
         except Exception as e:
             logger.exception("公開失敗: %s", e)
             sys.exit(1)
-        logger.info("[Stage 9] 公開完了: %s %s", args.publish, result.get("url") or "")
+        logger.info("[公開] 完了: %s %s", args.publish, result.get("url") or "")
 
 
 def _ui_url(ts: str) -> str:

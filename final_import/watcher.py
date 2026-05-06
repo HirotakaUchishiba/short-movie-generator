@@ -158,7 +158,7 @@ def start_watcher(temp_dir: str | None = None) -> bool:
             target=_poll_pending, name="final-watch-poll", daemon=True,
         )
         _poller_thread.start()
-    logger.info("[Stage 8] watchdog start: %s", base)
+    logger.info("[取込] watchdog start: %s", base)
     return True
 
 
