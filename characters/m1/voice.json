@@ -1,0 +1,8 @@
+{
+  "id": "m1",
+  "voice_overrides": {
+    "stability": 0.45,
+    "style": 0.3,
+    "similarity_boost": 0.7
+  }
+}

@@ -1,0 +1,8 @@
+{
+  "id": "soft_gradient",
+  "decor": "シンプルな単色グラデーション背景、装飾なし、被写体に集中させる構図",
+  "lighting": "柔らかい正面ライト、影は最小限",
+  "color_palette": "ライトグレー〜オフホワイトのグラデーション",
+  "props": "なし",
+  "camera_distance": "medium-close"
+}
