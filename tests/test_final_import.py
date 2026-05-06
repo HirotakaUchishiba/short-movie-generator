@@ -198,3 +198,122 @@ def test_resolve_canonical_prefers_final(project, tmp_path):
     resolved = fi.resolve_canonical_video(ts_path)
     assert resolved.name == v.filename
     assert resolved.parent == fi.final_dir(ts_path)
+
+
+# ─── P1 fix tests ─────────────────────────────────────────────────
+
+
+def test_imported_filenames_are_safe_for_api_regex(project, tmp_path):
+    """API 側の `^[\\w\\.\\-]+$` を必ず通る命名に揃っていること."""
+    import re as _re
+    ts, ts_path = project
+    src = tmp_path / "My Final Cut Pro Export.mov"
+    _make_dummy_mp4(src)
+    v = fi.import_final(ts, src, skip_fingerprint=True)
+    assert _re.match(r"^[\w\.\-]+$", v.filename), v.filename
+    # 拡張子は元と一致 (.mov)
+    assert v.filename.endswith(".mov")
+
+
+def test_watchdog_path_is_renamed_in_place(project, tmp_path):
+    """final/ 内に既にあるファイル (= watchdog ドロップ) も safe name にリネームされる."""
+    import re as _re
+    ts, ts_path = project
+    final_d = fi.ensure_final_dir(ts_path)
+    drop = final_d / "out with space.mp4"
+    src = tmp_path / "raw.mp4"
+    _make_dummy_mp4(src)
+    shutil.copyfile(src, drop)
+    v = fi.import_final(ts, drop, source="watch", skip_fingerprint=True)
+    assert _re.match(r"^[\w\.\-]+$", v.filename)
+    assert (final_d / v.filename).exists()
+    # 元の "out with space.mp4" は in-place rename で消えている
+    assert not drop.exists()
+
+
+def test_dropping_same_filename_creates_distinct_versions(project, tmp_path):
+    """同じ ``out.mp4`` を 2 回入れても history に同名が並ばない."""
+    ts, ts_path = project
+    src1 = tmp_path / "out.mp4"
+    src2 = tmp_path / "x" / "out.mp4"
+    src2.parent.mkdir()
+    _make_dummy_mp4(src1, duration=1.0)
+    _make_dummy_mp4(src2, duration=2.0)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    assert v1.filename != v2.filename
+    versions = fi.list_final_versions(ts_path)
+    filenames = [v.filename for v in versions]
+    assert len(filenames) == len(set(filenames))
+
+
+def test_set_canonical_resets_publish_progress(project, tmp_path):
+    """canonical を切替えると Stage 9 (publish) の generated/approved が消える."""
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1)
+    _make_dummy_mp4(src2)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    # 両 stage を承認 + publish 履歴にも 1 件足す
+    progress_store.mark_approved(ts_path, "final_import")
+    progress_store.mark_generated(ts_path, "publish")
+    progress_store.mark_approved(ts_path, "publish")
+
+    fi.set_canonical_final(ts_path, v1.filename)
+
+    assert not progress_store.is_approved(ts_path, "final_import")
+    assert not progress_store.is_generated(ts_path, "publish")
+    assert not progress_store.is_approved(ts_path, "publish")
+
+
+def test_set_canonical_noop_keeps_progress(project, tmp_path):
+    """同じ canonical を再指定しても (= 変化なし) 既存承認は破棄しない."""
+    ts, ts_path = project
+    src = tmp_path / "a.mp4"
+    _make_dummy_mp4(src)
+    v = fi.import_final(ts, src, skip_fingerprint=True)
+    progress_store.mark_approved(ts_path, "final_import")
+
+    fi.set_canonical_final(ts_path, v.filename)
+    # 取込時点で既に承認済みなので、no-op 切替なら approval は残る
+    assert progress_store.is_approved(ts_path, "final_import")
+
+
+def test_delete_canonical_resets_publish(project, tmp_path):
+    """canonical を削除 → 別バージョンが昇格すると publish もリセット."""
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1)
+    _make_dummy_mp4(src2)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    progress_store.mark_approved(ts_path, "final_import")
+    progress_store.mark_generated(ts_path, "publish")
+    progress_store.mark_approved(ts_path, "publish")
+
+    fi.delete_final_version(ts_path, v2.filename)
+
+    assert not progress_store.is_approved(ts_path, "final_import")
+    assert not progress_store.is_generated(ts_path, "publish")
+
+
+def test_delete_non_canonical_keeps_progress(project, tmp_path):
+    """canonical でないバージョンを削除しても publish 承認はそのまま."""
+    ts, ts_path = project
+    src1 = tmp_path / "a.mp4"
+    src2 = tmp_path / "b.mp4"
+    _make_dummy_mp4(src1)
+    _make_dummy_mp4(src2)
+    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
+    v2 = fi.import_final(ts, src2, skip_fingerprint=True)  # canonical
+    progress_store.mark_approved(ts_path, "final_import")
+    progress_store.mark_generated(ts_path, "publish")
+    progress_store.mark_approved(ts_path, "publish")
+
+    fi.delete_final_version(ts_path, v1.filename)
+
+    assert progress_store.is_approved(ts_path, "final_import")
+    assert progress_store.is_approved(ts_path, "publish")

@@ -63,6 +63,18 @@ def publish(ts: str, platform: str, **opts) -> dict:
             "tiktok", ts, video, title, description, tags,
         )
 
+    # 半自動経路で「app 起動も Finder reveal も失敗」かつ「クリップボードも失敗」
+    # = ユーザに何も渡せていない → 履歴に残さず例外で job failure
+    if result.get("manual"):
+        ms = result.get("manual_status") or {}
+        if not (ms.get("app_opened") or ms.get("finder_revealed")
+                or ms.get("clipboard")):
+            raise RuntimeError(
+                f"Stage 9 {platform}: アプリ起動 / Finder reveal / クリップボード "
+                f"のすべてが失敗しました。手動で動画 ({video}) を開いてください — "
+                f"diagnostics: {ms.get('diagnostics')}",
+            )
+
     _record_publish(ts_path, result)
     return result
 
@@ -148,43 +160,59 @@ def _publish_semi_auto(platform: str, ts: str, video: Path, title: str,
     """ファイル + caption をクリップボードに置いてアプリを開く Phase 1 暫定。
 
     macOS では:
-      1. caption をクリップボードへ pbcopy
-      2. アプリ (Instagram.app / TikTok.app) を `open -a` で起動 (無ければ Finder reveal)
+      1. caption をクリップボードへ ``pbcopy``
+      2. アプリ (Instagram.app / TikTok.app) を ``open -a`` で起動。失敗
+         (アプリ未インストール / Gatekeeper 拒否 等) なら ``open -R`` で
+         Finder reveal にフォールバック
+      3. すべての失敗を caller に返す ``manual_status`` で記録 (= 完全失敗時
+         でも job は failure にせず、ユーザが手動で続行できる状態を残す)
 
-    成功 URL はユーザに後で `--register-post` で投入してもらう。
+    各 subprocess は returncode を必ずチェックする (silent success は禁止)。
     """
-    full_caption = description if title in description else f"{title}\n\n{description}".strip()
+    full_caption = (
+        description if title in description
+        else f"{title}\n\n{description}".strip()
+    )
+
+    clipboard_ok = False
+    app_opened = False
+    finder_revealed = False
+    diagnostics: list[str] = []
 
     if sys.platform == "darwin":
-        try:
-            subprocess.run(
-                ["pbcopy"], input=full_caption.encode("utf-8"), check=True,
-            )
-        except Exception as e:
-            logger.warning("pbcopy 失敗: %s", e)
+        clipboard_ok, msg = _run_pbcopy(full_caption)
+        if not clipboard_ok and msg:
+            diagnostics.append(msg)
 
-        app = {"instagram": "Instagram", "tiktok": "TikTok"}.get(platform)
-        opened = False
-        if app:
-            try:
-                subprocess.run(
-                    ["open", "-a", app, str(video)],
-                    check=False, capture_output=True,
-                )
-                opened = True
-            except Exception:
-                opened = False
-        if not opened:
-            subprocess.run(["open", "-R", str(video)], check=False)
+        app_name = {"instagram": "Instagram", "tiktok": "TikTok"}.get(platform)
+        if app_name:
+            app_opened, msg = _run_open_app(app_name, video)
+            if not app_opened and msg:
+                diagnostics.append(msg)
+
+        if not app_opened:
+            finder_revealed, msg = _run_finder_reveal(video)
+            if not finder_revealed and msg:
+                diagnostics.append(msg)
     else:
-        logger.info("non-darwin: 自動でアプリを開けません — caption を以下にコピーしてください:")
+        logger.info(
+            "non-darwin: 自動でアプリを開けません — 以下の caption を手動コピーしてください:",
+        )
         logger.info("---\n%s\n---", full_caption)
 
-    logger.info(
-        "[Stage 9 %s] caption をクリップボードへ + 動画を開きました — "
-        "アプリ側でアップロード完了後、URL を register_post で登録してください",
-        platform,
-    )
+    if sys.platform == "darwin" and not (app_opened or finder_revealed):
+        logger.warning(
+            "[Stage 9 %s] アプリ起動 / Finder reveal の両方が失敗 — "
+            "ユーザが手動で動画ファイルを開く必要があります: %s",
+            platform, video,
+        )
+    else:
+        logger.info(
+            "[Stage 9 %s] caption=%s, app_opened=%s, finder=%s — "
+            "アプリ側でアップロード完了後、URL を register_post で登録してください",
+            platform, "OK" if clipboard_ok else "FAIL",
+            app_opened, finder_revealed,
+        )
 
     return {
         "platform": platform,
@@ -193,7 +221,68 @@ def _publish_semi_auto(platform: str, ts: str, video: Path, title: str,
         "video_path": str(video),
         "caption": full_caption,
         "manual": True,
+        "manual_status": {
+            "clipboard": clipboard_ok,
+            "app_opened": app_opened,
+            "finder_revealed": finder_revealed,
+            "diagnostics": diagnostics,
+        },
     }
+
+
+def _run_pbcopy(text: str) -> tuple[bool, str | None]:
+    try:
+        r = subprocess.run(
+            ["pbcopy"], input=text.encode("utf-8"),
+            check=False, capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return True, None
+        err = r.stderr.decode("utf-8", errors="replace")[:200]
+        msg = f"pbcopy returncode={r.returncode} stderr={err!r}"
+        logger.warning(msg)
+        return False, msg
+    except (subprocess.TimeoutExpired, OSError) as e:
+        msg = f"pbcopy 例外: {e}"
+        logger.warning(msg)
+        return False, msg
+
+
+def _run_open_app(app_name: str, video: Path) -> tuple[bool, str | None]:
+    try:
+        r = subprocess.run(
+            ["open", "-a", app_name, str(video)],
+            check=False, capture_output=True, timeout=15,
+        )
+        if r.returncode == 0:
+            return True, None
+        err = r.stderr.decode("utf-8", errors="replace")[:300]
+        msg = (f"`open -a {app_name}` returncode={r.returncode} stderr={err!r} — "
+               "Finder reveal にフォールバック")
+        logger.info(msg)
+        return False, msg
+    except (subprocess.TimeoutExpired, OSError) as e:
+        msg = f"open -a {app_name} 例外: {e} — Finder reveal にフォールバック"
+        logger.info(msg)
+        return False, msg
+
+
+def _run_finder_reveal(video: Path) -> tuple[bool, str | None]:
+    try:
+        r = subprocess.run(
+            ["open", "-R", str(video)],
+            check=False, capture_output=True, timeout=10,
+        )
+        if r.returncode == 0:
+            return True, None
+        err = r.stderr.decode("utf-8", errors="replace")[:200]
+        msg = f"`open -R` returncode={r.returncode} stderr={err!r}"
+        logger.warning(msg)
+        return False, msg
+    except (subprocess.TimeoutExpired, OSError) as e:
+        msg = f"open -R 例外: {e}"
+        logger.warning(msg)
+        return False, msg
 
 
 def _record_publish(ts_path: str, result: dict) -> None:

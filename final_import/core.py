@@ -136,16 +136,18 @@ def import_final(
         except OSError:
             pass
 
-    stamp = datetime.now().strftime("%H%M%S")
-    dst_name = f"{stamp}{ext}"
-    if (final_d / dst_name).exists():
-        dst_name = f"{stamp}_{datetime.now().strftime('%f')}{ext}"
+    # 経路に依らず安全な一意名 (HHMMSS[.MICRO].<ext>) にリネーム / コピーする。
+    # 元ファイル名が unsafe (= 空白や記号入り) でも API regex `^[\w\.\-]+$` を必ず通過し、
+    # 同名再ドロップでも一意の history エントリになる。
+    dst_name = _allocate_unique_name(final_d, ext)
     dst = final_d / dst_name
 
     if src.parent.resolve() == final_d.resolve():
-        # 既に final/ 内にあるファイル (= watchdog 経由) は move せず、ファイル名だけ保持
-        dst = src
-        dst_name = src.name
+        # 既に final/ 内 (= watchdog がドロップを検知) → in-place rename
+        if src.name != dst_name:
+            os.rename(src, dst)
+        else:
+            dst = src
     else:
         shutil.copyfile(src, dst)
 
@@ -171,13 +173,7 @@ def import_final(
     )
 
     _append_final_version(ts_path, new_version)
-
-    if not progress_store.is_generated(ts_path, "final_import"):
-        progress_store.mark_generated(ts_path, "final_import")
-    else:
-        prog = progress_store.load(ts_path)
-        prog["stages"]["final_import"]["approved_at"] = None
-        progress_store.save(ts_path, prog)
+    _on_canonical_change(ts_path, ensure_generated=True)
 
     score_label = f"{score:.2f}" if score is not None else "-"
     logger.info(
@@ -188,27 +184,42 @@ def import_final(
 
 
 def set_canonical_final(ts_path: str, filename: str) -> FinalVersion:
-    """指定 filename を canonical に切替える。他バージョンは非 canonical。"""
+    """指定 filename を canonical に切替える。他バージョンは非 canonical。
+
+    canonical が実際に変わったときは Stage 8 (final_import) の承認と
+    Stage 9 (publish) の進捗を取り直しさせる (= 旧 canonical の publish 承認が
+    新 canonical に流用されないように)。`metadata.json.published_posts` の
+    投稿履歴は残る。
+    """
     meta = staged_pipeline.read_metadata(ts_path) or {}
     versions = meta.get("final_versions") or []
     target: dict | None = None
+    canonical_changed = False
     for v in versions:
         if v.get("filename") == filename:
+            if not v.get("is_canonical"):
+                canonical_changed = True
             v["is_canonical"] = True
             target = v
         else:
+            if v.get("is_canonical"):
+                canonical_changed = True
             v["is_canonical"] = False
     if target is None:
         raise ValueError(f"final version not found: {filename}")
     meta["final_versions"] = versions
     _save_metadata(ts_path, meta)
+    if canonical_changed:
+        _on_canonical_change(ts_path, ensure_generated=False)
     return FinalVersion(**target)
 
 
 def delete_final_version(ts_path: str, filename: str) -> None:
     """final version を削除。canonical だった場合は最新の他バージョンが canonical に。
 
-    全バージョンが消えると Stage 8 の進捗をリセット。
+    canonical が変わったときは Stage 8/9 の承認を取り直しにする。
+    全バージョンが消えると Stage 8 の進捗そのものをリセット (= reset_stage が
+    Stage 9 もまとめて消す)。
     """
     meta = staged_pipeline.read_metadata(ts_path) or {}
     versions = meta.get("final_versions") or []
@@ -230,7 +241,11 @@ def delete_final_version(ts_path: str, filename: str) -> None:
         file_path.unlink()
 
     if not versions:
+        # Stage 8 を完全リセット → reset_stage が STAGES[idx:] を全消去するので
+        # Stage 9 (publish) もまとめてクリアされる
         progress_store.reset_stage(ts_path, "final_import")
+    elif was_canonical:
+        _on_canonical_change(ts_path, ensure_generated=False)
 
 
 def _append_final_version(ts_path: str, version: FinalVersion) -> None:
@@ -241,6 +256,39 @@ def _append_final_version(ts_path: str, version: FinalVersion) -> None:
     existing.append(asdict(version))
     meta["final_versions"] = existing
     _save_metadata(ts_path, meta)
+
+
+def _allocate_unique_name(final_d: Path, ext: str) -> str:
+    """`HHMMSS<ext>` を返す。衝突時は microsec 込みで再試行、それでも被ったら uuid。"""
+    now = datetime.now()
+    stamp = now.strftime("%H%M%S")
+    candidate = f"{stamp}{ext}"
+    if not (final_d / candidate).exists():
+        return candidate
+    candidate = f"{stamp}_{now.strftime('%f')}{ext}"
+    if not (final_d / candidate).exists():
+        return candidate
+    import uuid as _uuid
+    return f"{stamp}_{_uuid.uuid4().hex[:8]}{ext}"
+
+
+def _on_canonical_change(ts_path: str, *, ensure_generated: bool) -> None:
+    """canonical が変わったときに呼ぶ進捗リセット。
+
+    - ``ensure_generated=True`` → ``final_import`` を generated に (= 取込新規)
+    - 常に ``final_import.approved_at`` を消す (= 再確認を強制)
+    - 常に ``publish`` を generated/approved とも消す (= 旧 canonical の
+      publish 承認や generated フラグが新 canonical に流用されないように。
+      published_posts 履歴は metadata 側に残す)
+    """
+    if ensure_generated:
+        if not progress_store.is_generated(ts_path, "final_import"):
+            progress_store.mark_generated(ts_path, "final_import")
+    prog = progress_store.load(ts_path)
+    prog["stages"]["final_import"]["approved_at"] = None
+    prog["stages"]["publish"]["generated_at"] = None
+    prog["stages"]["publish"]["approved_at"] = None
+    progress_store.save(ts_path, prog)
 
 
 def _save_metadata(ts_path: str, meta: dict) -> None:

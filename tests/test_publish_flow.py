@@ -145,13 +145,10 @@ def test_publish_blocked_when_stage8_unapproved(project, monkeypatch):
 
 def test_publish_instagram_semi_auto(project, monkeypatch):
     import sys
-    import subprocess as sp
     from final_import.publish import publish
 
     ts, ts_path = project
     calls: list[list[str]] = []
-
-    real_run = sp.run
 
     def fake_run(args, **kw):
         calls.append(list(args))
@@ -168,6 +165,88 @@ def test_publish_instagram_semi_auto(project, monkeypatch):
     result = publish(ts, "instagram")
     assert result["manual"] is True
     assert result["platform"] == "instagram"
+    assert result["manual_status"]["clipboard"] is True
+    assert result["manual_status"]["app_opened"] is True
     # pbcopy + open のいずれかが呼ばれたこと
     assert any(c[0] == "pbcopy" for c in calls)
     assert any(c[0] == "open" for c in calls)
+
+
+def test_publish_semi_auto_falls_back_to_finder_reveal_on_app_failure(
+    project, monkeypatch,
+):
+    """`open -a Instagram` が失敗 (アプリ未インストール等) → Finder reveal にフォールバック."""
+    import sys
+    from final_import.publish import publish
+
+    ts, _ts_path = project
+    calls: list[list[str]] = []
+
+    def fake_run(args, **kw):
+        calls.append(list(args))
+
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+
+        # `open -a Instagram <video>` だけ失敗、他は成功
+        if len(args) >= 3 and args[0] == "open" and args[1] == "-a":
+            R.returncode = 1
+            R.stderr = b"app not found"
+        return R()
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = publish(ts, "instagram")
+    assert result["manual_status"]["clipboard"] is True
+    assert result["manual_status"]["app_opened"] is False
+    assert result["manual_status"]["finder_revealed"] is True
+    # pbcopy + open -a + open -R 全部呼ばれた
+    assert any(c[:2] == ["open", "-a"] for c in calls)
+    assert any(c[:2] == ["open", "-R"] for c in calls)
+
+
+def test_publish_semi_auto_raises_when_everything_fails(project, monkeypatch):
+    """clipboard / open -a / open -R 全滅なら RuntimeError で job failure."""
+    import sys
+    from final_import.publish import publish
+
+    ts, _ts_path = project
+
+    def fake_run(args, **kw):
+        class R:
+            returncode = 99
+            stdout = b""
+            stderr = b"all failing"
+        return R()
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    with pytest.raises(RuntimeError, match="すべてが失敗"):
+        publish(ts, "tiktok")
+
+
+def test_publish_semi_auto_success_when_only_clipboard_works(project, monkeypatch):
+    """clipboard だけ成功でも (= 何かはユーザに渡せた) job 成功扱い."""
+    import sys
+    from final_import.publish import publish
+
+    ts, _ts_path = project
+
+    def fake_run(args, **kw):
+        class R:
+            returncode = 0 if args[0] == "pbcopy" else 1
+            stdout = b""
+            stderr = b"app/finder failed"
+        return R()
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("subprocess.run", fake_run)
+
+    result = publish(ts, "instagram")
+    assert result["manual_status"]["clipboard"] is True
+    assert result["manual_status"]["app_opened"] is False
+    assert result["manual_status"]["finder_revealed"] is False
