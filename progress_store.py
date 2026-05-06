@@ -2,7 +2,13 @@ import json
 import os
 from datetime import datetime
 
-STAGES = ["script", "tts", "bg", "kling", "scene", "overlay", "final"]
+STAGES = [
+    "script", "tts", "bg", "kling", "scene", "overlay", "final",
+    "final_import", "publish",
+]
+# CLI / UI から自動 run_next で起動できないステージ。ユーザの外部アクション
+# (CapCut 取り込み / プラットフォームへの投稿) によって generated_at が立つ。
+EXTERNAL_ACTION_STAGES = frozenset({"final_import", "publish"})
 PROGRESS_FILENAME = "tmp-progress.json"
 
 

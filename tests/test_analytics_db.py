@@ -122,3 +122,47 @@ def test_register_post_rejects_invalid_platform(isolated_db, sample_screenplay_f
     import sqlite3
     with pytest.raises(sqlite3.IntegrityError):
         isolated_db.register_post("v3", "mixi", "xxx")
+
+
+def test_insert_video_with_final_metadata(isolated_db, sample_screenplay_file) -> None:
+    sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
+    isolated_db.insert_video(
+        "v_final", sp_id, "/tmp/final.mp4",
+        duration_sec=28.5, generation_cost_usd=15.0,
+        final_imported=True, final_filename="142233.mp4",
+        final_audio_match_score=0.87,
+    )
+    with isolated_db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM videos WHERE id = 'v_final'"
+        ).fetchone()
+    assert row["final_imported"] == 1
+    assert row["final_filename"] == "142233.mp4"
+    assert row["final_audio_match_score"] == 0.87
+
+
+def test_init_db_migrates_old_videos_table(tmp_path, monkeypatch) -> None:
+    """schema_version 3 以前で作られた videos テーブル (final_* カラム無し) に
+    init_db が ALTER TABLE で追加できることを確認。"""
+    import sqlite3
+    db_path = tmp_path / "old.db"
+    monkeypatch.setenv("ANALYTICS_DB_PATH", str(db_path))
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE videos (
+            id TEXT PRIMARY KEY,
+            screenplay_id TEXT NOT NULL,
+            output_path TEXT NOT NULL,
+            duration_sec REAL,
+            generation_cost_usd REAL,
+            generated_at TEXT NOT NULL
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    from analytics import db as _db
+    _db.init_db()
+    with _db.get_connection() as conn:
+        cols = {r["name"] for r in conn.execute("PRAGMA table_info(videos)")}
+    assert {"final_imported", "final_filename", "final_audio_match_score"} <= cols

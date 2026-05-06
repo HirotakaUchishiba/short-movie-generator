@@ -38,7 +38,10 @@ CREATE TABLE IF NOT EXISTS videos (
     output_path TEXT NOT NULL,
     duration_sec REAL,
     generation_cost_usd REAL,
-    generated_at TEXT NOT NULL
+    generated_at TEXT NOT NULL,
+    final_imported INTEGER NOT NULL DEFAULT 0,
+    final_filename TEXT,
+    final_audio_match_score REAL
 );
 
 CREATE INDEX IF NOT EXISTS idx_videos_screenplay ON videos(screenplay_id);

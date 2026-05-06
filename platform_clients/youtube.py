@@ -1,19 +1,25 @@
-"""YouTube Data API v3 / Analytics API クライアント。
+"""YouTube Data API v3 / Analytics API クライアント + resumable uploader。
 
 環境変数:
     YOUTUBE_API_KEY                  公開統計(views/likes/comments/duration)用
-    YOUTUBE_OAUTH_CLIENT_ID          Analytics API用 (OAuth Desktop App)
+    YOUTUBE_OAUTH_CLIENT_ID          Analytics / Upload API 用 (OAuth Desktop App)
     YOUTUBE_OAUTH_CLIENT_SECRET
     YOUTUBE_REFRESH_TOKEN            初回認可後に取得、.env保存推奨
+                                     (upload を使うなら youtube.upload scope 同意必須)
 """
 import logging
 import os
 from datetime import date, timedelta
+from pathlib import Path
 
 logger = logging.getLogger(__name__)
 
 DATA_API_BASE = "https://www.googleapis.com/youtube/v3"
 ANALYTICS_API_BASE = "https://youtubeanalytics.googleapis.com/v2"
+UPLOAD_API_BASE = "https://www.googleapis.com/upload/youtube/v3/videos"
+UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
+DEFAULT_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
+DEFAULT_CATEGORY_ID = "22"  # People & Blogs
 
 
 def _iso_duration_to_seconds(dur: str) -> float:
@@ -148,6 +154,219 @@ def fetch_analytics(video_id: str,
         "completion_rate": avg_view_pct / 100.0 if avg_view_pct else None,
         "raw_response": data,
     }
+
+
+def upload_video(
+    file_path: Path | str,
+    title: str,
+    description: str,
+    tags: list[str] | None = None,
+    privacy: str = "private",
+    is_short: bool = True,
+    category_id: str = DEFAULT_CATEGORY_ID,
+    chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
+    made_for_kids: bool = False,
+) -> dict:
+    """Resumable upload で YouTube に動画をアップロード、video_id と URL を返す。
+
+    privacy: "private" / "unlisted" / "public"。既定は "private" で安全側。
+    is_short: True なら description 末尾に `#Shorts` を自動付加し、Shorts URL を返す。
+
+    Raises:
+        RuntimeError: 認証情報不足 / Location ヘッダ欠落 / 異常レスポンス
+        requests.HTTPError: HTTP エラー (403 はスコープ不足の可能性)
+    """
+    import requests
+
+    file_path = Path(file_path)
+    if not file_path.exists():
+        raise FileNotFoundError(f"video not found: {file_path}")
+    file_size = file_path.stat().st_size
+    if file_size <= 0:
+        raise ValueError(f"empty file: {file_path}")
+
+    client_id = os.getenv("YOUTUBE_OAUTH_CLIENT_ID")
+    client_secret = os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET")
+    refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
+    if not all([client_id, client_secret, refresh_token]):
+        raise RuntimeError(
+            "YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN が必要 "
+            "(upload には youtube.upload スコープ同意済みの token が必要)",
+        )
+
+    token = _oauth_access_token(client_id, client_secret, refresh_token)
+
+    if is_short and "#Shorts" not in description:
+        description = (description.rstrip() + "\n\n#Shorts").strip()
+
+    metadata = {
+        "snippet": {
+            "title": title[:100],
+            "description": description[:5000],
+            "tags": (tags or [])[:30],
+            "categoryId": category_id,
+        },
+        "status": {
+            "privacyStatus": privacy,
+            "selfDeclaredMadeForKids": made_for_kids,
+        },
+    }
+
+    init_resp = requests.post(
+        f"{UPLOAD_API_BASE}?uploadType=resumable&part=snippet,status",
+        json=metadata,
+        headers={
+            "Authorization": f"Bearer {token}",
+            "X-Upload-Content-Length": str(file_size),
+            "X-Upload-Content-Type": "video/*",
+        },
+        timeout=30,
+    )
+    init_resp.raise_for_status()
+    upload_url = init_resp.headers.get("Location")
+    if not upload_url:
+        raise RuntimeError("resumable upload init で Location header が返らなかった")
+
+    with open(file_path, "rb") as f:
+        offset = 0
+        last_response_data: dict = {}
+        unknown_range_retries = 0
+        max_unknown_range_retries = 5
+        while offset < file_size:
+            f.seek(offset)
+            chunk = f.read(chunk_size)
+            if not chunk:
+                break
+            chunk_end = offset + len(chunk) - 1
+            r = requests.put(
+                upload_url,
+                data=chunk,
+                headers={
+                    "Content-Length": str(len(chunk)),
+                    "Content-Range": f"bytes {offset}-{chunk_end}/{file_size}",
+                },
+                timeout=600,
+            )
+            if r.status_code in (200, 201):
+                try:
+                    last_response_data = r.json()
+                except Exception:
+                    last_response_data = {}
+                break
+            if r.status_code == 308:
+                acked = _parse_range_offset(r.headers)
+                if acked is not None:
+                    offset = acked
+                    unknown_range_retries = 0
+                    logger.info(
+                        "youtube upload: %d / %d bytes (%.0f%%)",
+                        offset, file_size, offset / file_size * 100,
+                    )
+                    continue
+                # Range が無い 308 は server がどこまで受領したか不明 →
+                # 楽観的に offset を進めると byte gap で upload が壊れる。
+                # まず status query (空 PUT + `Content-Range: bytes */<size>`)
+                # で受領済み offset を取り直す。
+                queried = _query_resumable_offset(upload_url, file_size)
+                if queried == "complete":
+                    last_response_data = {}
+                    offset = file_size
+                    break
+                if isinstance(queried, dict):
+                    last_response_data = queried
+                    offset = file_size
+                    break
+                if isinstance(queried, int):
+                    offset = queried
+                    unknown_range_retries = 0
+                    continue
+                # status query でも Range 無し → 同じ offset で retry
+                unknown_range_retries += 1
+                if unknown_range_retries > max_unknown_range_retries:
+                    raise RuntimeError(
+                        f"308 from server without Range info "
+                        f"(retries={unknown_range_retries}, offset={offset}); "
+                        "upload aborted to avoid byte gap",
+                    )
+                logger.warning(
+                    "youtube upload: 308 without Range (retry %d/%d, offset=%d)",
+                    unknown_range_retries, max_unknown_range_retries, offset,
+                )
+                continue
+            r.raise_for_status()
+            raise RuntimeError(
+                f"upload PUT 想定外の status: {r.status_code} {r.text[:300]}",
+            )
+
+    video_id = last_response_data.get("id")
+    if not video_id:
+        raise RuntimeError(
+            f"upload 完了後に video_id が取得できませんでした: {last_response_data}",
+        )
+    url = (f"https://youtube.com/shorts/{video_id}" if is_short
+           else f"https://youtu.be/{video_id}")
+    return {
+        "video_id": video_id,
+        "url": url,
+        "raw_response": last_response_data,
+    }
+
+
+def _parse_range_offset(headers) -> int | None:
+    """`Range: bytes=0-N` から次に送るべき offset (= N+1) を返す。
+
+    ヘッダ欠落 / フォーマット不正は None。"""
+    rh = headers.get("Range") or headers.get("range")
+    if not rh:
+        return None
+    if "-" not in rh:
+        return None
+    try:
+        end = int(rh.rsplit("-", 1)[-1].strip())
+    except ValueError:
+        return None
+    if end < 0:
+        return None
+    return end + 1
+
+
+def _query_resumable_offset(upload_url: str, file_size: int):
+    """空 PUT で受領済み offset を server に問い合わせる。
+
+    Returns:
+      - int: server が受領済みの byte 数 (= 次の offset)
+      - "complete": 200/201 で完了応答 (= 既にアップロード済み)
+      - dict: 200/201 のレスポンス本文 (= video resource)
+      - None: 308 だが Range 無し (= server もまだわからない)
+    """
+    import requests
+    try:
+        r = requests.put(
+            upload_url, data=b"",
+            headers={
+                "Content-Length": "0",
+                "Content-Range": f"bytes */{file_size}",
+            },
+            timeout=60,
+        )
+    except requests.RequestException as e:
+        logger.warning("status query 失敗: %s", e)
+        return None
+    if r.status_code in (200, 201):
+        try:
+            data = r.json()
+            if data:
+                return data
+        except Exception:
+            pass
+        return "complete"
+    if r.status_code == 308:
+        return _parse_range_offset(r.headers)
+    logger.warning(
+        "status query: unexpected status %d (%s)",
+        r.status_code, r.text[:200],
+    )
+    return None
 
 
 def fetch_metrics_for_post(post: dict) -> dict:

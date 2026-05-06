@@ -16,6 +16,7 @@ import type {
   CostProjectReport,
   CostStage,
   DecisionsResponse,
+  FinalVersion,
   KlingCacheEntry,
   KlingCandidateMeta,
   KlingDecisionsResponse,
@@ -24,6 +25,7 @@ import type {
   ProjectDetail,
   ProjectListItem,
   Progress,
+  PublishedPost,
   ReferenceVideo,
   ReferenceVideoUploadResult,
   Screenplay,
@@ -292,6 +294,66 @@ export const api = {
     typeof makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>
   >,
 
+  // ─── Stage 8 final import / Stage 9 publish ──────────
+  listFinals: (ts: string) =>
+    http<{ final_versions: FinalVersion[] }>(`/api/projects/${ts}/final`),
+  uploadFinal: (
+    ts: string,
+    file: File,
+    opts?: { skipFingerprint?: boolean; onProgress?: (pct: number) => void },
+  ): Promise<{ final_version: FinalVersion }> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append("file", file);
+      const q = opts?.skipFingerprint ? "?no_fingerprint=true" : "";
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && opts?.onProgress) {
+          opts.onProgress(e.loaded / e.total);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
+        } else {
+          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
+        }
+      };
+      xhr.onerror = () => reject(new Error("network error"));
+      xhr.open("POST", `${API_BASE}/api/projects/${ts}/final${q}`);
+      xhr.send(fd);
+    });
+  },
+  setCanonicalFinal: (ts: string, filename: string) =>
+    http<{ final_version: FinalVersion }>(
+      `/api/projects/${ts}/final/${encodeURIComponent(filename)}/canonical`,
+      { method: "POST" },
+    ),
+  deleteFinal: (ts: string, filename: string) =>
+    http<{ ok: true; deleted: string }>(
+      `/api/projects/${ts}/final/${encodeURIComponent(filename)}`,
+      { method: "DELETE" },
+    ),
+  publish: (
+    ts: string,
+    body: {
+      platform: "youtube" | "instagram" | "tiktok";
+      privacy?: "private" | "unlisted" | "public";
+    },
+  ) =>
+    http<{ job_id: string }>(`/api/projects/${ts}/publish`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
+  publishHistory: (ts: string) =>
+    http<{ published_posts: PublishedPost[] }>(
+      `/api/projects/${ts}/publish-history`,
+    ),
+
   // ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
   cost: {
     pricebook: () => http<CostPricebookResponse>("/api/cost/pricebook"),
@@ -471,6 +533,16 @@ export function overlayAssetUrl(ts: string, version?: number | string): string {
 }
 export function finalAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/final`, version);
+}
+export function finalVersionAssetUrl(
+  ts: string,
+  filename: string,
+  version?: number | string,
+): string {
+  return withVersion(
+    `${API_BASE}/asset/${ts}/final-version/${encodeURIComponent(filename)}`,
+    version,
+  );
 }
 export function referenceVideoAssetUrl(sha256: string): string {
   return `${API_BASE}/asset/reference-video/${sha256}`;

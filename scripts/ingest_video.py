@@ -39,16 +39,17 @@ def main() -> int:
     parser = argparse.ArgumentParser(description="生成動画をDBに登録")
     parser.add_argument("timestamp", help="生成時のtimestamp (例 20260425_123456)")
     parser.add_argument("--cost", type=float, help="生成コスト USD")
+    parser.add_argument(
+        "--prefer", choices=["final", "raw"], default="final",
+        help="canonical final と pipeline raw のどちらを優先するか (既定: final)",
+    )
     args = parser.parse_args()
 
     ts = args.timestamp
     temp_dir = Path(config.TEMP_DIR) / ts
-    output_path = Path(config.OUTPUT_DIR) / f"reels_{ts}.mp4"
+    raw_path = Path(config.OUTPUT_DIR) / f"reels_{ts}.mp4"
     metadata_path = temp_dir / "metadata.json"
 
-    if not output_path.exists():
-        logger.error("動画が見つかりません: %s", output_path)
-        return 1
     if not metadata_path.exists():
         logger.error("metadata.jsonが見つかりません: %s", metadata_path)
         return 1
@@ -56,12 +57,32 @@ def main() -> int:
     with open(metadata_path, "r", encoding="utf-8") as f:
         meta = json.load(f)
 
-    screenplay_path = Path(config.BASE_DIR) / meta["screenplay_path"]
+    output_path: Path
+    final_meta: dict | None = None
+    if args.prefer == "final":
+        final_meta = _canonical_final(meta)
+        if final_meta:
+            output_path = temp_dir / "final" / final_meta["filename"]
+        else:
+            output_path = raw_path
+    else:
+        output_path = raw_path
+
+    if not output_path.exists():
+        logger.error("動画が見つかりません: %s", output_path)
+        return 1
+
+    # screenplay は project snapshot を直接登録する (= 旧 template path 同様 sha256 で一意)
+    screenplay_path = (Path(config.BASE_DIR) / temp_dir / meta["screenplay_path"]
+                       if not Path(meta["screenplay_path"]).is_absolute()
+                       else Path(meta["screenplay_path"]))
+    if not screenplay_path.exists():
+        # 旧形式 (= screenplays/<name>.json をフルパスで持っていた時代) のフォールバック
+        screenplay_path = Path(config.BASE_DIR) / meta["screenplay_path"]
     db.init_db()
     sp_id = db.upsert_screenplay(str(screenplay_path))
 
     cost = args.cost
-
     duration = _ffprobe_duration(str(output_path))
 
     db.insert_video(
@@ -70,10 +91,24 @@ def main() -> int:
         output_path=str(output_path),
         duration_sec=duration,
         generation_cost_usd=cost,
+        final_imported=bool(final_meta),
+        final_filename=final_meta["filename"] if final_meta else None,
+        final_audio_match_score=(
+            final_meta.get("audio_match_score") if final_meta else None
+        ),
     )
-    logger.info("video %s 登録完了 (screenplay=%s, duration=%.1fs, cost=$%.2f)",
-                ts, sp_id, duration or 0, cost or 0)
+    logger.info(
+        "video %s 登録完了 (screenplay=%s, source=%s, duration=%.1fs, cost=$%.2f)",
+        ts, sp_id, "final" if final_meta else "raw", duration or 0, cost or 0,
+    )
     return 0
+
+
+def _canonical_final(meta: dict) -> dict | None:
+    for v in meta.get("final_versions") or []:
+        if v.get("is_canonical"):
+            return v
+    return None
 
 
 if __name__ == "__main__":

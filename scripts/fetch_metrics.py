@@ -17,13 +17,15 @@ sys.path.insert(0, str(ROOT))
 
 import log_setup  # noqa: E402
 from analytics import db  # noqa: E402
-from platform_clients import youtube  # noqa: E402
+from platform_clients import instagram, tiktok, youtube  # noqa: E402
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
 
 PLATFORM_CLIENTS = {
     "youtube": youtube.fetch_metrics_for_post,
+    "instagram": instagram.fetch_metrics_for_post,
+    "tiktok": tiktok.fetch_metrics_for_post,
 }
 
 
