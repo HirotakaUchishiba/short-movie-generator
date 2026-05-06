@@ -71,16 +71,16 @@ export default function StagePublish() {
   return (
     <StageGate
       stage="publish"
-      title="Stage 9: プラットフォームへ公開"
+      title="プラットフォームへ公開"
       description="canonical な final 動画を YouTube / Instagram / TikTok に投稿し、analytics DB に登録する。YouTube は完全自動、IG / TikTok は半自動 (caption をクリップボードへ + アプリ起動)。"
     >
       {!stage8Approved ? (
         <div className="card text-center text-slate-400">
-          まず Stage 8 (取込) を承認してください。
+          まず 取込 を承認してください。
         </div>
       ) : !canonical ? (
         <div className="card text-center text-slate-400">
-          canonical な final がありません。Stage 8 で取り込んでください。
+          canonical な final がありません。取込 タブで取り込んでください。
         </div>
       ) : (
         <>

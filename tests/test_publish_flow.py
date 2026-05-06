@@ -62,8 +62,6 @@ def project(tmp_path, monkeypatch):
     for s in ["script", "tts", "bg", "kling", "scene", "overlay"]:
         progress_store.mark_generated(str(ts_path), s)
         progress_store.mark_approved(str(ts_path), s)
-    progress_store.mark_generated(str(ts_path), "final")
-    progress_store.mark_approved(str(ts_path), "final")
 
     # post_captions/<title>.md
     cap_md = Path(config.POST_CAPTIONS_DIR) / "demo.md"
@@ -139,7 +137,7 @@ def test_publish_blocked_when_stage8_unapproved(project, monkeypatch):
     prog["stages"]["final_import"]["approved_at"] = None
     progress_store.save(ts_path, prog)
 
-    with pytest.raises(RuntimeError, match="final_import"):
+    with pytest.raises(RuntimeError, match="取込"):
         publish(ts, "youtube")
 
 

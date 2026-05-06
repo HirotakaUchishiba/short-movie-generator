@@ -11,16 +11,16 @@
 ## 段階的ゲート方式 (9ステージ)
 
 ```
-[1.台本] → [2.TTS] → [3.背景] → [4.Kling] → [5+6.シーン動画] → [7.字幕] → [完成 (raw)]
-                                                                          ↓
-[CapCut 等で手動編集]
-                                                                          ↓
-[8.取込] → [9.公開 (YouTube/IG/TikTok)]
+[1.台本] → [2.TTS] → [3.背景] → [4.Kling] → [5+6.音声/リップシンク合成] → [7.字幕 (= pipeline raw)]
+                                                                                       ↓
+                                                                              [CapCut 等で手動編集]
+                                                                                       ↓
+                                                                          [8.取込] → [9.公開 (YouTube/IG/TikTok)]
 ```
 
 各stageの成果物は `temp/<TS>/tmp/` に保存され、進捗は `tmp-progress.json` で管理する。プレビューUIで承認するまで次stageは実行できない。
 
-**Stage 7 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。**Stage 8 / 9** はユーザの外部アクション (= CapCut で編集 → ドロップ、プラットフォームに公開) が起点で、`run-next` では自動起動しない。
+**Stage 7 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 7 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 8 / 9** はユーザの外部アクション (= CapCut で編集 → ドロップ、プラットフォームに公開) が起点で、`run-next` では自動起動しない。
 
 **Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の voice_overrides が自動推論される。手書き台本プロジェクト (analyze_job_id 無し) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
 
@@ -40,17 +40,16 @@ python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 
 ### ステージ別の成果物
 
-| Stage           | アーティファクト                                     | 主な確認内容                                                                                                                                                        |
-| --------------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. script       | `metadata.json` + 台本検証                           | caption/シーン構成/lines 整合性 (analyze 経由なら同ページ上部で 参考動画 / 抽象台本 / 話者マッピングも編集可能。保存時は Stage 1〜7 の承認のみ解除し assets は保持) |
-| 2. tts          | `tmp/tts_<S>_<L>.mp3`                                | 各セリフの発音/感情/速度/voice_id                                                                                                                                   |
-| 3. bg           | `tmp/bg_<S>.png`                                     | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入                                                                                                                    |
-| 4. kling        | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`       | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
-| 5+6. scene      | `tmp/scene_<S>.mp4`                                  | TTS音声付き+リップシンク済みの完成シーン動画                                                                                                                        |
-| 7. overlay      | `tmp/overlaid.mp4`                                   | 字幕の表示位置・タイミング・視認性                                                                                                                                  |
-| final           | `output/reels_<TS>.mp4` + `post_captions/<title>.md` | BGM mix済み完成動画 (= pipeline raw)                                                                                                                                |
-| 8. final_import | `temp/<TS>/final/<HHMMSS>.mp4` (複数バージョン)      | CapCut 編集後の動画。watchdog が `final/` への drop を自動検知 + 音声指紋で誤投入を検出。canonical を選んで承認すると Stage 9 へ                                    |
-| 9. publish      | `metadata.json.published_posts[]` + analytics DB     | YouTube は Data API resumable upload で自動投稿、IG/TikTok は半自動 (caption をクリップボードへ + アプリ起動)。成功時に `posts` テーブルに登録される                |
+| Stage           | アーティファクト                                                          | 主な確認内容                                                                                                                                                        |
+| --------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. script       | `metadata.json` + 台本検証                                                | caption/シーン構成/lines 整合性 (analyze 経由なら同ページ上部で 参考動画 / 抽象台本 / 話者マッピングも編集可能。保存時は Stage 1〜7 の承認のみ解除し assets は保持) |
+| 2. tts          | `tmp/tts_<S>_<L>.mp3`                                                     | 各セリフの発音/感情/速度/voice_id                                                                                                                                   |
+| 3. bg           | `tmp/bg_<S>.png`                                                          | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入                                                                                                                    |
+| 4. kling        | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`                            | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
+| 5+6. scene      | `tmp/scene_<S>.mp4`                                                       | 音声 / リップシンク合成済みの完成シーン動画                                                                                                                         |
+| 7. overlay      | `tmp/overlaid.mp4` + `output/reels_<TS>.mp4` + `post_captions/<title>.md` | 字幕の表示位置・タイミング・視認性。生成時に pipeline raw (`reels_<TS>.mp4`) と SNS キャプションも同時に書き出される                                                |
+| 8. final_import | `temp/<TS>/final/<HHMMSS>.mp4` (複数バージョン)                           | CapCut 編集後の動画。watchdog が `final/` への drop を自動検知 + 音声指紋で誤投入を検出。canonical を選んで承認すると Stage 9 へ                                    |
+| 9. publish      | `metadata.json.published_posts[]` + analytics DB                          | YouTube は Data API resumable upload で自動投稿、IG/TikTok は半自動 (caption をクリップボードへ + アプリ起動)。成功時に `posts` テーブルに登録される                |
 
 ### 個別シーンの再生成
 

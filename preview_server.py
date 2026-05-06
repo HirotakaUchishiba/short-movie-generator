@@ -393,7 +393,8 @@ def api_regen(ts):
 
     job_id = _spawn_job(
         lambda: staged_pipeline.regen(
-            stage, sp, _ts_path(ts), scene_idx, line_idx, force=force),
+            stage, sp, _ts_path(ts), scene_idx, line_idx, force=force,
+            screenplay_name=name),
         kind=f"regen-{stage}", ts=ts,
     )
     return jsonify({"job_id": job_id})
@@ -739,15 +740,6 @@ def asset_scene_audio(ts, scene_idx):
 def asset_overlay(ts):
     _validate_ts(ts)
     p = _safe_join(_ts_path(ts), "overlaid.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
-@app.route("/asset/<ts>/final")
-def asset_final(ts):
-    _validate_ts(ts)
-    p = os.path.join(OUTPUT_DIR, f"reels_{ts}.mp4")
     if os.path.exists(p):
         return send_file(p, mimetype="video/mp4")
     return "", 404

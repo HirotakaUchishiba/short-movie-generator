@@ -2,15 +2,14 @@ import { Link } from "react-router-dom";
 import type { Progress, StageName } from "../types";
 
 const STAGES: { key: StageName; label: string }[] = [
-  { key: "script", label: "1.台本" },
-  { key: "tts", label: "2.TTS" },
-  { key: "bg", label: "3.背景" },
-  { key: "kling", label: "4.Kling" },
-  { key: "scene", label: "5+6.シーン" },
-  { key: "overlay", label: "7.字幕" },
-  { key: "final", label: "完成" },
-  { key: "final_import", label: "8.取込" },
-  { key: "publish", label: "9.公開" },
+  { key: "script", label: "台本" },
+  { key: "tts", label: "TTS" },
+  { key: "bg", label: "背景" },
+  { key: "kling", label: "Kling" },
+  { key: "scene", label: "音声/リップシンク合成" },
+  { key: "overlay", label: "字幕" },
+  { key: "final_import", label: "取込" },
+  { key: "publish", label: "公開" },
 ];
 
 export default function StageProgressBar({

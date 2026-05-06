@@ -21,7 +21,7 @@ export default function StageBG() {
   return (
     <StageGate
       stage="bg"
-      title="Stage 3: 背景画像"
+      title="背景画像"
       description="cache スキャン → シーンごとに『キャッシュ採用 / 新規生成』を判断 → 残りを一括生成。Imagen で各シーンの背景画像を生成します。"
     >
       {generated ? (

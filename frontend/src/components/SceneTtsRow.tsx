@@ -1,8 +1,8 @@
 import type { Line } from "../types";
 
 // このシーンに割り当てられた TTS のセリフ本文を表示する共有コンポーネント。
-// Stage 3 (BG) / Stage 4 (Kling) で使う。
-// 実音声は Stage 5+6 (シーン動画) 以降で確認する想定なので audio タグは出さない。
+// 背景 (bg) / Kling のシーンカードで使う。
+// 実音声は 音声/リップシンク合成 以降で確認する想定なので audio タグは出さない。
 export default function SceneTtsRow({ lines }: { lines: Line[] }) {
   return (
     <div className="rounded bg-slate-950/50 border border-slate-800 px-2 py-1.5">

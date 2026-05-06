@@ -15,8 +15,8 @@ export default function StageScript() {
   return (
     <StageGate
       stage="script"
-      title="Stage 1: 台本"
-      description="台本作成 (caption + シーン + セリフ) と VideoStyle を編集して完全 screenplay を組み立てます。OK を押すまで次の stage には進みません。"
+      title="台本"
+      description="台本作成 (caption + シーン + セリフ) と VideoStyle を編集して完全 screenplay を組み立てます。OK を押すまで次のステージには進みません。"
     >
       <div className="mb-4 flex items-center gap-3 flex-wrap">
         <button

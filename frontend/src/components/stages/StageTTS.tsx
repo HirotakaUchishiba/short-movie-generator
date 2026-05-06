@@ -17,7 +17,7 @@ export default function StageTTS() {
   return (
     <StageGate
       stage="tts"
-      title="Stage 2: TTS音声 (one-shot方式)"
+      title="TTS音声の生成"
       description="screenplay全体を1 API call で生成。line.audio_tags があれば ElevenLabs V3 inline tag として注入。各lineの再生成は不可、全体まとめての再生成のみ。"
       needsRunFirst
     >

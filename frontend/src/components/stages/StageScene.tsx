@@ -14,8 +14,8 @@ export default function StageScene() {
   return (
     <StageGate
       stage="scene"
-      title="Stage 5+6: シーン動画 (音声+リップシンク)"
-      description="Stage 4 のKling動画 + Stage 2 のTTS音声を合成しリップシンクを適用します。TTSは Stage 2 で確定済みなのでここでは編集できません。"
+      title="音声/リップシンク合成"
+      description="Kling動画 + TTS音声を合成しリップシンクを適用します。TTS音声は TTS タブで確定済みなのでここでは編集できません。"
       needsRunFirst
     >
       <BulkSceneRegenBar scenes={sp.scenes} />
@@ -54,8 +54,7 @@ function BulkSceneRegenBar({ scenes }: { scenes: Scene[] }) {
         <div>
           <h3 className="font-semibold">全シーン動画を一括再合成</h3>
           <p className="text-xs text-slate-400 mt-1">
-            Stage 4 の Kling動画 + Stage 2 の TTS音声を全シーン分再合成し
-            リップシンクを適用します。
+            Kling動画 + TTS音声を全シーン分再合成し リップシンクを適用します。
           </p>
           <p className="text-xs text-amber-300/80 mt-1">
             ⚠ リップシンク有効シーンは fal.ai sync-lipsync が再呼出しされ
@@ -162,7 +161,8 @@ function SceneVideoCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
                 </button>
               </div>
               <p className="text-[10px] text-slate-500 pt-1">
-                TTS音声を変えたい場合は Stage 2 へ戻る。Kling動画は Stage 4 へ。
+                TTS音声を変えたい場合は TTS タブへ戻る。Kling動画は Kling
+                タブへ。
               </p>
             </div>
           </div>

@@ -13,7 +13,7 @@ from final_import import core as fi
 
 
 def _make_overlay_approved_project(tmp_path: Path, ts: str) -> Path:
-    """`temp/<ts>/` を作って overlay まで承認済み + final 生成済みの状態にする。"""
+    """`temp/<ts>/` を作って overlay まで承認済みの状態にする。"""
     temp_dir = tmp_path / "temp" / ts
     temp_dir.mkdir(parents=True)
     (temp_dir / "metadata.json").write_text(json.dumps({
@@ -25,8 +25,6 @@ def _make_overlay_approved_project(tmp_path: Path, ts: str) -> Path:
     for s in ["script", "tts", "bg", "kling", "scene", "overlay"]:
         progress_store.mark_generated(str(temp_dir), s)
         progress_store.mark_approved(str(temp_dir), s)
-    progress_store.mark_generated(str(temp_dir), "final")
-    progress_store.mark_approved(str(temp_dir), "final")
     return temp_dir
 
 
@@ -94,7 +92,7 @@ def test_import_final_requires_overlay_approval(tmp_path, monkeypatch):
     (ts_path / "metadata.json").write_text("{}")
     src = tmp_path / "x.mp4"
     _make_dummy_mp4(src, duration=1.0)
-    with pytest.raises(RuntimeError, match="overlay"):
+    with pytest.raises(RuntimeError, match="字幕"):
         fi.import_final(ts, src, skip_fingerprint=True)
 
 

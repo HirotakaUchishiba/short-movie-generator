@@ -124,7 +124,7 @@ export default function ScriptEditPanel({
       setDirty(false);
       setStatus("ok");
       setMessage(
-        "保存しました (Stage 1〜7 の承認は解除されました、assets は保持)",
+        "保存しました (各ステージの承認は解除されました、assets は保持)",
       );
       // diagnostics は frontend で abstract から再計算されるので取り直し不要
       await ctx.reload();
@@ -196,7 +196,7 @@ export default function ScriptEditPanel({
     if (!ttsReady) {
       setStatus("error");
       setMessage(
-        "Stage 2 (TTS) 完了後にシーン境界を変更できます。先に TTS を実行してください",
+        "TTS 完了後にシーン境界を変更できます。先に TTS を実行してください",
       );
       return;
     }
@@ -534,7 +534,7 @@ function SceneEditor({
           {scene.lines?.length ?? 0} セリフ
         </span>
         <span className="text-[11px] text-slate-500">
-          duration は Stage 2 (TTS) の実音声長から自動算出
+          duration は TTS の実音声長から自動算出
         </span>
         <div className="ml-auto flex items-center gap-1">
           <button
@@ -643,7 +643,7 @@ function SceneEditor({
                           title={
                             ttsReady
                               ? "このセリフを前のシーンへ移動 (シーン境界を変更)"
-                              : "Stage 2 (TTS) 完了後に有効"
+                              : "TTS 完了後に有効"
                           }
                         >
                           ▲
@@ -658,7 +658,7 @@ function SceneEditor({
                           title={
                             ttsReady
                               ? "このセリフを次のシーンへ移動 (シーン境界を変更)"
-                              : "Stage 2 (TTS) 完了後に有効"
+                              : "TTS 完了後に有効"
                           }
                         >
                           ▼

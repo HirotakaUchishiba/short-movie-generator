@@ -8,7 +8,7 @@ const SCORE_WARN_THRESHOLD = 0.6;
 export default function StageFinalImport() {
   const ctx = useShellCtx();
   const ts = ctx.detail.timestamp;
-  const finalApproved = !!ctx.detail.progress.stages.final.approved_at;
+  const overlayApproved = !!ctx.detail.progress.stages.overlay.approved_at;
 
   const [versions, setVersions] = useState<FinalVersion[]>([]);
   const [uploading, setUploading] = useState(false);
@@ -89,13 +89,13 @@ export default function StageFinalImport() {
   return (
     <StageGate
       stage="final_import"
-      title="Stage 8: CapCut 出力の取り込み"
+      title="CapCut 出力の取り込み"
       description="CapCut 等で手動編集した最終動画を取り込み、analytics と公開フローの正本にする。temp/<TS>/final/ にファイルを置けば watchdog が自動検知。"
     >
-      {!finalApproved ? (
+      {!overlayApproved ? (
         <div className="card text-center text-slate-400">
-          まだ Stage 7 (字幕焼き込み)
-          の生成が完了していません。完成後にここで取り込みます。
+          まだ 字幕 が承認されていません。pipeline raw
+          が出力されてから取り込みます。
         </div>
       ) : (
         <>
