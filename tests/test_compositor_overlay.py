@@ -5,7 +5,6 @@ import compositor
 
 def _base_screenplay() -> dict:
     return {
-        "audio_mode": "voiced",
         "scenes": [
             {
                 "duration": 3.0,

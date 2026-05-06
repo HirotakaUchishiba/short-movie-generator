@@ -130,10 +130,6 @@ def default_output_path(video_path: str) -> str:
     return str(Path(config.SCREENPLAYS_DIR) / f"auto_{safe}.json")
 
 
-# screenplay_validator が要求する最低 scene duration。
-# Kling V3 が 5 秒生成 -> trim する制約と整合 (3 秒未満は実用的でない)。
-MIN_SCENE_DURATION = 3.0
-
 # Claude Vision API の入力上限 (画像 100 枚 / 32MB ペイロード)。
 # これを超えると 413 request_too_large が返るため、超過時は均等間引きする。
 MAX_FRAMES_FOR_CLAUDE = 100
@@ -180,31 +176,6 @@ def _normalize_scene_pronunciation_hints(screenplay: dict) -> int:
             existing = line.get("pronunciation_hints") or {}
             # scene 由来の hints は base、line 個別指定があれば line を優先
             line["pronunciation_hints"] = {**scene_hints, **existing}
-    return n
-
-
-def _ensure_min_duration(screenplay: dict,
-                          min_sec: float = MIN_SCENE_DURATION) -> int:
-    """SYSTEM_PROMPT の指示に反して Claude が出した短すぎるシーンを底上げする。
-
-    duration < min_sec のシーンを min_sec に切り上げ、line.start / line.end が
-    新しい duration を超えていれば clamp する。
-
-    Returns:
-        補正したシーン数。
-    """
-    n = 0
-    for scene in screenplay.get("scenes") or []:
-        d = scene.get("duration")
-        if not isinstance(d, (int, float)) or d >= min_sec:
-            continue
-        scene["duration"] = float(min_sec)
-        for line in scene.get("lines") or []:
-            for k in ("start", "end"):
-                v = line.get(k)
-                if isinstance(v, (int, float)) and v > min_sec:
-                    line[k] = float(min_sec)
-        n += 1
     return n
 
 
@@ -365,7 +336,7 @@ def run(
             proceed = on_cost_gate(
                 len(frame_paths),
                 transcript,
-                0,  # shot_count: 廃止 (互換のため 0 を渡す)
+                0,  # shot_count: pipeline で算出しない
                 len(known_furigana),
             )
             if not proceed:
@@ -396,26 +367,25 @@ def run(
         if new_hints:
             furigana_store.merge(new_hints)
 
-        # Claude が SYSTEM_PROMPT の指示を守らず scene 直下に
-        # pronunciation_hints を出すケースを line 側に展開する。
-        normalized = _normalize_scene_pronunciation_hints(screenplay)
-        if normalized:
-            logger.info(
-                "scene 直下の pronunciation_hints を %d 件 line にマージしました",
-                normalized,
+        # Claude の SYSTEM_PROMPT 違反を吸収する後処理。発生件数は drift として
+        # 集計し、phase_complete に乗せて SSE / UI / ジョブログから可視化する。
+        # 件数が多い (= プロンプトと出力の乖離が広がっている) なら CLAUDE.md
+        # / SYSTEM_PROMPT / ANALYZER_MODEL の調整サインになる。
+        drift = {
+            "scene_pronunciation_hints_demoted": _normalize_scene_pronunciation_hints(screenplay),
+        }
+        if drift["scene_pronunciation_hints_demoted"]:
+            logger.warning(
+                "[claude_drift] scene 直下の pronunciation_hints を %d シーン分 "
+                "line に展開しました (= SYSTEM_PROMPT 違反)",
+                drift["scene_pronunciation_hints_demoted"],
             )
 
-        # Claude が SYSTEM_PROMPT の指示を守らず duration<3 を出力するケースが
-        # あるので、validate 前に底上げする。プロジェクト作成時の strict
-        # validate (minimum: 3) を通せるようにするため。
-        adjusted = _ensure_min_duration(screenplay)
-        if adjusted:
-            logger.info(
-                "duration<%.1fs のシーンを %d 件補正しました (validator 制約)",
-                MIN_SCENE_DURATION, adjusted,
-            )
-
-        errors = validate_screenplay(screenplay, strict=False)
+        # abstract 形式は composed 必須項目を満たさないので require_composed=False
+        # で軽量検証する。compose 後の strict 検証は staged_pipeline 側が担当。
+        errors = validate_screenplay(
+            screenplay, strict=False, require_composed=False,
+        )
         if errors:
             logger.warning("バリデーション警告:")
             for e in errors:
@@ -426,6 +396,8 @@ def run(
         _emit(on_progress, "phase_complete", {
             "phase": "save",
             "output_path": output_path,
+            "claude_drift": drift,
+            "validation_warnings": len(errors),
         })
 
         scenes_count = len(screenplay.get("scenes", []))

@@ -16,6 +16,8 @@
 
 各stageの成果物は `output/<TS>/tmp/` に保存され、進捗は `tmp-progress.json` で管理する。プレビューUIで承認するまで次stageは実行できない。
 
+**Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の voice_overrides が自動推論される。手書き台本プロジェクト (analyze_job_id 無し) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
+
 ### 操作フロー
 
 ```bash
@@ -32,15 +34,15 @@ python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 
 ### ステージ別の成果物
 
-| Stage      | アーティファクト                                     | 主な確認内容                                     |
-| ---------- | ---------------------------------------------------- | ------------------------------------------------ |
-| 1. script  | `metadata.json` + 台本検証                           | caption/シーン構成/lines整合性                   |
-| 2. tts     | `tmp/tts_<S>_<L>.mp3`                                | 各セリフの発音/感情/速度/voice_id                |
-| 3. bg      | `tmp/bg_<S>.png`                                     | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入 |
-| 4. kling   | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`       | 動き・キャラ崩壊・動作完了点                     |
-| 5+6. scene | `tmp/scene_<S>.mp4`                                  | TTS音声付き+リップシンク済みの完成シーン動画     |
-| 7. overlay | `tmp/overlaid.mp4`                                   | 字幕の表示位置・タイミング・視認性               |
-| final      | `output/reels_<TS>.mp4` + `post_captions/<title>.md` | BGM mix済み完成動画                              |
+| Stage      | アーティファクト                                     | 主な確認内容                                                                                                                                                        |
+| ---------- | ---------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. script  | `metadata.json` + 台本検証                           | caption/シーン構成/lines 整合性 (analyze 経由なら同ページ上部で 参考動画 / 抽象台本 / 話者マッピングも編集可能。保存時は Stage 1〜7 の承認のみ解除し assets は保持) |
+| 2. tts     | `tmp/tts_<S>_<L>.mp3`                                | 各セリフの発音/感情/速度/voice_id                                                                                                                                   |
+| 3. bg      | `tmp/bg_<S>.png`                                     | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入                                                                                                                    |
+| 4. kling   | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`       | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
+| 5+6. scene | `tmp/scene_<S>.mp4`                                  | TTS音声付き+リップシンク済みの完成シーン動画                                                                                                                        |
+| 7. overlay | `tmp/overlaid.mp4`                                   | 字幕の表示位置・タイミング・視認性                                                                                                                                  |
+| final      | `output/reels_<TS>.mp4` + `post_captions/<title>.md` | BGM mix済み完成動画                                                                                                                                                 |
 
 ### 個別シーンの再生成
 
@@ -59,81 +61,97 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 - `docs/content-strategy.md` — **動画制作の根本戦略**。Transformation / コンテンツ軸 / POV / MVP / 最適化
 - `docs/development-rules.md` — 開発ルール・前提事項・禁止事項
 - `docs/architecture-decisions.md` — AIモデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、ワークフロー設計
+- `docs/abstract-screenplay-design.md` — **抽象台本生成 + compose 合成** の設計 (analyze pipeline は構成・セリフ・感情・話者だけ抽出し、ビジュアルは scene 個別の `location_ref` / `character_selection` / `animation_style` で注入)
 
 ## 台本JSONの仕様
 
-### 保存先と canonical / drafts 分離
+### 保存先 (template / project snapshot)
 
-台本は **2 層構造**:
+台本は **2 つの場所** に存在する:
 
-| 層        | パス                             | git 管理 | 用途                                     |
-| --------- | -------------------------------- | -------- | ---------------------------------------- |
-| canonical | `screenplays/<名前>.json`        | 追跡     | 確定版。コードレビュー / 動画投稿の根拠  |
-| drafts    | `screenplays/drafts/<名前>.json` | ignore   | UI / preview_server が編集を保存する WIP |
+| 種別                 | パス                        | git 管理 | 用途                                                                                                                                                             |
+| -------------------- | --------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **template**         | `screenplays/<名前>.json`   | 追跡     | 新規 project 作成時の素材 (素の手書き台本 / analyze pipeline 出力 / StyleEditorPage の compose 結果)                                                             |
+| **project snapshot** | `temp/<TS>/screenplay.json` | ignore   | project 作成時に template からコピーされる **immutable な作業コピー**。Stage 1〜7 のすべて、UI の line/scene patch、再合成は **このファイルだけ** を読み書きする |
 
-**読み込み順 (`staged_pipeline.screenplay_path`)**: `drafts/<名前>.json` があれば最優先、無ければ canonical。これにより UI の編集中状態が動画生成にそのまま反映される。**書き込み (`staged_pipeline.save_screenplay`)** は常に drafts/。`drafts/` は `.gitignore` で追跡対象外なので、UI 編集を繰り返しても working tree は汚れない。drafts ディレクトリは無ければ初回 save 時に自動生成。
+ポイントは **project 作成時に template から snapshot がコピーされ、以後 template が外部で書き換わっても進行中 project は影響を受けない** こと:
 
-**確定版に昇格** (drafts → canonical) させたい時は手動コピー後 commit:
+- analyze pipeline 二重実行で template が変わっても、進行中 project の screenplay は不変
+- UI の編集 (caption / lines / location_ref など) は project snapshot だけを更新。他 project に影響しない
+- 「素材編集」での再合成 (`POST /api/projects/<TS>/recompose`) も project snapshot を更新するだけ。template は触らない
 
-```bash
-cp screenplays/drafts/<名前>.json screenplays/<名前>.json
-git add screenplays/<名前>.json
-git commit -m "content(<id>): ..."
+#### 読み書きの API (`staged_pipeline`)
+
+| 関数                                   | 読み書き対象                | 用途                                                        |
+| -------------------------------------- | --------------------------- | ----------------------------------------------------------- |
+| `load_template(name)`                  | `screenplays/<name>.json`   | 新規 project 作成時の素材ロード (= POST /api/projects) のみ |
+| `load_project_screenplay(ts_path)`     | `temp/<TS>/screenplay.json` | 後 stage / UI / 再合成 — **読み取りはすべてこれ**           |
+| `save_project_screenplay(ts_path, sp)` | `temp/<TS>/screenplay.json` | **書き込みもすべてこれ**。metadata.json の sha も同時に更新 |
+
+旧 `screenplays/drafts/` ディレクトリと `save_screenplay(name, sp)` は廃止。既存 project は `scripts/migrate_to_project_snapshot.py` で snapshot に移行する (一度だけ実行)。
+
+`scripts/analyze_video.py` は **template 直下** (`screenplays/auto_<sha>.json`) に書き出す (= 新規 project の素材として、後で create-project 経由で snapshot 化される)。
+
+### スキーマ (2 SSOT 分離)
+
+責務を 2 つに分離。VideoStyle は廃止 (= 各 scene が animation_style / location_ref / character_selection を直接持つ)。
+
+| SSOT                   | 場所                                 | 内容                                                                |
+| ---------------------- | ------------------------------------ | ------------------------------------------------------------------- |
+| **キャラエンティティ** | `characters/<base>/...` (ネスト)     | 全身参照画像 (衣装バリアント) と voice メタ                         |
+| **ロケ集**             | `locations/<id>.json` + .preview.png | 1 ロケ = decor + lighting + color_palette + props + camera_distance |
+
+#### `characters/` ディレクトリ構造
+
+```
+characters/
+  f1/                      ← 被写体 ID (= 顔・体型・髪型が同じ人物)。職業など役割は名前に含めない
+    voice.json             ← voice メタ (= base 単位で 1 つ。衣装で声は変わらない)
+    base.png               ← 衣装サフィックス無しでこの ID を参照したときの画像
+    office.png             ← `f1__office` で参照される衣装バリアント
+    casual.png             ← `f1__casual` で参照される
+    preview.png            ← (任意) UI 一覧表示用のサムネ
+  m1/
+    voice.json
+    suit.png
+    casual.png
 ```
 
-drafts を捨てて canonical の状態に戻したい時は:
+screenplay の `character_refs` / `featured_characters` には **解決済み ID** (= `<base>__<wardrobe>`、衣装無しなら `<base>` 単独) を入れる。`/asset/character/<resolved>` は新ネスト構造を優先し、見つからなければ旧 flat (= `characters/<resolved>.png`) にフォールバックする。
 
-```bash
-rm screenplays/drafts/<名前>.json
+#### キャラ画像のガイドライン
+
+- アスペクト比: **9:16 縦長** (= 動画と同じ)
+- 構図: **全身、正面、棒立ちか自然な立ち姿**。両手は体の横
+- 表情: 中立 (= 笑顔/しかめ面は emotion 系プロンプトで上書きする想定)
+- 背景: **白〜薄グレーの単色** (= location_ref の背景に置換しやすくするため)
+- 解像度: 882×1568 以上
+
+理由: camera_distance (close-up / medium-close / medium / wide) のすべてに同じ参照画像で対応するため。肩から上だけだと medium / wide で下半身を Imagen が想像で補完して衣装が崩れる。
+
+#### キャラ voice メタ (= `characters/<base>/voice.json`) のスキーマ
+
+```json
+{
+  "id": "f1",
+  "voice_overrides": { "voice_id": "...", "stability": 0.4, "style": 0.3 }
+}
 ```
 
-`scripts/analyze_video.py` などのスクリプトは canonical 直下に書き出す (= 新規台本として人間レビュー前提)。
+`id` は base ID のみ (`__wardrobe` を含めない)。compose で resolved ID から base に剥がして読む。
 
-### スキーマ
-
-`screenplays/<名前>.json` は次のスキーマで記述する（`scenes[].lines[]` 構造、リッチメタデータ完全版）:
+完全 screenplay (= `screenplays/<名前>.json`) のスキーマ:
 
 ```json
 {
   "caption": "会社選びが何より大切です\n\n#未経験 #it業界 #転職",
-  "audio_mode": "voiced",
-  "bgm_path": "/abs/path/assets/bgm/<name>_bgm.wav",
-  "bgm_volume_db": -18,
-  "wardrobe_continuity": {
-    "office_outfit": "グレーのリブニット + ブラックパンツ + 眼鏡 + ロングヘア"
-  },
-  "location_continuity": {
-    "home_office": {
-      "decor": "ミニマル北欧風、ナチュラルウッドのデスク、観葉植物、白壁、奥にアートと窓",
-      "lighting": "柔らかい自然光、暖色系",
-      "color_palette": "白基調、ベージュ、グリーンのアクセント",
-      "props": "シルバーのMacBook、白いマグカップ (PC画面は反射のみで内容は描かない)",
-      "camera_distance": "medium-close"
-    }
-  },
   "scenes": [
     {
-      "label": "始業",
-      "duration": 5.0,
       "location_ref": "home_office",
       "background_prompt": "デスクに駆け寄るエンジニア cinematic lighting, shallow depth of field",
       "animation_prompt": "subject rushes to desk, opens laptop, leans back relieved",
-      "character_refs": ["female_engineer"],
-      "characters": [
-        {
-          "name": "主人公",
-          "role": "narrator",
-          "ref": "female_engineer",
-          "outfit": "グレーニット"
-        }
-      ],
-      "wardrobe": {
-        "identifier": "office_outfit",
-        "top": "リブニット",
-        "hair": "ロング"
-      },
-      "facial_expression": "焦って早口、目を見開く",
-      "hand_gesture": "ノートPCのキーボードを叩く",
+      "character_refs": ["f1__office"],
+      "characters": [{ "name": "f1__office" }],
       "lipsync": true,
       "lines": [
         {
@@ -152,30 +170,45 @@ rm screenplays/drafts/<名前>.json
 }
 ```
 
+`duration` は Stage 2 (TTS) が実音声長から書き込む派生値。Stage 1 抽象台本には書かない。
+
+ロケ詳細 (= `locations/<id>.json`) のスキーマ:
+
+```json
+{
+  "id": "home_office",
+  "decor": "ミニマル北欧風、ナチュラルウッドのデスク、観葉植物、白壁、奥にアートと窓",
+  "lighting": "柔らかい自然光、暖色系",
+  "color_palette": "白基調、ベージュ、グリーンのアクセント",
+  "props": "シルバーのMacBook、白いマグカップ",
+  "camera_distance": "medium-close"
+}
+```
+
+ロケのサムネは `locations/<id>.preview.png` に置く。`POST /api/locations/<id>/preview` で Imagen から自動生成可能 (= LocationPicker の「🪄 生成」ボタン)。
+
 ### フィールド仕様
 
-| ルート       | 型                       | 説明                                             |
-| ------------ | ------------------------ | ------------------------------------------------ |
-| `caption`    | string(必須)             | SNS投稿用キャプション本文＋ハッシュタグ          |
-| `audio_mode` | `"voiced"` \| `"silent"` | 既定`voiced`。silentはTTS/リップシンクをスキップ |
-| `scenes[]`   | array(必須)              | シーン配列。各シーン=1Klingクリップ              |
+| ルート     | 型           | 説明                                    |
+| ---------- | ------------ | --------------------------------------- |
+| `caption`  | string(必須) | SNS投稿用キャプション本文＋ハッシュタグ |
+| `scenes[]` | array(必須)  | シーン配列。各シーン=1Klingクリップ     |
 
-| シーン              | 説明                                                                                                                   |
-| ------------------- | ---------------------------------------------------------------------------------------------------------------------- |
-| `label`             | シーンの日本語ラベル（例 `"起床"`）。動画には焼き込まれず、UI/LLM 補助情報                                             |
-| `duration`          | シーン秒数（3以上）。Klingは5/10sで生成し台本値にtrim                                                                  |
-| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される         |
-| `location_ref`      | `root.location_continuity` のキー。同一動画内のロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                      |
-| `animation_prompt`  | Kling V3用（英語推奨）。シーン全体の動きを1文で                                                                        |
-| `character_refs`    | `characters/<名前>.png`を参照。既定は`config.DEFAULT_CHARACTER_REFS` (= `["female_engineer"]`)。キャラ無しは`[]`を明示 |
-| `lipsync`           | 既定true。silent時は無視                                                                                               |
-| `lines[]`           | シーン内のセリフ配列                                                                                                   |
+| シーン              | 説明                                                                                                                                                                                                      |
+| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `duration`          | シーン秒数。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では書かない                                                                                                                          |
+| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される                                                                                            |
+| `location_ref`      | グローバル `locations/<id>.json` のキー。ロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                                                                                                               |
+| `animation_prompt`  | Kling V3用（英語推奨）。シーン全体の動きを1文で                                                                                                                                                           |
+| `character_refs`    | `characters/<base>/<wardrobe>.png` を参照。**解決済み ref** (例: `f1__office`) を入れる。衣装無しは `<base>` 単独 (= `base.png` を参照)。キャラ無しは `[]` を明示。既定は `config.DEFAULT_CHARACTER_REFS` |
+| `lipsync`           | 既定true。silent時は無視                                                                                                                                                                                  |
+| `lines[]`           | シーン内のセリフ配列                                                                                                                                                                                      |
 
 | ライン                | 説明                                                                                                                       |
 | --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
 | `text`                | セリフ。ASCIIの `,` `.` 禁止（validatorで拒否）。全角句読点/括弧はTTS直前に自動除去                                        |
-| `start`               | シーン内相対秒でのセリフ開始                                                                                               |
-| `end`                 | 字幕消滅秒（TTS長とは独立。表示用）                                                                                        |
+| `start`               | シーン内相対秒でのセリフ開始。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                       |
+| `end`                 | セリフ末尾の相対秒。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                                 |
 | `rate`                | TTS速度（例 `"+10%"`）。指定時は`emotion`プリセットと`acoustic.wpm`の自動算出を上書き                                      |
 | `emotion`             | `config.EMOTION_VOICE_PRESETS`のキーと対応。自動でTTS paramとKling motion addon適用                                        |
 | `delivery`            | 話し方の自然言語記述。`config.DELIVERY_TAG_ENABLED=True`なら eleven_v3 inline tag として `[delivery] text` 形式でTTSへ送信 |
@@ -183,21 +216,12 @@ rm screenplays/drafts/<名前>.json
 | `voice_overrides`     | 特定lineに限定したElevenLabs paramの明示上書き。`emotion`プリセットより優先                                                |
 | `pronunciation_hints` | TTS送信前のテキスト置換（例 `{"IT": "アイティー"}`）                                                                       |
 
-| シーン拡張          | 説明                                                                                 |
-| ------------------- | ------------------------------------------------------------------------------------ |
-| `characters[]`      | 登場人物。`name` / `role` / `ref` / `outfit`。`ref` は `characters/<ref>.png` を参照 |
-| `wardrobe`          | 服装。`identifier` を `wardrobe_continuity` のキーと一致させると複数シーン間で統一   |
-| `facial_expression` | シーン主役の表情。Imagen + Kling プロンプトに自動展開                                |
-| `hand_gesture`      | シーン主役の手の動き。同上                                                           |
+| シーン拡張        | 説明                                                                                     |
+| ----------------- | ---------------------------------------------------------------------------------------- |
+| `characters[]`    | 登場人物。`name` のみ (= 解決済み ref と一致)。表示・LLM 補助用                          |
+| `camera_distance` | シーンごとの寄り引き (close-up / medium-close / medium / wide)。ロケのデフォルトを上書き |
 
-| ルート拡張            | 説明                                                                                              |
-| --------------------- | ------------------------------------------------------------------------------------------------- |
-| `bgm_path`            | 全編に流すBGM音声ファイル絶対パス。指定時はvoiceの下に低音量で自動mix                             |
-| `bgm_volume_db`       | BGMの相対音量dB。既定 -18                                                                         |
-| `wardrobe_continuity` | 衣装識別子→説明 のマップ。`scenes[].wardrobe.identifier` と紐付け                                 |
-| `location_continuity` | ロケ識別子→属性辞書のマップ。`scenes[].location_ref` と紐付け、同一動画内で背景の一貫性を自動確保 |
-
-### `location_continuity` のフィールド
+### ロケ詳細 (`locations/<id>.json` のフィールド)
 
 | 属性              | 説明                                                        |
 | ----------------- | ----------------------------------------------------------- |
@@ -207,24 +231,22 @@ rm screenplays/drafts/<名前>.json
 | `props`           | 小道具 (PC, マグカップ, 書類 等)                            |
 | `camera_distance` | 推奨カメラ距離 (close-up / medium-close / medium / wide 等) |
 
-各属性は `background_prompt` の **先頭** に "location decor: ..." 等のラベル付きで自動注入される。シーンごとの `background_prompt` は被写体の動作・表情のみ書き、装飾はロケに寄せると一貫性が保てる。動画ごとに `location_continuity` を自由に再定義してよい (ディレクトリ事前生成不要)。
+各属性は `background_prompt` の **先頭** に "location decor: ..." 等のラベル付きで自動注入される。シーンごとの `background_prompt` は被写体の動作・表情のみ書き、装飾はロケに寄せると一貫性が保てる。ロケはグローバル管理 (= `locations/<id>.json`) で全動画で共有されるため、編集すると全動画に影響する。微調整が必要なら新しい id を作る運用。
 
 ## 参考動画から台本を自動生成する
 
-参考動画(.mov/.mp4)を Claude Opus 4.7 + Whisper + librosa + PySceneDetect + demucs で逆算し、`scenes[].lines[]` JSON を吐き出す:
+参考動画(.mov/.mp4)を Claude Opus 4.7 + Whisper + librosa で逆算し、抽象台本 JSON を吐き出す:
 
 ```
 python3 scripts/analyze_video.py path/to/reference.mov
 # → screenplays/auto_reference.json が生成される
 python3 scripts/analyze_video.py path/to/reference.mov --instructions "TikTok UIは無視"
-python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-shots
 ```
 
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
-- librosa で各phraseの pitch/rms/wpm に加え、BGM存在判定を抽出
-- demucs (なければ HPSS) で BGM を分離して `assets/bgm/<name>_bgm.wav` に保存し、screenplay に `bgm_path` として紐付け
-- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力には characters/wardrobe/facial_expression/hand_gesture も含む
+- librosa で各phraseの pitch/rms/wpm を抽出
+- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・匿名 speaker_N のみ、ビジュアル要素は scene 個別フィールド + speaker_to_ref で後段に注入)。詳細は `docs/abstract-screenplay-design.md`
 - 所要コスト: 約250〜400円/本（フレーム数に応じて変動）
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
@@ -235,15 +257,6 @@ python3 scripts/analyze_video.py path/to/reference.mov --no-bgm-extract --no-sho
 `驚き / 喜び / 焦り / 落胆 / 中立 / 満足 / 困惑 / 怒り / 恥ずかしさ`
 
 手動で細かく制御したい場合は `voice_overrides` で個別に上書き。
-
-## 日本語修正案でプロンプトを書き換える (Stage 3 / Stage 4)
-
-Stage 3 (背景) と Stage 4 (Kling) のシーンカードに「日本語で修正案を入力」パネルがあり、日本語の修正指示 (例: "もっとカメラを引いて、机にマグカップ追加") を Claude Sonnet に渡して **既存の `background_prompt` / `animation_prompt` を最小差分で書き換える**。
-
-- **preview**: LLM を呼んで diff を表示。変更前/変更後を見比べ、変更後はテキスト編集可能
-- **適用**: 採用した prompt を screenplay の該当フィールドに書き戻す (= 以降は手書き扱いで Stage 実行に使われる)
-
-UI 誘発語 (chat bubble / notification 等) が出力に含まれていたら自動でリジェクトする。LLM モデルは `PROMPT_REVISE_MODEL` (既定 `claude-sonnet-4-6`) で切替可能。
 
 ## 自動活用される音響メタデータ
 
@@ -280,10 +293,6 @@ Stage 7 UI (`StageOverlay.tsx`) では:
 - **動画プレイヤーの再生位置をスナップ**: 各チャンクの「⏱→start」「⏱→end」ボタンで `video.currentTime - sceneOffsets[sIdx]` をその場でセット。微調整したい境界だけ動画と同期できる
 - 「auto に戻す」: そのチャンクの time を削除して文字数比例配分に戻す
 - 「自動に戻す」: subtitles 自体を削除して `_split_into_chunks` 経路に戻す
-
-## BGM ミックス
-
-screenplay ルートに `bgm_path` があれば `compose_video` 最終段で voice 下に低音量 (`bgm_volume_db` 既定 -18dB) で自動 mix。silent モードでは無視。
 
 ## ログ
 

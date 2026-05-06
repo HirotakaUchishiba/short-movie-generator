@@ -43,7 +43,7 @@ def test_lipsync_disabled_globally_skips_lipsync(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen.lipsync_client, "apply", lipsync_spy)
 
     scene_gen._scene_video_for_scene(
-        0, _base_scene(), {"audio_mode": "voiced"}, temp_dir,
+        0, _base_scene(), {}, temp_dir,
     )
 
     lipsync_spy.assert_not_called()
@@ -63,7 +63,7 @@ def test_lipsync_disabled_per_scene_skips_lipsync(temp_dir, monkeypatch) -> None
     scene = _base_scene()
     scene["lipsync"] = False
     scene_gen._scene_video_for_scene(
-        0, scene, {"audio_mode": "voiced"}, temp_dir,
+        0, scene, {}, temp_dir,
     )
 
     lipsync_spy.assert_not_called()
@@ -85,7 +85,7 @@ def test_lipsync_enabled_invokes_client(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen.lipsync_client, "apply", mock_apply)
 
     result = scene_gen._scene_video_for_scene(
-        0, _base_scene(), {"audio_mode": "voiced"}, temp_dir,
+        0, _base_scene(), {}, temp_dir,
     )
 
     assert result == os.path.join(temp_dir, "scene_000.mp4")
@@ -103,7 +103,7 @@ def test_scene_without_lines_skips_lipsync(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen.lipsync_client, "apply", lipsync_spy)
 
     scene_gen._scene_video_for_scene(
-        0, _base_scene(lines=[]), {"audio_mode": "voiced"}, temp_dir,
+        0, _base_scene(lines=[]), {}, temp_dir,
     )
 
     lipsync_spy.assert_not_called()

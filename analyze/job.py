@@ -74,6 +74,7 @@ class AnalyzeJob:
     estimated_cost_usd: float | None = None
     actual_cost_usd: float | None = None
     screenplay_path: str | None = None
+    style_name: str | None = None
     created_at: str = ""
     started_at: str | None = None
     finished_at: str | None = None

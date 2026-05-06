@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import { Link } from "react-router-dom";
+import { Link, useNavigate } from "react-router-dom";
 import { api } from "../api";
 import type {
   AnalyzeJobDetail,
@@ -66,6 +66,8 @@ function formatDuration(ms: number): string {
 }
 
 export default function AnalyzeJobView({ jobId }: { jobId: string }) {
+  const navigate = useNavigate();
+  const [composing, setComposing] = useState(false);
   const [job, setJob] = useState<AnalyzeJobDetail | null>(null);
   const [phases, setPhases] = useState<Record<AnalyzePhase, PhaseState>>(
     () =>
@@ -534,20 +536,46 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
       {/* ─── 完了時のサマリ + リンク ────────────────────── */}
       {completedPath && screenplayName && (
         <div className="card border border-emerald-500/40">
-          <h3 className="font-semibold mb-2 text-emerald-300">✓ 分析完了</h3>
+          <h3 className="font-semibold mb-2 text-emerald-300">
+            ✓ 台本作成完了
+          </h3>
           <div className="text-sm">
-            生成台本:{" "}
-            <span className="font-mono break-all">{completedPath}</span>
+            台本: <span className="font-mono break-all">{completedPath}</span>
           </div>
           {jobStartedAt && jobFinishedAt && (
             <div className="text-xs text-slate-400 mt-1">
               総所要時間: {formatDuration(jobFinishedAt - jobStartedAt)}
             </div>
           )}
-          <div className="mt-3">
-            <Link to="/" className="btn-primary">
-              プロジェクト一覧へ ({screenplayName} で新規プロジェクト)
+          <div className="mt-3 flex gap-2 flex-wrap">
+            <button
+              type="button"
+              className="btn-primary"
+              disabled={composing}
+              onClick={async () => {
+                if (!completedPath) return;
+                setComposing(true);
+                try {
+                  const screenplayName = completedPath.split("/").pop();
+                  if (!screenplayName) return;
+                  const proj = await api.createProject(screenplayName, jobId);
+                  navigate(`/project/${proj.timestamp}/script`);
+                } catch (e) {
+                  alert(String(e));
+                } finally {
+                  setComposing(false);
+                }
+              }}
+            >
+              {composing ? "作成中…" : "プロジェクト作成 →"}
+            </button>
+            <Link to="/" className="btn-ghost">
+              後で (プロジェクト一覧へ)
             </Link>
+          </div>
+          <div className="mt-2 text-xs text-slate-400">
+            ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
+            作成後 Stage 1 で各シーンを編集できます。
           </div>
         </div>
       )}

@@ -8,7 +8,6 @@ FAL_API_KEY = os.getenv("FAL_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
 DOMOAI_API_KEY = os.getenv("DOMOAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-# Sync.so 公式 SDK と同じ SYNC_API_KEY を優先、後方互換で SYNCSO_API_KEY も受ける
 SYNCSO_API_KEY = os.getenv("SYNC_API_KEY") or os.getenv("SYNCSO_API_KEY")
 
 VIDEO_WIDTH = 1080
@@ -69,8 +68,8 @@ TTS_NATIVE_SPEED_MIN = 0.7  # ElevenLabs公式下限
 TTS_NATIVE_SPEED_MAX = 1.2  # ElevenLabs公式上限
 
 # 長い無音を圧縮する後処理 (ElevenLabsが文間に挿入する間を切り詰める)
-# True なら tts_full.mp3 内の TTS_MAX_SILENCE_MS を超える無音を圧縮
-# silence_after_ms (per-line) の自然音声抽出最大値もこの値で決まる
+# True なら tts_full.mp3 内の TTS_MAX_SILENCE_MS を超える無音を圧縮。
+# 値は per-line audio 末尾の自然な余白秒数にも使われる (= 全 line 共通)
 TTS_TRIM_LONG_SILENCES = True
 TTS_MAX_SILENCE_MS = 250                # この長さまでの無音は残し、超過分はカット
 TTS_SILENCE_THRESHOLD_DB = -40.0        # この音量以下を無音と判定
@@ -98,6 +97,30 @@ EMOTION_MOTION_ADDONS: dict[str, str] = {
     "怒り": "firm assertive posture, sharp gaze",
     "恥ずかしさ": "softened shy gesture, slight look away",
 }
+
+# 日本語 emotion ラベル → 英語表現 (Imagen / Kling プロンプト合成で使用)。
+# arc 表現 (= "驚き → 焦り → 中立") を英語化するための単一辞書。
+EMOTION_EN: dict[str, str] = {
+    "驚き": "surprise",
+    "喜び": "joy",
+    "焦り": "urgency",
+    "落胆": "disappointment",
+    "中立": "neutral",
+    "満足": "satisfaction",
+    "困惑": "confusion",
+    "怒り": "anger",
+    "恥ずかしさ": "embarrassment",
+}
+
+
+# Stage 別に出力する dom_cues カテゴリ。
+# Imagen (静止画) は照明・表情・トーンに絞り、hair/posture は reference 画像に
+# 任せて再解釈による崩壊を抑える。Kling (動画) は動き・視線・体勢など動的要素。
+STAGE_CUE_CATEGORIES: dict[str, tuple[str, ...]] = {
+    "bg": ("lighting", "facial", "tone"),
+    "kling": ("motion", "facial", "tone", "eye_gaze", "body_posture", "camera"),
+}
+
 
 # 視覚プロンプト合成用 (Imagen / Kling 両方で使う決定論的cue mapping)。
 # scene.lines[].emotion から dominant を求めて lookup → BG/Kling prompt に注入。
@@ -186,9 +209,9 @@ KLING_NEGATIVE_CONSTRAINT = (
 # ─────────────────────────────────────────────────────────
 # 視覚演出の preset ライブラリ
 #
-# scene.emotion_cue_overrides で各カテゴリの値を preset ID で指定すると、
-# composer が EMOTION_VISUAL_CUES の既定 cue を上書きする。
-# 値はすべて preset ID (enum) に制約され、validator で厳格チェックされる。
+# 各 preset ID → 実テキスト辞書。scene_gen の compose ロジックが
+# emotion 由来の dominant cue として参照する。値はすべて preset ID で
+# SSOT 厳格 (validator が enum を保証)。
 # 拡張は preset を 1 行 config に追加するだけ。
 # ─────────────────────────────────────────────────────────
 
@@ -351,47 +374,6 @@ TONE_PRESETS: dict[str, str] = {
     "professional_composed": "professional, composed, deliberate",
 }
 
-SCENE_ELEMENT_PRESETS: dict[str, str] = {
-    "standing_desk": "standing desk with laptop visible in workspace",
-    "ergonomic_chair": "ergonomic office chair",
-    "plants_background": "lush green plants in the background",
-    "bookshelf_bg": "bookshelf with books in background",
-    "art_painting_bg": "art painting on wall in background",
-    "window_morning_light": "window with morning sunlight streaming in",
-    "window_afternoon": "window with afternoon light",
-    "coffee_cup": "coffee cup on desk",
-    "smartphone_visible": "smartphone visible in scene",
-    "laptop_macbook": "silver MacBook laptop",
-    "notebook_pen": "notebook and pen on desk",
-    "minimalist_decor": "minimalist Scandinavian-style interior",
-    "warm_wood_decor": "warm wood-tone interior",
-    "modern_office": "modern home office setup",
-    "cozy_living_room": "cozy living room with sofa",
-    "bedroom_furniture": "bedroom with bed and side table",
-    "kitchen_modern": "modern kitchen counter visible",
-    "outdoor_street": "residential street outdoor setting",
-    "office_meeting_room": "modern meeting room interior",
-    "headphones_visible": "headphones on or near subject",
-}
-
-# scene.tags は scope 解決用 (横断ルールのターゲティングに使う)
-SCENE_TAGS: list[str] = [
-    "home_office",     # 自宅オフィス系シーン
-    "bedroom",         # 寝室・起床
-    "living_room",     # リビング
-    "kitchen",         # キッチン
-    "outdoor",         # 屋外
-    "office_external", # 社外オフィス
-    "morning",         # 朝
-    "afternoon",       # 昼
-    "evening",         # 夜
-    "indoors",         # 屋内 (汎用)
-    "with_other_character",  # 他キャラ登場
-    "computer_work",   # PC作業
-    "phone_action",    # スマホ操作
-    "transition",      # シーン繋ぎ
-]
-
 # composer / API が動的 lookup するための集約 dict
 PROMPT_PRESET_LIBRARIES: dict[str, dict[str, str]] = {
     "facial": FACIAL_PRESETS,
@@ -401,7 +383,6 @@ PROMPT_PRESET_LIBRARIES: dict[str, dict[str, str]] = {
     "lighting": LIGHTING_PRESETS,
     "camera": CAMERA_PRESETS,
     "tone": TONE_PRESETS,
-    "scene_element": SCENE_ELEMENT_PRESETS,
 }
 
 # preset ID → 日本語ラベル (UI 表示用、SSOT原則: 値は preset ID のまま、表示だけ日本語)
@@ -570,23 +551,6 @@ PRESET_LABELS_JA: dict[str, dict[str, str]] = {
     },
 }
 
-SCENE_TAG_LABELS_JA: dict[str, str] = {
-    "home_office": "在宅オフィス",
-    "bedroom": "寝室",
-    "living_room": "リビング",
-    "kitchen": "キッチン",
-    "outdoor": "屋外",
-    "office_external": "社外オフィス",
-    "morning": "朝",
-    "afternoon": "昼",
-    "evening": "夜",
-    "indoors": "屋内 (汎用)",
-    "with_other_character": "他キャラ登場",
-    "computer_work": "PC作業",
-    "phone_action": "スマホ操作",
-    "transition": "シーン繋ぎ",
-}
-
 # UI dropdown のカテゴリ名 (preset library のキー → 日本語名)
 PRESET_CATEGORY_LABELS_JA: dict[str, str] = {
     "facial": "表情",
@@ -691,28 +655,14 @@ VOICE_LIBRARY: list[dict] = [
     },
 ]
 
-BGM_DEFAULT_VOLUME_DB = -18.0
 BREATH_DEFAULT_DURATION = 0.25
 
-SCENE_MIN_DURATION = 3.0
 SCENE_TTS_TAIL_BUFFER = 0.3
 SCENE_TTS_NATURAL_GAP = 0.3
-TEMPO_MAX_AS_WARNING_ONLY = True
-TEMPO_MAX_NO_LINES = 3.0
-TEMPO_MAX_SINGLE_LINE = 3.5
-TEMPO_MAX_MULTI_LINE = 5.0
-TEMPO_MAX_LONG_TEXT = 7.0
-TEMPO_TEXT_MEDIUM_THRESHOLD = 25
-TEMPO_TEXT_LONG_THRESHOLD = 50
 
 ACTION_FRONTLOAD_RATIO = 0.7
 ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
-
-# UI から日本語の修正指示で background_prompt / animation_prompt を書き換える機能。
-# 既存プロンプトを最小差分で書き換える Claude モデル。
-PROMPT_REVISE_MODEL = os.getenv("PROMPT_REVISE_MODEL", "claude-sonnet-4-6")
-PROMPT_REVISE_MAX_TOKENS = int(os.getenv("PROMPT_REVISE_MAX_TOKENS", "600"))
 
 # Kling V3 は 5s と 10s しか生成できない。TTS が 5.0 を僅かに超えただけで
 # 10s クリップ ($0.84) に切り替わるとコスパが悪いため、許容比率を導入する。
@@ -763,7 +713,39 @@ TEMP_DIR = os.path.join(BASE_DIR, "temp")
 SCREENPLAYS_DIR = os.path.join(BASE_DIR, "screenplays")
 POST_CAPTIONS_DIR = os.path.join(BASE_DIR, "post_captions")
 CHARACTERS_DIR = os.path.join(BASE_DIR, "characters")
-DEFAULT_CHARACTER_REFS: list[str] = ["female_engineer"]
+DEFAULT_CHARACTER_REFS: list[str] = ["f1"]
+
+# Stage 3 背景画像のグローバルキャッシュ (= 別動画でも入力が同一なら使い回す)。
+# キャッシュキーは bg_cache.compute_bg_cache_key で background_prompt +
+# character_refs sha + location sha + Imagen モデル ID から派生される。
+BG_CACHE_DIR = os.path.join(BASE_DIR, "cache", "bg_images")
+BG_CACHE_ENABLED = os.getenv("BG_CACHE_ENABLED", "1") not in ("0", "false", "False")
+BG_CACHE_VERSION = os.getenv("BG_CACHE_VERSION", "v1")
+# L3: 元プロジェクトで Stage 3 が承認済みのものだけ hit させるか
+BG_CACHE_REQUIRE_APPROVAL = os.getenv(
+    "BG_CACHE_REQUIRE_APPROVAL", "0") not in ("0", "false", "False")
+# L3: cache age TTL (日)
+BG_CACHE_TTL_DAYS = int(os.getenv("BG_CACHE_TTL_DAYS", "365"))
+
+# Stage 4 Kling 動画のグローバルキャッシュ。
+# キャッシュキーは kling_cache.build_cache_key で augmented_animation_prompt +
+# kling_duration + bg_image_sha + model_id + aspect_ratio + cache_version から派生。
+# 最終的には外部 SSD (= KLING_CACHE_DIR を /Volumes/SSD4TB/... に上書き) で運用。
+KLING_CACHE_DIR = os.environ.get(
+    "KLING_CACHE_DIR", os.path.join(BASE_DIR, "cache", "kling_videos"))
+KLING_CACHE_ENABLED = os.getenv("KLING_CACHE_ENABLED", "1") not in ("0", "false", "False")
+KLING_CACHE_VERSION = os.getenv("KLING_CACHE_VERSION", "v1")
+# LRU prune の容量上限。デフォルト 2TB = 4TB SSD の半分。
+KLING_CACHE_MAX_BYTES = int(os.environ.get("KLING_CACHE_MAX_GB", "2000")) * 1024 ** 3
+# store のたびに自動 prune するか
+KLING_CACHE_AUTO_PRUNE = os.getenv("KLING_CACHE_AUTO_PRUNE", "1") not in ("0", "false", "False")
+# L2 適合度: 元 audio との乖離率上限 (= 30% 違うと reject)
+KLING_CACHE_MISMATCH_THRESHOLD = float(os.getenv("KLING_CACHE_MISMATCH_THRESHOLD", "0.30"))
+# L3: 元プロジェクトで Stage 4 が承認済みのものだけ hit させるか
+KLING_CACHE_REQUIRE_APPROVAL = os.getenv(
+    "KLING_CACHE_REQUIRE_APPROVAL", "0") not in ("0", "false", "False")
+# L3: cache age TTL (日)
+KLING_CACHE_TTL_DAYS = int(os.getenv("KLING_CACHE_TTL_DAYS", "365"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")

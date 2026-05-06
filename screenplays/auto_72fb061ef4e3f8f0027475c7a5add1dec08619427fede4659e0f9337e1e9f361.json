@@ -1,0 +1,603 @@
+{
+  "caption": "2026年に年収が一気に跳ねるIT職種3選\nクラウド セキュリティ 機械学習\n今の延長線で大丈夫か一度立ち位置を見直そう\n#IT転職 #エンジニア #年収アップ #2026年",
+  "scenes": [
+    {
+      "duration": 7.5,
+      "lines": [
+        {
+          "text": "今 IT転職で一番アツい職種知ってますか",
+          "start": 0.0,
+          "end": 3.3,
+          "emotion": "驚き",
+          "emotion_intensity": "normal",
+          "delivery": "問いかけ口調で語尾を軽く跳ね上げる",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.13,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "ここ数年で市場が一気に動いて 企業が本気で取りに来てる分野があります",
+          "start": 3.4,
+          "end": 7.5,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "落ち着いたテンポで畳みかける",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 320
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "lines": [
+        {
+          "text": "2026年 本気で市場価値が上がってる",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "宣言調で力強く",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 300
+          }
+        },
+        {
+          "text": "本当にアツいIT職種を3つだけ話します",
+          "start": 3.0,
+          "end": 6.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "区切りよく言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 4.0,
+      "lines": [
+        {
+          "text": "1つ目 クラウドエンジニア",
+          "start": 0.0,
+          "end": 2.0,
+          "emotion": "中立",
+          "emotion_intensity": "strong",
+          "delivery": "見出しを読み上げるようにはっきり",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.05,
+            "wpm": 220
+          }
+        },
+        {
+          "text": "まず間違いないのがこれ",
+          "start": 2.0,
+          "end": 4.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "断定口調で自信たっぷり",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 240
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.5,
+      "lines": [
+        {
+          "text": "オンプレからクラウドへの移行は",
+          "start": 0.0,
+          "end": 2.5,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "解説調で淡々と",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "もうやるかどうかじゃなくて いつやるかの段階",
+          "start": 2.5,
+          "end": 5.0,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "強調しながら言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 300
+          }
+        },
+        {
+          "text": "AWS GCP Azure どれも案件が減る気配がない",
+          "start": 5.0,
+          "end": 7.5,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "サービス名を区切りながら列挙",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "lines": [
+        {
+          "text": "しかもクラウドはインフラ アプリ 全部とつながるから",
+          "start": 0.0,
+          "end": 3.5,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "畳みかけるように説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 320
+          }
+        },
+        {
+          "text": "潰しがきくスキルになりやすい",
+          "start": 3.5,
+          "end": 6.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "結論を落ち着いて締める",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.04,
+            "wpm": 240
+          }
+        }
+      ]
+    },
+    {
+      "duration": 5.5,
+      "lines": [
+        {
+          "text": "現場でクラウド分かる人いないって聞かれて手が挙がるだけで",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "現場の声を再現するように語る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 340
+          }
+        },
+        {
+          "text": "単価も年収も一段変わる",
+          "start": 3.0,
+          "end": 5.5,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "ゆっくり強調して言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 220
+          }
+        }
+      ]
+    },
+    {
+      "duration": 4.0,
+      "lines": [
+        {
+          "text": "2つ目 セキュリティエンジニア",
+          "start": 0.0,
+          "end": 2.0,
+          "emotion": "中立",
+          "emotion_intensity": "strong",
+          "delivery": "見出し調ではっきり読み上げる",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          }
+        },
+        {
+          "text": "ここ 2026年はさらに人が足りない",
+          "start": 2.0,
+          "end": 4.0,
+          "emotion": "焦り",
+          "emotion_intensity": "normal",
+          "delivery": "切迫感を込めて強調",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 260
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.0,
+      "lines": [
+        {
+          "text": "理由はシンプルで",
+          "start": 0.0,
+          "end": 1.2,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "前振りで軽く区切る",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.06,
+            "wpm": 220
+          }
+        },
+        {
+          "text": "生成AIの普及 情報漏洩リスクの爆増 攻撃手法の高度化",
+          "start": 1.2,
+          "end": 5.0,
+          "emotion": "焦り",
+          "emotion_intensity": "strong",
+          "delivery": "リズムよく列挙して危機感を煽る",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.08,
+            "wpm": 320
+          },
+          "pronunciation_hints": {
+            "生成AI": "せいせいエーアイ",
+            "情報漏洩": "じょうほうろうえい",
+            "爆増": "ばくぞう",
+            "攻撃手法": "こうげきしゅほう",
+            "高度化": "こうどか"
+          }
+        },
+        {
+          "text": "企業側がもう放置できない状態になってる",
+          "start": 5.0,
+          "end": 7.0,
+          "emotion": "焦り",
+          "emotion_intensity": "normal",
+          "delivery": "結論を落ち着いて言い切る",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 5.0,
+      "lines": [
+        {
+          "text": "しかもセキュリティは後回しにされがちだからこそ",
+          "start": 0.0,
+          "end": 2.5,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "理屈を順序立てて説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 320
+          }
+        },
+        {
+          "text": "一度できる人が育つと手放されない",
+          "start": 2.5,
+          "end": 5.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "言い切って印象付ける",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "lines": [
+        {
+          "text": "20代なら資格プラス最低限の実務経験だけで",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "条件を提示するように説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 320
+          }
+        },
+        {
+          "text": "年収レンジが一段上がる数少ない領域",
+          "start": 3.0,
+          "end": 6.0,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "ゆっくり強調して締める",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 240
+          }
+        }
+      ]
+    },
+    {
+      "duration": 4.0,
+      "lines": [
+        {
+          "text": "3つ目 機械学習エンジニア",
+          "start": 0.0,
+          "end": 2.0,
+          "emotion": "中立",
+          "emotion_intensity": "strong",
+          "delivery": "見出しをはっきり読み上げる",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "機械学習": "きかいがくしゅう"
+          }
+        },
+        {
+          "text": "AIブームの裏で実際にお金が動いてるのはここ",
+          "start": 2.0,
+          "end": 4.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "意味深に強調しながら言う",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 320
+          },
+          "pronunciation_hints": {
+            "AI": "エーアイ"
+          }
+        }
+      ]
+    },
+    {
+      "duration": 8.0,
+      "lines": [
+        {
+          "text": "機械学習エンジニアはAIを使う人じゃなくて",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "対比を作るように説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "AIを作って 仕事で使える形にするエンジニア",
+          "start": 3.0,
+          "end": 5.5,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "強調しながら定義する",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "こういうAIを作りたいって中身を設計する側",
+          "start": 5.5,
+          "end": 8.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "落ち着いて補足する",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.5,
+      "lines": [
+        {
+          "text": "たとえば来月どの商品が売れるか 怪しい取引はどれか 次に何をおすすめするか",
+          "start": 0.0,
+          "end": 4.5,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "具体例をテンポよく列挙",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 320
+          }
+        },
+        {
+          "text": "こういう予測や判定をAIにやらせる仕組みを作る",
+          "start": 4.5,
+          "end": 7.5,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "まとめるように落ち着いて言う",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.0,
+      "lines": [
+        {
+          "text": "企業の売上やコストに直結する部分を任される",
+          "start": 0.0,
+          "end": 3.0,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "重みを持たせて言い切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "ちゃんとモデルを改善できる人は普通に希少で 年収も安定して高い",
+          "start": 3.0,
+          "end": 7.0,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "結論を強調しながら締める",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.06,
+            "wpm": 300
+          }
+        }
+      ]
+    },
+    {
+      "duration": 5.0,
+      "lines": [
+        {
+          "text": "まとめ 2026年にアツいIT職種はこの3つ",
+          "start": 0.0,
+          "end": 2.5,
+          "emotion": "中立",
+          "emotion_intensity": "strong",
+          "delivery": "総括するように区切って読む",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 280
+          }
+        },
+        {
+          "text": "クラウド セキュリティ 機械学習",
+          "start": 2.5,
+          "end": 5.0,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "1語ずつしっかり区切る",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 200
+          }
+        }
+      ]
+    },
+    {
+      "duration": 6.0,
+      "lines": [
+        {
+          "text": "スキルの優劣じゃない",
+          "start": 0.0,
+          "end": 1.5,
+          "emotion": "中立",
+          "emotion_intensity": "strong",
+          "delivery": "言い切って強調",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          },
+          "pronunciation_hints": {
+            "優劣": "ゆうれつ"
+          }
+        },
+        {
+          "text": "どの領域に乗ってるかで年収も将来も変わる",
+          "start": 1.5,
+          "end": 4.5,
+          "emotion": "満足",
+          "emotion_intensity": "strong",
+          "delivery": "核心を強調して言い切る",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.09,
+            "wpm": 280
+          }
+        }
+      ]
+    },
+    {
+      "duration": 7.0,
+      "lines": [
+        {
+          "text": "今の延長線で大丈夫かなって少しでも思った人は",
+          "start": 0.0,
+          "end": 3.5,
+          "emotion": "困惑",
+          "emotion_intensity": "normal",
+          "delivery": "視聴者に問いかけるように",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 320
+          },
+          "pronunciation_hints": {
+            "延長線": "えんちょうせん"
+          }
+        },
+        {
+          "text": "一度立ち位置を見直した方がいい",
+          "start": 3.5,
+          "end": 5.5,
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "delivery": "アドバイス調で落ち着いて締める",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 240
+          }
+        },
+        {
+          "text": "転職を相談したい人はプロフリンクから",
+          "start": 5.5,
+          "end": 7.0,
+          "emotion": "中立",
+          "emotion_intensity": "normal",
+          "delivery": "CTAを軽快に告知",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 280
+          }
+        }
+      ]
+    }
+  ]
+}

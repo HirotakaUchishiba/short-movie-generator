@@ -259,7 +259,7 @@ def test_scene_video_passes_extended_path_to_lipsync(temp_dir, monkeypatch) -> N
                         MagicMock(side_effect=fake_apply))
 
     scene_gen._scene_video_for_scene(
-        0, _base_scene(duration=6.5), {"audio_mode": "voiced"}, temp_dir,
+        0, _base_scene(duration=6.5), {}, temp_dir,
     )
 
     assert captured["video_in"] == os.path.join(temp_dir, "scene_000.extended.mp4")
@@ -298,37 +298,10 @@ def test_scene_video_uses_trim_directly_when_long_enough(
                         MagicMock(side_effect=fake_apply))
 
     scene_gen._scene_video_for_scene(
-        0, _base_scene(duration=5.0), {"audio_mode": "voiced"}, temp_dir,
+        0, _base_scene(duration=5.0), {}, temp_dir,
     )
 
     extend_spy.assert_not_called()
     assert captured["video_in"] == trim
 
 
-def test_scene_video_silent_mode_extends_when_video_shorter(
-    temp_dir, monkeypatch,
-) -> None:
-    """silent モードでも scene.duration に届かなければ slow_mo で延長する。"""
-    trim = os.path.join(temp_dir, "scene_000.trim.mp4")
-    _make_dummy(trim)
-
-    def fake_dur(p):
-        if p.endswith("extended.mp4"):
-            return 7.0
-        return 5.0
-
-    monkeypatch.setattr(scene_gen, "_get_duration", fake_dur)
-
-    def fake_extend(src, target, dst):
-        with open(dst, "wb") as f:
-            f.write(b"extended")
-
-    extend_spy = MagicMock(side_effect=fake_extend)
-    monkeypatch.setattr(scene_gen, "_extend_video_to_duration", extend_spy)
-
-    out = scene_gen._scene_video_for_scene(
-        0, _base_scene(duration=7.0), {"audio_mode": "silent"}, temp_dir,
-    )
-
-    extend_spy.assert_called_once()
-    assert os.path.exists(out)

@@ -197,37 +197,34 @@ def test_rms_to_volume_db_normal_returns_none() -> None:
     assert scene_gen._rms_to_volume_db(None) is None
 
 
-def test_build_background_prompt_includes_wardrobe_continuity() -> None:
-    """SSOT: scene.wardrobe.identifier 経由で wardrobe_continuity を1度だけ展開。"""
-    sp = {
-        "wardrobe_continuity": {"office": "グレーニット + ブラックパンツ + ロングヘア"},
-    }
+def test_build_background_prompt_excludes_wardrobe_text() -> None:
+    """新スキーマ: 衣装テキスト ("wearing X") は prompt に書かない。
+    衣装は characters/<ref>__<wardrobe>.png reference 画像で identity を保証する。"""
     scene = {
         "background_prompt": "オフィス背景",
-        "wardrobe": {"identifier": "office"},
+        "wardrobe_tag": "office",
         "lines": [{"text": "a", "start": 0, "emotion": "喜び"}],
     }
-    prompt = scene_gen._build_background_prompt(scene, sp)
+    prompt = scene_gen._build_background_prompt(scene, {})
     assert "オフィス背景" in prompt
-    # wardrobe_continuity の文字列がそのまま乗る
-    assert "グレーニット + ブラックパンツ + ロングヘア" in prompt
-    # 同じ服装が2回書かれていない
-    assert prompt.count("グレーニット") == 1
+    # 衣装テキストは挿入されない (= reference 画像で保証)
+    assert "wearing" not in prompt
 
 
-def test_build_background_prompt_multi_character() -> None:
-    """SSOT: characters[] は name + role のみ。outfit は wardrobe_continuity 経由。"""
+def test_build_background_prompt_multi_character_excludes_ids() -> None:
+    """多人数: キャラ ID は prompt に直接登場しない (= reference 画像が SSOT)。
+    Stage 3 では compose 由来の `the depicted ... people` 表現で抽象化される。"""
     scene = {
-        "background_prompt": "会議室",
+        "background_prompt": "medium shot of the two depicted people facing each other in conversation",
         "characters": [
-            {"name": "主人公", "role": "narrator"},
-            {"name": "上司", "role": "boss"},
+            {"name": "female_engineer"},
+            {"name": "male_engineer"},
         ],
     }
     prompt = scene_gen._build_background_prompt(scene)
-    assert "主人公" in prompt
-    assert "上司" in prompt
-    assert "boss" in prompt
+    assert "female_engineer" not in prompt
+    assert "male_engineer" not in prompt
+    assert "two depicted people" in prompt
 
 
 def test_neighbor_line_text_within_scene() -> None:
@@ -316,8 +313,8 @@ def test_get_animation_prompt_injects_emotion_visual_cues() -> None:
     assert cue["camera"] in prompt
 
 
-def test_get_animation_prompt_motion_arc_dedupes_consecutive() -> None:
-    """同じ感情が連続する場合、motion arc では重複を畳む。"""
+def test_get_animation_prompt_emotion_arc_uses_english() -> None:
+    """emotion arc は EMOTION_EN で英訳されて prompt に入る。"""
     scene = {
         "animation_prompt": "x",
         "lines": [
@@ -327,9 +324,10 @@ def test_get_animation_prompt_motion_arc_dedupes_consecutive() -> None:
         ],
     }
     prompt = scene_gen._get_animation_prompt(scene)
-    # 焦り×2 が 1つに畳まれて "焦り→満足" の遷移1つ
-    # motion arc と facial arc 両方に → が出るので合計 2
-    assert prompt.count("→") == 2
+    # 焦り×2 → 1 つに畳まれ、満足 と arc を成す。英訳された arc が単一登場
+    assert "emotion arc:" in prompt
+    assert "urgency → satisfaction" in prompt
+    assert "焦り" not in prompt  # 完全英文化
 
 
 def test_get_animation_prompt_appends_audio_dynamics(tmp_path, monkeypatch) -> None:
@@ -367,16 +365,23 @@ def test_build_background_prompt_injects_emotion_visual_cues() -> None:
     assert cue["tone"] in prompt
 
 
-def test_build_background_prompt_appends_audio_dynamics(tmp_path, monkeypatch) -> None:
+def test_build_background_prompt_excludes_audio_dynamics(tmp_path, monkeypatch) -> None:
+    """Stage 3 (静止画) には audio_dynamics は混入しない (= 動的情報は Stage 4 専用)。"""
     import audio_dynamics
-    monkeypatch.setattr(audio_dynamics, "summarize_scene_dynamics",
-                          lambda lines, ts, s: "audio dynamics arc: line0 [moderate medium]")
+    called = {"flag": False}
+
+    def fake_dyn(lines, ts, s):
+        called["flag"] = True
+        return "audio dynamics arc: should not appear"
+
+    monkeypatch.setattr(audio_dynamics, "summarize_scene_dynamics", fake_dyn)
     scene = {
         "background_prompt": "オフィス",
         "lines": [{"text": "a", "start": 0, "emotion": "驚き"}],
     }
     prompt = scene_gen._build_background_prompt(scene, ts_path=str(tmp_path), s_idx=0)
-    assert "audio dynamics arc:" in prompt
+    assert "audio dynamics arc:" not in prompt
+    assert called["flag"] is False  # そもそも呼ばれない
 
 
 def test_emotion_arc_summary_dedupes_consecutive() -> None:
@@ -397,112 +402,6 @@ def test_dominant_visual_cues_uses_emotion_default() -> None:
     scene = {"lines": [{"text": "x", "start": 0, "emotion": "焦り"}]}
     cues = scene_gen._dominant_visual_cues(scene)
     assert cues["facial"] == scene_gen.config.EMOTION_VISUAL_CUES["焦り"]["facial"]
-
-
-def test_dominant_visual_cues_override_replaces_field() -> None:
-    """override は既定 cue の同名カテゴリを置換する。"""
-    scene = {
-        "lines": [{"text": "x", "start": 0, "emotion": "焦り"}],
-        "emotion_cue_overrides": {"facial": "neutral"},  # FACIAL_PRESETS のキー
-    }
-    cues = scene_gen._dominant_visual_cues(scene)
-    expected = scene_gen.config.FACIAL_PRESETS["neutral"]
-    assert cues["facial"] == expected
-    # override しなかった camera 等は emotion 既定のまま
-    assert cues["camera"] == scene_gen.config.EMOTION_VISUAL_CUES["焦り"]["camera"]
-
-
-def test_dominant_visual_cues_override_can_add_new_category() -> None:
-    """新カテゴリ (eye_gaze 等、emotion 既定にないもの) も追加できる。"""
-    scene = {
-        "lines": [{"text": "x", "start": 0, "emotion": "焦り"}],
-        "emotion_cue_overrides": {"eye_gaze": "to_camera"},
-    }
-    cues = scene_gen._dominant_visual_cues(scene)
-    assert cues["eye_gaze"] == scene_gen.config.EYE_GAZE_PRESETS["to_camera"]
-
-
-def test_scope_matches_by_tag() -> None:
-    scene = {"tags": ["home_office", "morning"]}
-    assert scene_gen._scope_matches({"tag": "home_office"}, scene, 0) is True
-    assert scene_gen._scope_matches({"tag": "outdoor"}, scene, 0) is False
-
-
-def test_scope_matches_by_scene_idx() -> None:
-    scene = {}
-    assert scene_gen._scope_matches({"scene_idx": [0, 2]}, scene, 0) is True
-    assert scene_gen._scope_matches({"scene_idx": [0, 2]}, scene, 1) is False
-
-
-def test_resolve_scoped_elements_returns_preset_text() -> None:
-    sp = {
-        "scoped_augmentations": [
-            {
-                "scope": {"tag": "home_office"},
-                "elements": ["standing_desk", "plants_background"],
-            },
-        ],
-    }
-    scene = {"tags": ["home_office"]}
-    elements = scene_gen._resolve_scoped_elements(sp, scene, 0)
-    assert scene_gen.config.SCENE_ELEMENT_PRESETS["standing_desk"] in elements
-    assert scene_gen.config.SCENE_ELEMENT_PRESETS["plants_background"] in elements
-
-
-def test_resolve_scoped_elements_skips_non_matching_scope() -> None:
-    sp = {
-        "scoped_augmentations": [
-            {
-                "scope": {"tag": "outdoor"},
-                "elements": ["standing_desk"],
-            },
-        ],
-    }
-    scene = {"tags": ["home_office"]}  # outdoor タグなし
-    assert scene_gen._resolve_scoped_elements(sp, scene, 0) == []
-
-
-def test_resolve_scoped_elements_dedupes() -> None:
-    sp = {
-        "scoped_augmentations": [
-            {"scope": {"tag": "home_office"}, "elements": ["standing_desk"]},
-            {"scope": {"scene_idx": [0]}, "elements": ["standing_desk"]},  # 同じ
-        ],
-    }
-    scene = {"tags": ["home_office"]}
-    elements = scene_gen._resolve_scoped_elements(sp, scene, 0)
-    assert len(elements) == 1
-
-
-def test_build_background_prompt_injects_scoped_elements() -> None:
-    sp = {
-        "scoped_augmentations": [
-            {"scope": {"tag": "home_office"}, "elements": ["standing_desk"]},
-        ],
-    }
-    scene = {
-        "background_prompt": "オフィス",
-        "tags": ["home_office"],
-        "lines": [{"text": "x", "start": 0, "emotion": "中立"}],
-    }
-    prompt = scene_gen._build_background_prompt(scene, sp, s_idx=0)
-    assert scene_gen.config.SCENE_ELEMENT_PRESETS["standing_desk"] in prompt
-
-
-def test_build_background_prompt_with_override_preset() -> None:
-    sp = {}
-    scene = {
-        "background_prompt": "オフィス",
-        "lines": [{"text": "x", "start": 0, "emotion": "焦り"}],
-        "emotion_cue_overrides": {
-            "facial": "alert_focused",
-            "lighting": "warm_morning",
-        },
-    }
-    prompt = scene_gen._build_background_prompt(scene, sp)
-    # 既定の "tense" 系 cue が override で置換されている
-    assert scene_gen.config.FACIAL_PRESETS["alert_focused"] in prompt
-    assert scene_gen.config.LIGHTING_PRESETS["warm_morning"] in prompt
 
 
 def test_regen_background_scene_preserves_audio_m4a(tmp_path, monkeypatch) -> None:

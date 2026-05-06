@@ -5,8 +5,6 @@ export interface PresetData {
   libraries: Record<string, Record<string, string>>;
   labels_ja: Record<string, Record<string, string>>;
   category_labels_ja: Record<string, string>;
-  scene_tags: string[];
-  scene_tag_labels_ja: Record<string, string>;
   emotion_default_preset_ids: Record<string, Record<string, string>>;
 }
 

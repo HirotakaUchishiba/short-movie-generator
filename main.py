@@ -60,7 +60,7 @@ def main() -> None:
     ts_path = os.path.join(config.TEMP_DIR, ts)
     os.makedirs(ts_path, exist_ok=True)
 
-    screenplay = staged_pipeline.load_screenplay(screenplay_name)
+    screenplay = staged_pipeline.load_template(screenplay_name)
     logger.info("台本: %s | TS: %s", screenplay_name, ts)
 
     nxt = progress_store.next_stage(ts_path)

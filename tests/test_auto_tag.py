@@ -18,9 +18,7 @@ def _mock_response(text: str) -> MagicMock:
 def _sample_screenplay() -> dict:
     return {
         "caption": "転職のリアル",
-        "audio_mode": "voiced",
         "scenes": [{
-            "label": "始業",
             "duration": 5,
             "lines": [{"text": "やばい", "emotion": "驚き"}],
         }],

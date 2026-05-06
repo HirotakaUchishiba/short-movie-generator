@@ -30,6 +30,9 @@
   .input {
     @apply w-full rounded-md border border-slate-600 bg-slate-800 px-3 py-2 text-sm placeholder:text-slate-500 focus:border-emerald-400 focus:outline-none;
   }
+  .select {
+    @apply rounded-md border border-slate-600 bg-slate-800 px-2 py-1 text-sm focus:border-emerald-400 focus:outline-none;
+  }
   .label {
     @apply block text-xs uppercase tracking-wide text-slate-400 mb-1;
   }

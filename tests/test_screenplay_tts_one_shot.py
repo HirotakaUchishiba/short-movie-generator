@@ -14,7 +14,6 @@ def temp_dir(tmp_path) -> str:
 
 def _minimal_screenplay() -> dict:
     return {
-        "audio_mode": "voiced",
         "scenes": [
             {"duration": 3.0, "background_prompt": "bg",
              "lines": [{"text": "やばい", "start": 0.0}]},
@@ -214,13 +213,6 @@ def test_clear_tts_artifacts_removes_all_relevant_files(temp_dir) -> None:
     assert sorted(os.listdir(temp_dir)) == []
 
 
-def test_one_shot_silent_mode_returns_none(temp_dir) -> None:
-    sp = _minimal_screenplay()
-    sp["audio_mode"] = "silent"
-    result = scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
-    assert result is None
-
-
 def test_one_shot_no_api_key_skips(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", None)
     sp = _minimal_screenplay()
@@ -294,8 +286,8 @@ def test_one_shot_full_flow_with_mocked_api(temp_dir, monkeypatch) -> None:
     result = scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
     assert result is not None
 
-    # scene.duration は SCENE_MIN_DURATION 以上
-    assert sp["scenes"][0]["duration"] >= scene_gen.config.SCENE_MIN_DURATION
+    # scene.duration は実 TTS 累積長 + tail_buffer。MIN 制約は撤廃 (Stage 2 = SSOT)
+    assert sp["scenes"][0]["duration"] > 0.0
     # S1L1 (やばい): char 0..3, abs_start=0, abs_end=0.3
     # → 旧仕様 (連続抽出): line.start=0.0, line.end=0.3
     assert sp["scenes"][0]["lines"][0]["start"] == 0.0

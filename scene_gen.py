@@ -12,7 +12,9 @@ from PIL import Image
 import config
 import elevenlabs_client
 import fal_video_client
+import bg_cache
 import imagen_client
+import kling_cache
 import lipsync_client
 
 SCREENPLAY_TEXT_SEPARATOR = "  "  # 半角スペース×2: line間/scene間の区切り
@@ -28,6 +30,19 @@ def _dominant_emotion(scene: dict) -> str | None:
         return None
     from collections import Counter
     return Counter(emotions).most_common(1)[0][0]
+
+
+def _emotion_arc_en(scene: dict) -> str:
+    """lines[].emotion を英訳 EMOTION_EN で arc 化 (= "surprise → urgency → calm")。"""
+    seen: set[str] = set()
+    parts: list[str] = []
+    for line in scene.get("lines") or []:
+        e = line.get("emotion")
+        if not e or e in seen:
+            continue
+        seen.add(e)
+        parts.append(config.EMOTION_EN.get(e, e))
+    return " → ".join(parts)
 
 
 def _emotion_arc_summary(scene: dict, cue_key: str) -> str:
@@ -54,69 +69,31 @@ def _emotion_arc_summary(scene: dict, cue_key: str) -> str:
 
 
 def _dominant_visual_cues(scene: dict) -> dict:
-    """EMOTION_VISUAL_CUES の dominant emotion 既定 cue に
-    scene.emotion_cue_overrides (preset ID → 実テキスト) を上書き適用する。
-
-    overrides の値は preset ID で、validator が enum を保証する。
-    library lookup で実テキストに展開してから cue dict にマージ。
-    """
+    """EMOTION_VISUAL_CUES の dominant emotion 既定 cue を返す。"""
     dom = _dominant_emotion(scene)
-    cues: dict = dict(config.EMOTION_VISUAL_CUES.get(dom or "", {}))
-    overrides = scene.get("emotion_cue_overrides") or {}
-    libs = config.PROMPT_PRESET_LIBRARIES
-    for category, preset_id in overrides.items():
-        lib = libs.get(category)
-        if not lib:
-            continue
-        text = lib.get(preset_id)
-        if text:
-            cues[category] = text
-    return cues
+    return dict(config.EMOTION_VISUAL_CUES.get(dom or "", {}))
 
 
-def _scope_matches(scope: dict, scene: dict, s_idx: int) -> bool:
-    """scoped_augmentations の scope がこの scene にマッチするか判定。"""
-    if not scope:
-        return False
-    si = scope.get("scene_idx")
-    if isinstance(si, list) and s_idx in si:
-        return True
-    tag = scope.get("tag")
-    if tag and tag in (scene.get("tags") or []):
-        return True
-    return False
-
-
-def _resolve_scoped_elements(screenplay: dict | None, scene: dict,
-                              s_idx: int | None) -> list[str]:
-    """このシーンに適用される scoped_augmentations の要素を実テキスト展開して返す。"""
-    if not screenplay or s_idx is None:
-        return []
-    out: list[str] = []
-    seen: set[str] = set()
-    elements_lib = config.SCENE_ELEMENT_PRESETS
-    for aug in screenplay.get("scoped_augmentations") or []:
-        if not _scope_matches(aug.get("scope") or {}, scene, s_idx):
-            continue
-        for elem_id in aug.get("elements") or []:
-            text = elements_lib.get(elem_id)
-            if text and text not in seen:
-                out.append(text)
-                seen.add(text)
-    return out
+_CUE_LABELS_KLING = {
+    "motion": "motion",
+    "facial": "facial expression",
+    "tone": "tone",
+    "eye_gaze": "eye gaze",
+    "body_posture": "body posture",
+    "camera": "camera",
+}
 
 
 def _get_animation_prompt(scene: dict, ts_path: str | None = None,
                           s_idx: int | None = None,
                           screenplay: dict | None = None) -> str:
-    """Kling 用 animation_prompt を合成する (SSOT準拠)。
+    """Kling 用 animation_prompt を合成する (SSOT準拠 / 完全英文)。
 
     優先順位:
-      1. scene.animation_prompt (手書き or UI 修正で保存済み) があれば base に採用
+      1. scene.animation_prompt (compose 由来 = subject speaks naturally ...)
       2. 無い場合は background_prompt をベースにフォールバック
 
-    base に emotion arc / dominant visual cues / scoped elements / audio_dynamics
-    を注入して最終 prompt を組み立てる。
+    base に emotion arc (英訳) / Stage 4 用 dom_cues / audio_dynamics を注入。
     """
     explicit = scene.get("animation_prompt")
     bg_prompt = scene.get("background_prompt", "")
@@ -124,30 +101,20 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
 
     extras: list[str] = []
 
-    motion_arc = _emotion_arc_summary(scene, "motion")
-    if motion_arc:
-        extras.append(f"motion arc: {motion_arc}")
-
-    facial_arc = _emotion_arc_summary(scene, "facial")
-    if facial_arc:
-        extras.append(f"facial arc: {facial_arc}")
+    arc_en = _emotion_arc_en(scene)
+    if arc_en:
+        extras.append(f"emotion arc: {arc_en}")
 
     dom_cues = _dominant_visual_cues(scene)
-    if dom_cues.get("camera"):
-        extras.append(f"camera: {dom_cues['camera']}")
-    if dom_cues.get("tone"):
-        extras.append(f"tone: {dom_cues['tone']}")
-    if dom_cues.get("eye_gaze"):
-        extras.append(f"eye gaze: {dom_cues['eye_gaze']}")
-    if dom_cues.get("body_posture"):
-        extras.append(f"body posture: {dom_cues['body_posture']}")
-    if dom_cues.get("hair"):
-        extras.append(f"hair: {dom_cues['hair']}")
+    for cat in config.STAGE_CUE_CATEGORIES["kling"]:
+        label = _CUE_LABELS_KLING.get(cat)
+        if not label:
+            continue
+        v = dom_cues.get(cat)
+        if v:
+            extras.append(f"{label}: {v}")
 
-    scoped = _resolve_scoped_elements(screenplay, scene, s_idx)
-    if scoped:
-        extras.append("scene elements: " + ", ".join(scoped))
-
+    # 動的情報 (= テンポ・声量) は動画にのみ意味があるので Kling のみで注入
     if ts_path is not None and s_idx is not None:
         try:
             import audio_dynamics
@@ -404,11 +371,7 @@ def _prepare_background(bg_path: str, output_path: str) -> None:
 
 
 def _resolve_character_refs(scene: dict) -> list[str]:
-    """scene.character_refs (SSOT) から参照画像を解決する。
-
-    旧 characters[].ref への fallback は廃止。validator schema が
-    characters[] から ref フィールドを拒否するので存在しえない。
-    """
+    """scene.character_refs (SSOT) から参照画像を解決する。"""
     if "character_refs" in scene:
         names = list(scene.get("character_refs") or [])
     else:
@@ -428,33 +391,42 @@ def _resolve_character_refs(scene: dict) -> list[str]:
     return resolved
 
 
+_CUE_LABELS_BG = {
+    "lighting": "lighting and color",
+    "facial": "facial expression",
+    "tone": "tone",
+}
+
+
 def _build_background_prompt(scene: dict, screenplay: dict | None = None,
                               ts_path: str | None = None,
                               s_idx: int | None = None) -> str:
-    """Imagen 用 background prompt を合成する (SSOT準拠)。
+    """Imagen 用 background prompt を合成する (SSOT準拠 / 完全英文)。
 
-    入力は SSOT のみ:
-      - scene.location_ref → root.location_continuity[ref] で動画内ロケ一貫性
-      - scene.background_prompt (シーン固有のベース文)
-      - scene.wardrobe.identifier → root.wardrobe_continuity[id] で1回だけ展開
-      - lines[].emotion (per-line) → EMOTION_VISUAL_CUES (lighting/facial/tone)
-      - tts_<S>_<L>.mp3 → audio_dynamics
+    SSOT 入力:
+      - scene.location_ref → locations/<id>.json (= ロケ詳細はここでのみ展開)
+      - scene.background_prompt (compose 由来 = カメラ距離 + 人物表現)
+      - lines[].emotion (per-line) → EMOTION_VISUAL_CUES の Stage 3 用カテゴリ
 
-    廃止フィールド (scene.wardrobe.{top,bottom,accessories,hair} /
-    scene.facial_expression / hand_gesture / characters[].outfit) は読まない。
+    衣装と人物特定は reference 画像が SSOT。動的情報 (audio_dynamics) は
+    静止画には作用しないため Stage 4 (Kling) のみで使う。
     """
-    # 動画スコープのロケ一貫性: シーン固有 prompt の前に置く (= 大枠 → 詳細の順)
+    from analyze import location as loc_mod
+
     loc_parts: list[str] = []
-    loc = {}
+    loc: dict = {}
     loc_ref = scene.get("location_ref")
-    if loc_ref and screenplay:
-        loc = (screenplay.get("location_continuity") or {}).get(loc_ref) or {}
+    if loc_ref:
+        try:
+            loc_obj = loc_mod.load_location(loc_ref)
+            loc = loc_obj.to_dict()
+        except FileNotFoundError:
+            logger.warning("location '%s' が見つかりません", loc_ref)
         for label, key in [
             ("location decor (consistent across scenes)", "decor"),
             ("location lighting", "lighting"),
             ("location color palette", "color_palette"),
             ("location props", "props"),
-            ("location camera distance", "camera_distance"),
         ]:
             v = loc.get(key)
             if v:
@@ -462,73 +434,22 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
 
     parts: list[str] = loc_parts + [scene.get("background_prompt", "")]
 
-    # 服装: identifier から wardrobe_continuity を1度だけ参照 (SSOT)
-    wardrobe = scene.get("wardrobe") or {}
-    wardrobe_id = wardrobe.get("identifier")
-    if wardrobe_id and screenplay:
-        global_wd = (screenplay.get("wardrobe_continuity") or {}).get(wardrobe_id)
-        if global_wd:
-            parts.append(f"wardrobe (consistent across scenes): {global_wd}")
-
-    # 決定論的 emotion → visual cue 派生 (override preset 適用済み)
+    # Stage 3 用 cue カテゴリのみに絞る (= hair / body_posture 等は Stage 4 担当、
+    # Imagen が再解釈してキャラ崩壊するのを抑制)
     dom_cues = _dominant_visual_cues(scene)
-    # 既定 cue + 任意の override カテゴリ (eye_gaze / hair / body_posture 等) を全部出力
-    _CUE_LABEL = {
-        "lighting": "lighting and color",
-        "facial": "facial expression",
-        "tone": "tone",
-        "eye_gaze": "eye gaze",
-        "hair": "hair styling",
-        "body_posture": "body posture",
-        "camera": "camera",
-        "motion": None,  # animation_prompt 側で扱う
-    }
-    # ロケ側で lighting / color_palette を指定している場合は、
-    # emotion 由来の lighting cue を抑制してロケ整合性を優先する
-    suppressed = set()
+    suppressed: set[str] = set()
     if loc.get("lighting") or loc.get("color_palette"):
         suppressed.add("lighting")
-    for cat, label in _CUE_LABEL.items():
+    for cat in config.STAGE_CUE_CATEGORIES["bg"]:
+        label = _CUE_LABELS_BG.get(cat)
         if not label or cat in suppressed:
             continue
         v = dom_cues.get(cat)
         if v:
             parts.append(f"{label}: {v}")
 
-    # 横断適用ルール (scoped_augmentations) の要素注入
-    scoped = _resolve_scoped_elements(screenplay, scene, s_idx)
-    if scoped:
-        parts.append("scene elements: " + ", ".join(scoped))
-
-    # TTS 音響特徴 (TTS 生成済みのときだけ)
-    if ts_path is not None and s_idx is not None:
-        try:
-            import audio_dynamics
-            dyn = audio_dynamics.summarize_scene_dynamics(
-                scene.get("lines") or [], ts_path, s_idx)
-            if dyn:
-                parts.append(dyn)
-        except Exception as e:
-            logger.warning("audio_dynamics サマリ失敗: %s", e)
-
-    chars = scene.get("characters") or []
-    if len(chars) > 1:
-        # 多人数シーン: name と role のみ列挙 (outfit は廃止、wardrobe_continuity 経由)
-        descs = []
-        for c in chars:
-            d = c.get("name") or "person"
-            if c.get("role"):
-                d += f" ({c['role']})"
-            descs.append(d)
-        parts.append(f"characters in scene: {'; '.join(descs)}")
-
-    parts.append(
-        "CRITICAL CONSTRAINT: single static image of one moment frozen in time. "
-        "NOT a storyboard, NOT comic panels, NOT a grid of images, "
-        "NOT multiple frames stacked vertically or horizontally, "
-        "NEVER split into multiple panels. Generate ONE coherent single composition only"
-    )
-
+    # storyboard 抑止: 通常時は最小、retry 時に詳細注入
+    parts.append("single still photograph, not a storyboard or panels")
     if scene.get("_storyboard_retry_neg"):
         parts.append(scene["_storyboard_retry_neg"])
 
@@ -571,7 +492,15 @@ def _detect_storyboard_image(image_path: str) -> bool:
 def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
                                      screenplay: dict | None,
                                      max_retries: int = 2) -> tuple[str, str]:
+    # 呼び出しごとに cache 関連 hint をリセット (= UI 連携のため scene に書き戻す)
+    scene.pop("_bg_cache_hit", None)
+    scene.pop("_bg_cache_key", None)
+
     bg_key, path = _generate_single_background(scene_idx, scene, temp_dir, screenplay)
+
+    # cache hit ならそのまま返す (= storyboard 検出済みでない画像のみ store する設計)
+    if scene.get("_bg_cache_hit"):
+        return bg_key, path
 
     attempt = 0
     while _detect_storyboard_image(path) and attempt < max_retries:
@@ -591,8 +520,30 @@ def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
 
     scene.pop("_storyboard_retry_neg", None)
 
-    if attempt >= max_retries and _detect_storyboard_image(path):
+    storyboard = _detect_storyboard_image(path)
+    if attempt >= max_retries and storyboard:
         logger.error("シーン%d 背景画像のコマ割り回避失敗。生成画像をそのまま使用", scene_idx + 1)
+
+    # 最終確定画像を cache に保存 (= storyboard 通過後のみ、retry 結果も含めて 1 度だけ)
+    if (
+        getattr(config, "BG_CACHE_ENABLED", True)
+        and screenplay is not None
+        and not storyboard
+        and not scene.get("_bg_force_no_cache")
+        and not scene.get("_bg_cache_hit")
+    ):
+        try:
+            cache_key = bg_cache.compute_bg_cache_key(scene, screenplay)
+            bg_cache.store(cache_key, path, {
+                "scene_idx": scene_idx,
+                "model": getattr(imagen_client, "MODEL", "unknown"),
+                "location_ref": scene.get("location_ref"),
+                "character_refs": list(scene.get("character_refs") or []),
+            })
+            scene["_bg_cache_key"] = cache_key
+        except Exception as e:
+            logger.warning("bg_cache store failed: %s", e)
+
     return bg_key, path
 
 
@@ -805,83 +756,250 @@ def _generate_kling(bg_path: str, animation_prompt: str, scene_duration: float,
     )
 
 
-def _tempo_max_for_scene(scene: dict) -> float:
-    lines = scene.get("lines") or []
-    total_chars = sum(len(l.get("text", "")) for l in lines)
-
-    if not lines:
-        return config.TEMPO_MAX_NO_LINES
-    if len(lines) >= 3 or total_chars > config.TEMPO_TEXT_LONG_THRESHOLD:
-        return config.TEMPO_MAX_LONG_TEXT
-    if len(lines) >= 2 or total_chars > config.TEMPO_TEXT_MEDIUM_THRESHOLD:
-        return config.TEMPO_MAX_MULTI_LINE
-    return config.TEMPO_MAX_SINGLE_LINE
-
-
-def _compute_target_duration(scene: dict, tts_total_end: float) -> float:
-    """シーンの目標秒数を算出する。
-
-    cut-off絶対回避を最優先 + 自然な発話を優先するため、
-    シーン尺は常に「全TTSが自然な間で収まる長さ」 = floor を採用する。
-    tempo_maxはwarningレベルでログ出力するのみ。
-    """
-    floor = max(tts_total_end, config.SCENE_MIN_DURATION)
-    tempo_max = _tempo_max_for_scene(scene)
-    if floor > tempo_max:
-        level = "warning" if config.TEMPO_MAX_AS_WARNING_ONLY else "info"
-        msg = (f"テンポ規範超過: TTS終端=%.2fs > tempo_max=%.1fs "
-               f"(自然な発話優先で TTS終端 を採用)")
-        if level == "warning":
-            logger.warning(msg, tts_total_end, tempo_max)
-        else:
-            logger.info(msg, tts_total_end, tempo_max)
-    return floor
-
-
-def _compute_safe_final_duration(target_duration: float, kling_duration: float,
-                                 action_complete: float | None,
-                                 tts_total_end: float) -> float:
-    """trim後の最終秒数。**音声 cut-off を絶対に許さない**。
-
-    優先度:
-      1. tts_total_end と SCENE_MIN_DURATION の最大値以上 (音声cut-off回避)
-         → kling_duration を超えても許容。動画側は呼出元で slow_mo 延長して合わせる
-      2. action_complete が safe_floor 以上 + kling_duration 以下なら早期stopでテンポ向上
-      3. それ以外は max(safe_floor, target_duration)
-    """
-    safe_floor = max(tts_total_end, config.SCENE_MIN_DURATION)
-
-    # action_complete は kling_duration 内 かつ safe_floor 以上なら採用
-    if (action_complete is not None
-            and action_complete >= safe_floor
-            and action_complete <= kling_duration):
-        return round(action_complete, 3)
-
-    # ここでは kling_duration で cap しない (足りなければ後段で動画延長)
-    return max(safe_floor, target_duration)
-
-
 def _generate_single_background(scene_idx: int, scene: dict, temp_dir: str,
-                                screenplay: dict | None = None) -> tuple[str, str]:
+                                screenplay: dict | None = None,
+                                force_fresh: bool = False) -> tuple[str, str]:
+    """1 シーン分の BG 画像を生成または cache から取得する。
+
+    force_fresh=True: cache lookup をスキップして必ず Imagen API を呼ぶ。
+    """
     bg_key = f"bg_{scene_idx:03d}"
     path = os.path.join(temp_dir, f"{bg_key}.png")
 
-    if not os.path.exists(path):
-        enhanced = _build_background_prompt(scene, screenplay, ts_path=temp_dir,
-                                              s_idx=scene_idx)
-        full_prompt = f"{enhanced}. no text, no letters, vertical portrait composition"
-        refs = _resolve_character_refs(scene)
-        logger.info("%s 生成中 (参照キャラ: %d枚)", bg_key, len(refs))
-        imagen_client.generate_image(full_prompt, path, reference_images=refs or None)
-        logger.info("%s → %s", bg_key, path)
+    if os.path.exists(path):
+        return bg_key, path
 
+    # cache lookup: storyboard retry 時 (= _storyboard_retry_neg ありの再呼び出し)
+    # と force_no_cache / force_fresh 時はバイパス。screenplay が未渡しの古い経路もスキップ。
+    use_cache = (
+        getattr(config, "BG_CACHE_ENABLED", True)
+        and screenplay is not None
+        and not force_fresh
+        and not scene.get("_storyboard_retry_neg")
+        and not scene.get("_bg_force_no_cache")
+        and not scene.get("bg_force_fresh")
+    )
+    cache_key: str | None = None
+    if use_cache:
+        try:
+            cache_key = bg_cache.compute_bg_cache_key(scene, screenplay)
+            cached_path = bg_cache.lookup(cache_key)
+            if cached_path is not None:
+                shutil.copyfile(str(cached_path), path)
+                bg_cache.touch(cache_key)
+                scene["_bg_cache_hit"] = True
+                scene["_bg_cache_key"] = cache_key
+                logger.info("[bg cache HIT] %s key=%s", bg_key, cache_key)
+                return bg_key, path
+        except Exception as e:
+            logger.warning("bg_cache lookup failed: %s", e)
+            cache_key = None
+
+    enhanced = _build_background_prompt(scene, screenplay, ts_path=temp_dir,
+                                          s_idx=scene_idx)
+    full_prompt = f"{enhanced}. no text, no letters, vertical portrait composition"
+    refs = _resolve_character_refs(scene)
+    logger.info("%s 生成中 (参照キャラ: %d枚)", bg_key, len(refs))
+    imagen_client.generate_image(full_prompt, path, reference_images=refs or None)
+    logger.info("%s → %s", bg_key, path)
+    if cache_key:
+        scene["_bg_cache_hit"] = False
+        scene["_bg_cache_key"] = cache_key
     return bg_key, path
 
 
-def generate_backgrounds(screenplay: dict, temp_dir: str) -> dict[str, str]:
+def _scene_bg_inputs(scene_idx: int, scene: dict, screenplay: dict,
+                     temp_dir: str) -> dict | None:
+    """この scene の BG 生成入力を決定する純粋関数 (= scan/commit/fresh で共有)。
+
+    必要な依存 (= ロケ JSON や character ref 画像) が揃わないと None を返す。
+    """
+    try:
+        cache_key = bg_cache.compute_bg_cache_key(scene, screenplay)
+    except Exception as e:
+        logger.warning("bg_cache key 計算失敗 scene=%d: %s", scene_idx, e)
+        return None
+    enhanced = _build_background_prompt(
+        scene, screenplay, ts_path=temp_dir, s_idx=scene_idx)
+    return {
+        "cache_key": cache_key,
+        "background_prompt_resolved": enhanced,
+        "model_id": getattr(imagen_client, "MODEL", "unknown"),
+    }
+
+
+def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
+    """store() に渡す metadata を組み立てる。"""
+    return {
+        "scene_idx": scene_idx,
+        "model": inputs["model_id"],
+        "model_id": inputs["model_id"],
+        "background_prompt_resolved": inputs["background_prompt_resolved"],
+        "location_ref": scene.get("location_ref"),
+        "character_refs": list(scene.get("character_refs") or []),
+        "camera_distance": scene.get("camera_distance"),
+        "cache_version": getattr(config, "BG_CACHE_VERSION", "v1"),
+    }
+
+
+def bg_scan_cache(screenplay: dict, temp_dir: str) -> dict:
+    """Stage 3a: 全シーンで cache lookup を行い、判断状態を組み立てて返す。
+
+    API 呼び出しは行わない (= 純粋に local + cache disk のみ)。
+    候補なしのシーンは "decision":"fresh" 即確定 (= ユーザ操作不要)。
+    """
+    decisions: dict[str, dict] = {}
+    cache_enabled = getattr(config, "BG_CACHE_ENABLED", True)
+    for i, scene in enumerate(screenplay.get("scenes") or []):
+        rec: dict = {
+            "candidates": [],
+            "decision": "pending",
+            "decided_key": None,
+            "decided_at": None,
+            "cache_key": None,
+            "diagnostics": [],
+        }
+        try:
+            inputs = _scene_bg_inputs(i, scene, screenplay, temp_dir)
+        except Exception as e:
+            rec["diagnostics"].append(f"input build failed: {e}")
+            inputs = None
+        if inputs is None:
+            rec["diagnostics"].append("dependency missing (location/character)")
+            decisions[str(i)] = rec
+            continue
+        rec["cache_key"] = inputs["cache_key"]
+        if cache_enabled and not scene.get("bg_force_fresh"):
+            try:
+                candidates = bg_cache.lookup_all_candidates(
+                    inputs["cache_key"], scene)
+                rec["candidates"] = [
+                    {
+                        "key": c["key"],
+                        "fitness": c["fitness"],
+                        "warnings": c["warnings"],
+                        "meta": {
+                            "location_ref": c["meta"].get("location_ref"),
+                            "camera_distance": c["meta"].get("camera_distance"),
+                            "character_refs": c["meta"].get("character_refs"),
+                            "created_at": c["meta"].get("created_at"),
+                            "hit_count": c["meta"].get("hit_count"),
+                            "background_prompt_resolved": c["meta"].get(
+                                "background_prompt_resolved"),
+                            "quality": c["meta"].get("quality"),
+                        },
+                    }
+                    for c in candidates
+                ]
+            except Exception as e:
+                rec["diagnostics"].append(f"lookup failed: {e}")
+        if not rec["candidates"]:
+            rec["decision"] = "fresh"
+            rec["decided_at"] = _now_iso_seconds()
+        decisions[str(i)] = rec
+    return decisions
+
+
+def _now_iso_seconds() -> str:
+    from datetime import datetime as _dt
+    return _dt.now().isoformat(timespec="seconds")
+
+
+def _clear_bg_downstream(scene_idx: int, temp_dir: str) -> None:
+    """BG を差し替える前に、bg / composite / kling / scene 系を削除する。"""
+    for fname in [
+        f"bg_{scene_idx:03d}.png",
+        f"composite_{scene_idx:03d}.png",
+        f"kling_{scene_idx:03d}.mp4",
+        f"scene_{scene_idx:03d}.trim.mp4",
+        f"scene_{scene_idx:03d}.extended.mp4",
+        f"scene_{scene_idx:03d}.mp4",
+    ]:
+        p = os.path.join(temp_dir, fname)
+        if os.path.exists(p):
+            os.remove(p)
+
+
+def bg_commit_cache(scene_idx: int, scene: dict, screenplay: dict,
+                    temp_dir: str, cache_key: str) -> None:
+    """Stage 3b: cache の PNG を bg_<S>.png に copy する。下流も削除して整合性確保。"""
+    _clear_bg_downstream(scene_idx, temp_dir)
+    bg_key = f"bg_{scene_idx:03d}"
+    dest = os.path.join(temp_dir, f"{bg_key}.png")
+    bg_cache.commit_to_project(cache_key, dest)
+    scene["_bg_cache_hit"] = True
+    scene["_bg_cache_key"] = cache_key
+    scene["_bg_key"] = bg_key
+
+
+def bg_generate_fresh(screenplay: dict, temp_dir: str,
+                      scene_indices: list[int]) -> dict[str, str]:
+    """Stage 3c: 指定シーンだけ Imagen で新規生成する (= retry/storyboard ロジック継承)。
+
+    既存の `_generate_background_with_retry` を force_fresh 経由で呼ぶ。
+    cache lookup はバイパス、生成成功後は cache に store される。
+    """
+    scenes = screenplay.get("scenes") or []
+    bg_paths: dict[str, str] = {}
+    if not scene_indices:
+        return bg_paths
+    # force_fresh hint を一時的に立て、retry helper 内の _generate_single_background
+    # で cache を必ず bypass させる
+    for i in scene_indices:
+        scenes[i]["bg_force_fresh"] = True
+    try:
+        with ThreadPoolExecutor(max_workers=BG_PARALLEL_WORKERS) as pool:
+            futures = {
+                pool.submit(_generate_background_with_retry, i, scenes[i],
+                            temp_dir, screenplay): i
+                for i in scene_indices
+            }
+            for fut in as_completed(futures):
+                i = futures[fut]
+                bg_key, path = fut.result()
+                bg_paths[bg_key] = path
+                scenes[i]["_bg_key"] = bg_key
+    finally:
+        for i in scene_indices:
+            scenes[i].pop("bg_force_fresh", None)
+    return bg_paths
+
+
+def generate_backgrounds(screenplay: dict, temp_dir: str,
+                         scene_decisions: dict | None = None) -> dict[str, str]:
+    """Stage 3 統合実行関数。
+
+    scene_decisions が渡されたら:
+      - decision="cache" のシーンは cache から copy
+      - decision="fresh" / "pending" のシーンは Imagen で新規生成 (cache lookup あり)
+    渡されなければ全シーン自動 (= 旧挙動、cache lookup あり)。
+    """
     scenes = screenplay["scenes"]
     bg_paths: dict[str, str] = {}
 
+    if scene_decisions:
+        # 1. decision="cache" のシーンは同期 commit
+        cache_indices: list[int] = []
+        fresh_indices: list[int] = []
+        for i, scene in enumerate(scenes):
+            rec = scene_decisions.get(str(i)) or {}
+            decision = rec.get("decision")
+            decided_key = rec.get("decided_key")
+            if decision == "cache" and decided_key:
+                bg_commit_cache(i, scene, screenplay, temp_dir, decided_key)
+                bg_paths[scene.get("_bg_key", f"bg_{i:03d}")] = os.path.join(
+                    temp_dir, f"bg_{i:03d}.png")
+                cache_indices.append(i)
+            else:
+                fresh_indices.append(i)
+        # 2. fresh シーンは pool で並列生成
+        fresh_paths = bg_generate_fresh(screenplay, temp_dir, fresh_indices)
+        bg_paths.update(fresh_paths)
+        logger.info("背景: %d枚 (cache=%d, fresh=%d)",
+                    len(bg_paths), len(cache_indices), len(fresh_indices))
+        return bg_paths
+
+    # ─── legacy: 全シーン並列、cache lookup auto ───
     with ThreadPoolExecutor(max_workers=BG_PARALLEL_WORKERS) as pool:
         futures = {
             pool.submit(_generate_background_with_retry, i, scene, temp_dir, screenplay): i
@@ -1132,12 +1250,9 @@ def _concat_audios_to_aac(audio_paths: list[str], output_path: str) -> None:
         raise RuntimeError(f"Audio concat failed: {r.stderr[-500:]}")
 
 
-def _line_silence_after_sec(line: dict) -> float:
-    """line.silence_after_ms または既定値 (TTS_MAX_SILENCE_MS) を秒数で返す。"""
-    v = line.get("silence_after_ms")
-    if v is None:
-        v = config.TTS_MAX_SILENCE_MS
-    return max(0.0, min(2.0, float(v) / 1000.0))
+def _natural_tail_silence_sec() -> float:
+    """audio 末尾の自然な余白秒数 (= 全 line 共通、config.TTS_MAX_SILENCE_MS 由来)。"""
+    return max(0.0, min(2.0, float(config.TTS_MAX_SILENCE_MS) / 1000.0))
 
 
 def _concat_audios_to_mp3(audio_paths: list[str], output_path: str) -> None:
@@ -1169,7 +1284,7 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
     Per-line 後処理パイプライン (timestamp drift 根絶のため全工程 line ファイル単位):
       1. [abs_start, abs_end] を speech body として切出し
       2. silenceremove を speech body にのみ適用 (mid-line の長い無音を圧縮)
-      3. [abs_end, abs_end + silence_after_sec] を trailing として切出し (次line侵食しない範囲)
+      3. [abs_end, abs_end + tail_sec] を trailing として切出し (次line侵食しない範囲)
       4. body + trailing を concat → tts_<S>_<L>.mp3
       5. atempo を line file 全体に適用 (global_speed > native_max のとき)
     """
@@ -1231,7 +1346,7 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
             else float("inf")
         )
         tail_limit = min(next_abs_start, full_audio_dur)
-        desired = _line_silence_after_sec(line)
+        desired = _natural_tail_silence_sec()
         available = max(0.0, tail_limit - body_end)
         natural_extract = max(0.0, min(desired, available))
 
@@ -1267,7 +1382,7 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
             os.remove(out_path)
 
         if not scene_lts:
-            scene["duration"] = config.SCENE_MIN_DURATION
+            scene["duration"] = 0.0
             continue
 
         line_paths: list[str] = []
@@ -1287,10 +1402,7 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
             cumulative += file_dur
             line_paths.append(line_path)
 
-        scene["duration"] = max(
-            cumulative + config.SCENE_TTS_TAIL_BUFFER,
-            config.SCENE_MIN_DURATION,
-        )
+        scene["duration"] = cumulative + config.SCENE_TTS_TAIL_BUFFER
 
         _concat_audios_to_aac(line_paths, out_path)
 
@@ -1401,8 +1513,6 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
       - 各 scene の duration を逆算
       - tts_full.mp3 を scene/line に分割保存
     """
-    if screenplay.get("audio_mode") == "silent":
-        return None
     if not config.ELEVENLABS_API_KEY:
         logger.warning("ELEVENLABS_API_KEY未設定でTTSスキップ")
         return None
@@ -1453,7 +1563,7 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
         )
 
     # per-line audio + scene audio を 既存tts_full.mp3 から再構築
-    # (silenceremove + atempo + silence_after_ms はすべて per-line で適用)
+    # (silenceremove + atempo は per-line で適用)
     _build_audios_from_full(screenplay, ts_path)
 
     with open(text_meta_json, "w") as f:
@@ -1476,64 +1586,52 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
 
 
 def _persist_tts_derived_timings(screenplay: dict, ts_path: str) -> None:
-    """TTS regen 後の scene.duration / line.start / line.end のみ
-    disk 上の screenplay JSON に field-level merge する。
+    """TTS regen 後の scene.duration / line.start / line.end を
+    tts_meta.json に書き出す (= snapshot は abstract のまま、SSOT 分離)。
 
     並行する patchLine / patchScene 等との衝突を避けるため、
-    staged_pipeline.screenplay_lock を取得した上で disk を再読込し、
-    TTS が更新した3項目だけを上書きしてから保存する。
+    staged_pipeline.screenplay_lock を取得した上で書き込む。
 
-    上書きしない (= disk の内容を保持する) フィールド:
-      - line.text / emotion / audio_tags / pronunciation_hints / voice_overrides 等
-      - scene.background_prompt / animation_prompt / wardrobe / tags
-        / emotion_cue_overrides 等
-      - root の caption / wardrobe_continuity / scoped_augmentations 等
-
-    StageOverlay で手動編集した line.start / line.end は volatile (TTS regen
-    で reset される) — 仕様として明文化済み。
+    snapshot 側 (= screenplay.json) は完全 abstract に保たれるため、
+    UI 編集の caption / emotion / speaker 等とは独立に timing を永続化できる。
+    Stage 3 以降は load_project_screenplay 経由で hydrate された値を読む。
     """
     import staged_pipeline
     meta = staged_pipeline.read_metadata(ts_path)
     if not meta:
         return
-    name = meta.get("screenplay_name")
-    if not name:
-        return
+    ts_key = os.path.basename(ts_path.rstrip(os.sep))
 
-    with staged_pipeline.screenplay_lock(name):
-        try:
-            disk_sp = staged_pipeline.load_screenplay(name)
-        except FileNotFoundError:
-            return
-        for s_idx, scene in enumerate(screenplay.get("scenes") or []):
-            disk_scenes = disk_sp.get("scenes") or []
-            if s_idx >= len(disk_scenes):
-                break
-            disk_scene = disk_scenes[s_idx]
+    with staged_pipeline.screenplay_lock(ts_key):
+        meta_scenes: list[dict] = []
+        for scene in screenplay.get("scenes") or []:
+            scene_meta: dict = {}
             if "duration" in scene:
-                disk_scene["duration"] = scene["duration"]
-            for l_idx, line in enumerate(scene.get("lines") or []):
-                disk_lines = disk_scene.get("lines") or []
-                if l_idx >= len(disk_lines):
-                    break
-                disk_line = disk_lines[l_idx]
+                scene_meta["duration"] = scene["duration"]
+            line_metas: list[dict] = []
+            for line in scene.get("lines") or []:
+                lm: dict = {}
                 if "start" in line:
-                    disk_line["start"] = line["start"]
+                    lm["start"] = line["start"]
                 if "end" in line:
-                    disk_line["end"] = line["end"]
-        staged_pipeline.save_screenplay(name, disk_sp)
-        logger.info("[1-shot TTS] disk merge: %s に scene.duration/line timings 反映", name)
+                    lm["end"] = line["end"]
+                line_metas.append(lm)
+            scene_meta["lines"] = line_metas
+            meta_scenes.append(scene_meta)
+        staged_pipeline.save_tts_meta(ts_path, {"scenes": meta_scenes})
+        logger.info(
+            "[1-shot TTS] tts_meta.json に timing を書き出し: %s",
+            staged_pipeline.tts_meta_path(ts_path),
+        )
 
 
 def build_merged_tts_preview(screenplay: dict, ts_path: str) -> str | None:
     """per-line audio を全 scene 連結した merged_preview.m4a を返す。
 
     `_build_audios_from_full` が生成する「実際に動画に乗る音」のプレビュー。
-    silence_after_ms / atempo / silenceremove 反映済み。
+    atempo / silenceremove 反映済み。
     無ければ生 tts_full.mp3 (パディング未反映) にフォールバック。
     """
-    if screenplay.get("audio_mode") == "silent":
-        return None
     merged = os.path.join(ts_path, "merged_preview.m4a")
     if os.path.exists(merged):
         return merged
@@ -1549,7 +1647,7 @@ def _bg_path_for_scene(scene_idx: int, scene: dict, temp_dir: str) -> str:
 
 
 def generate_tts_for_screenplay(screenplay: dict, temp_dir: str) -> dict | None:
-    """Stage 2: screenplay全体を1 API call で生成 (one-shot方式)。silent ならスキップ。
+    """Stage 2: screenplay全体を1 API call で生成 (one-shot方式)。
 
     text_hashが変わらなければキャッシュ。返り値は line_times 等のメタ。
     """
@@ -1561,7 +1659,7 @@ def regen_tts_full(screenplay: dict, temp_dir: str, force: bool = True) -> None:
 
     force=True (既定): tts_full.mp3 等のキャッシュを削除して必ずElevenLabs API再呼び出し。
     force=False: キャッシュを保持し、text_hash不変ならAPI呼び出しスキップで
-                 audioのみ再構築 (per-line speed/silence_after_ms 変更時に有用、無料)。
+                 audioのみ再構築 (per-line speed 変更時に有用、無料)。
     """
     if force:
         _clear_tts_artifacts(temp_dir)
@@ -1569,35 +1667,37 @@ def regen_tts_full(screenplay: dict, temp_dir: str, force: bool = True) -> None:
 
 
 def regen_tts_line(scene_idx: int, line_idx: int, screenplay: dict, temp_dir: str) -> None:
-    """[互換] one-shot方式では line単位再生成は不可。screenplay全体再生成にリダイレクト。"""
+    """one-shot 方式では line 単位再生成は不可。screenplay 全体再生成にリダイレクト。"""
     logger.info("regen_tts_line(s=%d,l=%d) はscreenplay全体再生成にリダイレクト",
                 scene_idx, line_idx)
     regen_tts_full(screenplay, temp_dir)
 
 
 def regen_tts_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
-    """[互換] one-shot方式では scene単位再生成は不可。screenplay全体再生成にリダイレクト。"""
+    """one-shot 方式では scene 単位再生成は不可。screenplay 全体再生成にリダイレクト。"""
     logger.info("regen_tts_scene(s=%d) はscreenplay全体再生成にリダイレクト", scene_idx)
     regen_tts_full(screenplay, temp_dir)
 
 
-def regen_background_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
+def regen_background_scene(scene_idx: int, screenplay: dict, temp_dir: str,
+                            force_fresh: bool = False) -> None:
     """単一シーンの背景画像を再生成。下流のkling/scene動画も無効化。
 
     audio_<S>.m4a は TTS 由来 (BG非依存) なので削除しない。
+    force_fresh=True: cache lookup をバイパスして必ず Imagen を呼ぶ。
+    既存の `force_no_cache` フラグ (= scene["_bg_force_no_cache"]) も同様に効く。
     """
     scene = screenplay["scenes"][scene_idx]
-    for fname in [
-        f"bg_{scene_idx:03d}.png",
-        f"composite_{scene_idx:03d}.png",
-        f"kling_{scene_idx:03d}.mp4",
-        f"scene_{scene_idx:03d}.trim.mp4",
-        f"scene_{scene_idx:03d}.mp4",
-    ]:
-        p = os.path.join(temp_dir, fname)
-        if os.path.exists(p):
-            os.remove(p)
-    bg_key, _ = _generate_background_with_retry(scene_idx, scene, temp_dir, screenplay)
+    _clear_bg_downstream(scene_idx, temp_dir)
+    set_force = force_fresh and not scene.get("bg_force_fresh")
+    if set_force:
+        scene["bg_force_fresh"] = True
+    try:
+        bg_key, _ = _generate_background_with_retry(
+            scene_idx, scene, temp_dir, screenplay)
+    finally:
+        if set_force:
+            scene.pop("bg_force_fresh", None)
     scene["_bg_key"] = bg_key
 
 
@@ -1609,72 +1709,306 @@ def _scene_tts_audio_duration(scene_idx: int, ts_path: str) -> float:
     return 0.0
 
 
-def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: str) -> None:
-    """1シーン分のKling生成 + trim。one-shotで確定済みの scene.duration を採用。"""
+def _scene_kling_inputs(
+    scene_idx: int, scene: dict, screenplay: dict, temp_dir: str,
+) -> dict | None:
+    """この scene の Kling 生成入力を決定する純粋関数。
+
+    cache key 計算 (= scan phase) と実生成 (= commit/fresh phase) で
+    同じ入力を共有させるためのヘルパ。bg / TTS が揃っていない
+    シーン (= 早すぎる scan) は None を返す。
+
+    Returns:
+        {"bg_path": str, "final_duration": float, "kling_duration": int,
+         "anim_prompt": str, "augmented_prompt": str, "bg_image_sha": str,
+         "model_id": str, "cache_key": str} or None
+    """
     bg_path = _bg_path_for_scene(scene_idx, scene, temp_dir)
     if not os.path.exists(bg_path):
-        raise FileNotFoundError(f"背景画像が見つかりません: {bg_path}")
+        return None
 
-    tts_end = _scene_tts_audio_duration(scene_idx, temp_dir)
-    target_duration = _compute_target_duration(scene, tts_end)
-    kling_duration = float(fal_video_client._pick_duration(target_duration))
+    final_duration = float(scene.get("duration") or 0.0)
+    if final_duration <= 0:
+        final_duration = _scene_tts_audio_duration(scene_idx, temp_dir)
+    if final_duration <= 0:
+        return None
 
-    kling_raw_path = os.path.join(temp_dir, f"kling_{scene_idx:03d}.mp4")
-    trimmed_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.trim.mp4")
-
-    logger.info("シーン%d target=%.2fs kling=%.0fs (TTS尺=%.2fs)",
-                scene_idx + 1, target_duration, kling_duration, tts_end)
-
-    if not os.path.exists(kling_raw_path):
-        anim_prompt = _get_animation_prompt(scene, ts_path=temp_dir,
-                                              s_idx=scene_idx,
-                                              screenplay=screenplay)
-        _generate_kling(bg_path, anim_prompt, kling_duration,
-                        kling_raw_path, scene_idx)
-
-    raw_dur = _get_duration(kling_raw_path)
-    import audio_features
-    action_complete = audio_features.detect_action_complete(kling_raw_path)
-    if action_complete is not None:
-        logger.info("シーン%d 動作完了点 検出: t=%.2fs (kling raw=%.2fs)",
-                    scene_idx + 1, action_complete, raw_dur)
-
-    final_duration = _compute_safe_final_duration(
-        target_duration=target_duration,
-        kling_duration=raw_dur,
-        action_complete=action_complete,
-        tts_total_end=tts_end,
+    kling_duration = int(fal_video_client._pick_duration(final_duration))
+    anim_prompt = _get_animation_prompt(
+        scene, ts_path=temp_dir, s_idx=scene_idx, screenplay=screenplay)
+    augmented = _augment_animation_prompt(anim_prompt, float(kling_duration))
+    bg_image_sha = kling_cache._file_sha256(bg_path)
+    model_id = fal_video_client.MODEL_ID
+    cache_key = kling_cache.build_cache_key(
+        augmented_animation_prompt=augmented,
+        kling_duration=kling_duration,
+        bg_image_sha=bg_image_sha,
+        model_id=model_id,
     )
-    final_duration = max(config.SCENE_MIN_DURATION, final_duration)
+    return {
+        "bg_path": bg_path,
+        "final_duration": final_duration,
+        "kling_duration": kling_duration,
+        "anim_prompt": anim_prompt,
+        "augmented_prompt": augmented,
+        "bg_image_sha": bg_image_sha,
+        "model_id": model_id,
+        "cache_key": cache_key,
+    }
 
-    # 実際の trim 秒数は raw_dur が上限 (これ以上長く trim できない)。
-    # final_duration > raw_dur のときは Stage 5+6 (_scene_video_for_scene) で
-    # slow_mo 延長して TTS 尺に合わせる。
+
+def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
+    """store() に渡す metadata を組み立てる。"""
+    return {
+        "augmented_animation_prompt": inputs["augmented_prompt"],
+        "kling_duration": int(inputs["kling_duration"]),
+        "bg_image_sha": inputs["bg_image_sha"],
+        "model_id": inputs["model_id"],
+        "aspect_ratio": "9:16",
+        "cache_version": getattr(config, "KLING_CACHE_VERSION", "v1"),
+        "frontload_ratio": float(config.ACTION_FRONTLOAD_RATIO),
+        "original_audio_duration": float(inputs["final_duration"]),
+        "camera_distance": scene.get("camera_distance"),
+        "location_ref": scene.get("location_ref"),
+    }
+
+
+def _trim_and_finalize_kling(
+    scene_idx: int, scene: dict, kling_raw_path: str, final_duration: float,
+    temp_dir: str,
+) -> None:
+    """共通の trim + slow_mo 警告ロジック。cache hit でも fresh でも同じ。"""
+    trimmed_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.trim.mp4")
+    raw_dur = _get_duration(kling_raw_path)
     trim_at = min(final_duration, raw_dur)
-
     if not os.path.exists(trimmed_path):
         _trim_video(kling_raw_path, trim_at, trimmed_path)
-        logger.info("シーン%d trim → %.2fs (target=%.2fs, raw=%.2fs)",
+        logger.info("シーン%d trim → %.2fs (final=%.2fs, raw=%.2fs)",
                     scene_idx + 1, trim_at, final_duration, raw_dur)
-
     if final_duration > raw_dur + 0.05:
         logger.warning(
             "シーン%d: TTS要求尺 %.2fs > Kling raw %.2fs。"
             "後段で slow_mo 延長します",
             scene_idx + 1, final_duration, raw_dur,
         )
-
     scene["duration"] = final_duration
 
 
-def generate_kling_for_screenplay(screenplay: dict, temp_dir: str) -> None:
-    """Stage 4: 全シーンのKlingクリップ生成 + trim。"""
-    for i, scene in enumerate(screenplay["scenes"]):
-        _kling_for_scene(i, scene, screenplay, temp_dir)
+def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: str,
+                     force_fresh: bool = False) -> None:
+    """1シーン分のKling生成 + trim。Stage 2 (TTS) で確定した scene.duration が SSOT。
+
+    force_fresh=False (= 既定): cache lookup → hit すれば copy、miss なら FAL 呼出
+    force_fresh=True: cache を無視して必ず FAL 呼出。
+    """
+    bg_path = _bg_path_for_scene(scene_idx, scene, temp_dir)
+    if not os.path.exists(bg_path):
+        raise FileNotFoundError(f"背景画像が見つかりません: {bg_path}")
+
+    final_duration = float(scene.get("duration") or 0.0)
+    if final_duration <= 0:
+        final_duration = _scene_tts_audio_duration(scene_idx, temp_dir)
+    kling_duration = float(fal_video_client._pick_duration(final_duration))
+
+    kling_raw_path = os.path.join(temp_dir, f"kling_{scene_idx:03d}.mp4")
+
+    logger.info("シーン%d final=%.2fs kling=%.0fs",
+                scene_idx + 1, final_duration, kling_duration)
+
+    if not os.path.exists(kling_raw_path):
+        cache_used = False
+        cache_enabled = (
+            getattr(config, "KLING_CACHE_ENABLED", True)
+            and not force_fresh
+            and not scene.get("kling_force_fresh")
+        )
+        if cache_enabled:
+            try:
+                inputs = _scene_kling_inputs(
+                    scene_idx, scene, screenplay, temp_dir)
+                if inputs:
+                    candidates = kling_cache.lookup_all_candidates(
+                        inputs["cache_key"], final_duration,
+                        scene.get("camera_distance"))
+                    if candidates:
+                        kling_cache.commit_to_project(
+                            candidates[0]["key"], kling_raw_path)
+                        scene["_kling_cache_hit"] = True
+                        scene["_kling_cache_key"] = candidates[0]["key"]
+                        cache_used = True
+            except Exception as e:
+                logger.warning("kling_cache lookup failed: %s", e)
+        if not cache_used:
+            anim_prompt = _get_animation_prompt(scene, ts_path=temp_dir,
+                                                  s_idx=scene_idx,
+                                                  screenplay=screenplay)
+            _generate_kling(bg_path, anim_prompt, kling_duration,
+                            kling_raw_path, scene_idx)
+            scene["_kling_cache_hit"] = False
+            # 生成に成功したら cache に store する (idempotent)
+            try:
+                inputs = _scene_kling_inputs(
+                    scene_idx, scene, screenplay, temp_dir)
+                if inputs:
+                    kling_cache.store(
+                        inputs["cache_key"], kling_raw_path,
+                        _build_kling_cache_meta(scene, inputs))
+                    scene["_kling_cache_key"] = inputs["cache_key"]
+            except Exception as e:
+                logger.warning("kling_cache store failed: %s", e)
+
+    _trim_and_finalize_kling(
+        scene_idx, scene, kling_raw_path, final_duration, temp_dir)
 
 
-def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
-    """単一シーンのKlingのみ再生成。下流のscene動画も無効化。"""
+def kling_scan_cache(screenplay: dict, temp_dir: str) -> dict:
+    """Stage 4a: 全シーンで cache lookup を行い、判断状態を組み立てて返す。
+
+    API 呼び出しは行わない (= 純粋に local + cache disk のみ)。
+    bg が未生成 / TTS 未実行のシーンは "decision":"pending" + 候補なしになる。
+
+    Returns:
+        scene_decisions dict ({"<scene_idx>": {...}, ...})
+    """
+    decisions: dict[str, dict] = {}
+    cache_enabled = getattr(config, "KLING_CACHE_ENABLED", True)
+    for i, scene in enumerate(screenplay.get("scenes") or []):
+        rec: dict = {
+            "candidates": [],
+            "decision": "pending",
+            "decided_key": None,
+            "decided_at": None,
+            "kling_duration": None,
+            "final_duration": None,
+            "cache_key": None,
+            "diagnostics": [],
+        }
+        try:
+            inputs = _scene_kling_inputs(i, scene, screenplay, temp_dir)
+        except Exception as e:
+            rec["diagnostics"].append(f"input build failed: {e}")
+            inputs = None
+        if inputs is None:
+            rec["diagnostics"].append("bg or TTS not ready")
+            decisions[str(i)] = rec
+            continue
+        rec["kling_duration"] = inputs["kling_duration"]
+        rec["final_duration"] = inputs["final_duration"]
+        rec["cache_key"] = inputs["cache_key"]
+        if cache_enabled and not scene.get("kling_force_fresh"):
+            try:
+                candidates = kling_cache.lookup_all_candidates(
+                    inputs["cache_key"], inputs["final_duration"],
+                    scene.get("camera_distance"))
+                rec["candidates"] = [
+                    {
+                        "key": c["key"],
+                        "fitness": c["fitness"],
+                        "warnings": c["warnings"],
+                        "meta": {
+                            "kling_duration": c["meta"].get("kling_duration"),
+                            "original_audio_duration": c["meta"].get("original_audio_duration"),
+                            "location_ref": c["meta"].get("location_ref"),
+                            "camera_distance": c["meta"].get("camera_distance"),
+                            "created_at": c["meta"].get("created_at"),
+                            "hit_count": c["meta"].get("hit_count"),
+                            "quality": c["meta"].get("quality"),
+                        },
+                    }
+                    for c in candidates
+                ]
+            except Exception as e:
+                rec["diagnostics"].append(f"lookup failed: {e}")
+        if not rec["candidates"]:
+            # 候補なしは即 fresh 確定 (= ユーザ操作不要)
+            rec["decision"] = "fresh"
+            rec["decided_at"] = _now_iso()
+        decisions[str(i)] = rec
+    return decisions
+
+
+def _now_iso() -> str:
+    from datetime import datetime as _dt
+    return _dt.now().isoformat(timespec="seconds")
+
+
+def _clear_kling_downstream(scene_idx: int, temp_dir: str) -> None:
+    """Kling を差し替える前に、kling / scene 系を削除する (= BG は保持)。"""
+    for fname in [
+        f"kling_{scene_idx:03d}.mp4",
+        f"scene_{scene_idx:03d}.trim.mp4",
+        f"scene_{scene_idx:03d}.extended.mp4",
+        f"scene_{scene_idx:03d}.mp4",
+    ]:
+        p = os.path.join(temp_dir, fname)
+        if os.path.exists(p):
+            os.remove(p)
+
+
+def kling_commit_cache(scene_idx: int, scene: dict, screenplay: dict,
+                       temp_dir: str, cache_key: str) -> None:
+    """Stage 4b: cache の raw mp4 を project に copy し、trim まで完了させる。
+
+    既存の kling_<S>.mp4 / scene_<S>.trim.mp4 / scene_<S>.extended.mp4 /
+    scene_<S>.mp4 を削除してから commit。trim/slow_mo はその場で同期実行。
+    """
+    _clear_kling_downstream(scene_idx, temp_dir)
+
+    kling_raw_path = os.path.join(temp_dir, f"kling_{scene_idx:03d}.mp4")
+    kling_cache.commit_to_project(cache_key, kling_raw_path)
+    scene["_kling_cache_hit"] = True
+    scene["_kling_cache_key"] = cache_key
+
+    final_duration = float(scene.get("duration") or 0.0)
+    if final_duration <= 0:
+        final_duration = _scene_tts_audio_duration(scene_idx, temp_dir)
+    _trim_and_finalize_kling(
+        scene_idx, scene, kling_raw_path, final_duration, temp_dir)
+
+
+def kling_generate_fresh(screenplay: dict, temp_dir: str,
+                         scene_indices: list[int]) -> None:
+    """Stage 4c: 指定シーンだけ FAL Kling を呼んで生成する。
+
+    既存の kling_<S>.mp4 等は事前にクリーンしておくこと (caller 責務)。
+    cache lookup はバイパス (= 既に scan phase で fresh queue と確定したものを実行)。
+    """
+    for i in scene_indices:
+        scene = screenplay["scenes"][i]
+        _kling_for_scene(i, scene, screenplay, temp_dir, force_fresh=True)
+
+
+def generate_kling_for_screenplay(screenplay: dict, temp_dir: str,
+                                   scene_decisions: dict | None = None) -> None:
+    """Stage 4 統合実行関数 (= CLI / legacy パス用)。
+
+    scene_decisions が渡されたら:
+      - decision="cache" のシーンは cache から copy
+      - decision="fresh" / "pending" のシーンは FAL で新規生成 (cache lookup あり)
+    渡されなければ全シーン自動 (= cache lookup あり、CLI / 旧 UI 互換)。
+    """
+    scenes = screenplay.get("scenes") or []
+    for i, scene in enumerate(scenes):
+        decision = None
+        decided_key = None
+        if scene_decisions:
+            rec = scene_decisions.get(str(i)) or {}
+            decision = rec.get("decision")
+            decided_key = rec.get("decided_key")
+        if decision == "cache" and decided_key:
+            kling_commit_cache(i, scene, screenplay, temp_dir, decided_key)
+        else:
+            _kling_for_scene(i, scene, screenplay, temp_dir, force_fresh=False)
+
+
+def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str,
+                      force_fresh: bool = True) -> None:
+    """単一シーンのKlingのみ再生成。下流のscene動画も無効化。
+
+    force_fresh=True (= 既定): ユーザが「再生成」と言った以上 cache hit したら
+        意図と矛盾するので必ず FAL 新規呼び出し。
+    force_fresh=False: cache lookup を許可 (= 「キャッシュも使って良い」 opt-in)。
+    """
     scene = screenplay["scenes"][scene_idx]
     for fname in [
         f"kling_{scene_idx:03d}.mp4",
@@ -1685,7 +2019,8 @@ def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
         p = os.path.join(temp_dir, fname)
         if os.path.exists(p):
             os.remove(p)
-    _kling_for_scene(scene_idx, scene, screenplay, temp_dir)
+    _kling_for_scene(scene_idx, scene, screenplay, temp_dir,
+                     force_fresh=force_fresh)
 
 
 def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
@@ -1696,7 +2031,6 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
     trimmed の実尺が scene.duration / TTS audio に届かない場合は
     slow_mo で延長してからリップシンクする (Kling の 5/10s 上限対策)。
     """
-    silent = screenplay.get("audio_mode") == "silent"
     trimmed_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.trim.mp4")
     audio_path = os.path.join(temp_dir, f"audio_{scene_idx:03d}.m4a")
     final_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.mp4")
@@ -1706,15 +2040,6 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
 
     final_duration = scene.get("duration") or _get_duration(trimmed_path)
     scene["duration"] = final_duration
-
-    if silent:
-        # silent モードは audio が無いので、scene.duration に対する
-        # 動画尺の不足は trimmed_path 自体を slow_mo 延長して埋める。
-        video_path = _maybe_extend_video(trimmed_path, final_duration,
-                                         scene_idx, temp_dir)
-        if not os.path.exists(final_path):
-            shutil.copyfile(video_path, final_path)
-        return final_path
 
     if not os.path.exists(audio_path):
         raise FileNotFoundError(

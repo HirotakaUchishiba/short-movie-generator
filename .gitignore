@@ -10,6 +10,8 @@ temp/
 output/
 post_captions/
 reports/
+# プロジェクトルート直下の drafts/ は台本草稿・リサーチ素材置き場
+# (docs/development-rules.md 参照)。screenplays/drafts/ は廃止済み。
 drafts/
 *.mp4
 data/*.db
@@ -30,6 +32,7 @@ frontend/tsconfig.tsbuildinfo
 .vscode/
 .idea/
 .claude/
+docs/.obsidian/
 
 # Python builds
 *.egg-info/

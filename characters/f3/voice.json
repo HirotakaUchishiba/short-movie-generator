@@ -1,0 +1,8 @@
+{
+  "id": "f3",
+  "voice_overrides": {
+    "stability": 0.4,
+    "style": 0.4,
+    "similarity_boost": 0.7
+  }
+}

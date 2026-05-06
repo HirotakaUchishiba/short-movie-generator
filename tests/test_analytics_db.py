@@ -16,7 +16,6 @@ def isolated_db(tmp_path, monkeypatch):
 def sample_screenplay_file(tmp_path) -> str:
     sp = {
         "caption": "テスト",
-        "audio_mode": "voiced",
         "scenes": [
             {
                 "duration": 5.0,
@@ -55,7 +54,7 @@ def test_upsert_screenplay_inserts_metadata(isolated_db, sample_screenplay_file)
     assert screenplays[0]["scene_count"] == 2
     assert screenplays[0]["line_count"] == 3
     assert screenplays[0]["total_duration"] == 8.0
-    assert screenplays[0]["audio_mode"] == "voiced"
+    assert screenplays[0]["audio_mode"] is None
 
 
 def test_upsert_screenplay_idempotent(isolated_db, sample_screenplay_file) -> None:
