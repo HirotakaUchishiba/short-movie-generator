@@ -43,7 +43,7 @@ def test_build_screenplay_parses_response(tmp_path) -> None:
     mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
 
     with patch("anthropic.Anthropic", return_value=mock_client):
-        result = video_analyzer.build_screenplay(
+        result, usage = video_analyzer.build_screenplay(
             frame_paths=[str(f)],
             transcript={"text": "やばい", "segments": [], "words": [], "duration": 1.0},
             phrase_features=[],
@@ -53,6 +53,7 @@ def test_build_screenplay_parses_response(tmp_path) -> None:
 
     assert result["caption"] == "test"
     assert result["scenes"][0]["duration"] == 5.0
+    assert usage == {"input_tokens": 100_000, "output_tokens": 2000}
 
 
 def test_build_screenplay_strips_code_fence(tmp_path) -> None:
@@ -64,7 +65,7 @@ def test_build_screenplay_strips_code_fence(tmp_path) -> None:
     mock_client.messages.stream.return_value = _stub_stream(fenced)
 
     with patch("anthropic.Anthropic", return_value=mock_client):
-        result = video_analyzer.build_screenplay(
+        result, _usage = video_analyzer.build_screenplay(
             frame_paths=[str(f)],
             transcript={"text": "", "segments": [], "words": [], "duration": 0},
             phrase_features=[],
@@ -82,7 +83,7 @@ def test_build_screenplay_raises_on_bad_json(tmp_path) -> None:
     mock_client.messages.stream.return_value = _stub_stream("not json at all")
 
     with patch("anthropic.Anthropic", return_value=mock_client):
-        with pytest.raises(RuntimeError, match="JSON parse"):
+        with pytest.raises(video_analyzer.ScreenplayParseError, match="JSON parse"):
             video_analyzer.build_screenplay(
                 frame_paths=[str(f)],
                 transcript={"text": "", "segments": [], "words": [], "duration": 0},
@@ -90,6 +91,28 @@ def test_build_screenplay_raises_on_bad_json(tmp_path) -> None:
                 source_video_path="/tmp/x.mov",
                 api_key="fake",
             )
+
+
+def test_parse_error_carries_usage_for_recording(tmp_path) -> None:
+    """parse 失敗時も Claude 課金分の usage を例外に同梱する (= recorder に渡せる)。"""
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(
+        "broken json", input_tokens=12345, output_tokens=678,
+    )
+
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        with pytest.raises(video_analyzer.ScreenplayParseError) as exc_info:
+            video_analyzer.build_screenplay(
+                frame_paths=[str(f)],
+                transcript={"text": "", "segments": [], "words": [], "duration": 0},
+                phrase_features=[],
+                source_video_path="/tmp/x.mov",
+                api_key="fake",
+            )
+    assert exc_info.value.usage == {"input_tokens": 12345, "output_tokens": 678}
 
 
 def test_build_screenplay_raises_without_api_key(monkeypatch, tmp_path) -> None:

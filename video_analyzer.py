@@ -105,6 +105,18 @@ def _format_transcript_block(transcript: dict, phrase_features: list[dict]) -> s
     return "\n".join(lines)
 
 
+class ScreenplayParseError(RuntimeError):
+    """Claude 応答の JSON parse 失敗。``usage`` で課金分の input/output tokens を保持する。
+
+    parse に失敗しても Claude 呼び出し自体は課金されているため、上位は
+    例外を catch して ``usage`` を recorder に渡す責務を持つ。
+    """
+
+    def __init__(self, message: str, *, usage: dict | None = None) -> None:
+        super().__init__(message)
+        self.usage: dict = dict(usage or {})
+
+
 def build_screenplay(
     *,
     frame_paths: list[str],
@@ -115,8 +127,14 @@ def build_screenplay(
     extra_instructions: str | None = None,
     frame_interval_sec: float = 0.5,
     known_furigana: dict[str, str] | None = None,
-) -> dict:
-    """Claude Opus 4.7 を呼んでscreenplay JSONを生成する。"""
+) -> tuple[dict, dict]:
+    """Claude Opus 4.7 を呼んでscreenplay JSONを生成する。
+
+    Returns:
+        (screenplay_dict, usage_dict)
+        usage_dict は ``{"input_tokens": int | None, "output_tokens": int | None}``。
+        コスト記録は呼び出し側 (analyze/runner) で recorder に渡す。
+    """
     import anthropic
 
     key = api_key or os.getenv("ANTHROPIC_API_KEY")
@@ -211,13 +229,19 @@ def build_screenplay(
         if text.endswith("```"):
             text = text[:-3].strip()
 
+    # Claude 呼び出しは parse 成否に関わらず課金される。usage を例外に
+    # 同梱し、上位 (analyze/pipeline) が recorder に渡せるようにする。
+    usage_dict = {"input_tokens": usage_input, "output_tokens": usage_output}
+
     try:
         parsed = json.loads(text)
     except json.JSONDecodeError as e:
         logger.error("JSON parse error: %s\nresponse:\n%s", e, text[:2000])
-        raise RuntimeError(f"Claude応答がJSON parse不能: {e}")
+        raise ScreenplayParseError(
+            f"Claude応答がJSON parse不能: {e}", usage=usage_dict
+        )
 
     if usage_input is not None or usage_output is not None:
         logger.info("Claude usage: input=%s output=%s", usage_input, usage_output)
 
-    return parsed
+    return parsed, usage_dict
