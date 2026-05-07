@@ -11,7 +11,7 @@ output/
 post_captions/
 reports/
 # プロジェクトルート直下の drafts/ は台本草稿・リサーチ素材置き場
-# (docs/development-rules.md 参照)。screenplays/drafts/ は廃止済み。
+# (= 文字起こし・参考メモ等)。screenplays/drafts/ は廃止済み。
 drafts/
 *.mp4
 data/*.db
