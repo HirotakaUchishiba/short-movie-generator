@@ -2,6 +2,33 @@
 
 転職系ショート動画を自動生成する日本語特化ツール。
 
+## 最重要ルール
+
+### すべての実装は「今後作られるすべての台本」に汎用的に対応すること
+
+- 特定の台本にしか通用しないハードコード・手動修正は禁止
+- キーワードリスト、シーン番号の直指定、特定テキストへの個別対応は禁止
+- 基準は「この台本では動く」ではなく「どの台本でも動く」
+
+### コストのかかる操作を安易に実行しない
+
+- 動画再生成 (fal.ai Kling) / 背景再生成 (Imagen) / TTS 再生成 / リップシンクはすべて API 課金される
+- 字幕を直すために動画や背景を再生成しない。字幕のみ再合成する
+- 単価カタログは `data/pricebook.json`、実コスト履歴は `data/cost_records.jsonl` を参照
+
+### 指示の範囲を超えない
+
+- 「字幕を修正して」と言われたら字幕だけ修正する。台本のテキストを変えない、シーン構成を変えない、動画を再生成しない
+- 台本の内容は本プロジェクトの入力データであり、ユーザーの明示的な指示がない限り変更しない
+
+### 台本は人間が作成する
+
+- 台本の自動生成・アイデア出し・ブレインストーミング支援はスコープ外 (= analyze pipeline で参考動画から逆算する場合を除く)
+- ファクトチェックは公式ソースを直接確認し、確認できない情報は「未検証」と明記する
+- `drafts/` の文字起こしを台本 JSON にそのままコピーしない (= 翻案権・著作権侵害のリスク)。構成・アイデアは参考にしつつ、自分の言葉で書き直す
+
+詳細なコーディング規約は `docs/developments/coding-rules.md` を参照。
+
 ## プロジェクトの前提
 
 - コンテンツテーマは **career-change（転職）** に限定。他テーマ・他言語は扱わない。
@@ -63,12 +90,25 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 ## 必読ドキュメント
 
-台本を書く前・動画企画を立てる前に必ず `docs/content-strategy.md` を読むこと。実装作業に入る前には `docs/development-rules.md` を読むこと。
+台本を書く前・動画企画を立てる前に必ず `docs/content-strategy.md` を読むこと。実装作業に入る前には `docs/developments/coding-rules.md` を読むこと。
+
+### 静的設計 (= `docs/developments/`)
+
+- `docs/developments/architecture.md` — レイヤ・依存方向・データフロー・Stage × 外部 API マトリクス
+- `docs/developments/coding-rules.md` — Python / TypeScript コーディング規約・命名・log・error handling
+- `docs/developments/testing.md` — テスト戦略・観点 3 セット・factory・モック規約
+- `docs/developments/ubiquitous-language.md` — ドメイン用語辞書 (用語 ↔ コード / 型 / パスの対応表)
+- `docs/developments/claude-code-usage.md` — Claude Code 設定 / hooks / commands / skills / plugins 運用
+
+### ドメイン (= `docs/`)
 
 - `docs/content-strategy.md` — **動画制作の根本戦略**。Transformation / コンテンツ軸 / POV / MVP / 最適化
-- `docs/development-rules.md` — 開発ルール・前提事項・禁止事項
-- `docs/architecture-decisions.md` — AIモデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、ワークフロー設計
+- `docs/architecture-decisions.md` — AI モデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、cost_tracking 仕様
 - `docs/abstract-screenplay-design.md` — **抽象台本生成 + compose 合成** の設計 (analyze pipeline は構成・セリフ・感情・話者だけ抽出し、ビジュアルは scene 個別の `location_ref` / `character_selection` / `animation_style` で注入)
+
+### フロー (= `docs/plannings/`)
+
+実装計画・監査記録は日付付きで `docs/plannings/YYYY-MM-DD_*.md` に蓄積する。
 
 ## 台本JSONの仕様
 
@@ -95,7 +135,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 | `load_project_screenplay(ts_path)`     | `temp/<TS>/screenplay.json` | 後 stage / UI / 再合成 — **読み取りはすべてこれ**           |
 | `save_project_screenplay(ts_path, sp)` | `temp/<TS>/screenplay.json` | **書き込みもすべてこれ**。metadata.json の sha も同時に更新 |
 
-旧 `screenplays/drafts/` ディレクトリと `save_screenplay(name, sp)` は廃止。既存 project は `scripts/migrate_to_project_snapshot.py` で snapshot に移行する (一度だけ実行)。
+旧 `screenplays/drafts/` ディレクトリと `save_screenplay(name, sp)` は廃止 (= 移行済み)。
 
 `scripts/analyze_video.py` は **template 直下** (`screenplays/auto_<sha>.json`) に書き出す (= 新規 project の素材として、後で create-project 経由で snapshot 化される)。
 
