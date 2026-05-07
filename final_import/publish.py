@@ -36,7 +36,19 @@ def publish(ts: str, platform: str, **opts) -> dict:
     """canonical な final を指定 platform に公開し、analytics DB に登録する。
 
     platform: "youtube" / "instagram" / "tiktok"
-    Returns: {"platform": ..., "video_id": ..., "url": ..., "manual": bool}
+
+    YouTube は **idempotent** で、同じプロジェクトに対して既に成功済みの
+    YouTube 投稿があれば 2 回目以降は skip して既存エントリを返す
+    (= 二重 upload の事故防止)。明示的に再投稿したい場合は
+    ``force_republish=True`` を渡す。canonical を切替えると
+    ``set_canonical_final`` が publish 承認を wipe するため、別動画には自動で
+    再公開可能。
+
+    Instagram / TikTok は半自動 (= アプリ起動 + クリップボード) なので、ボタン
+    連打や再試行に意味がある。idempotent ガードは適用しない。
+
+    Returns: {"platform": ..., "video_id": ..., "url": ..., "manual": bool,
+              "skipped": bool (再投稿スキップ時のみ True)}
     """
     if platform not in ("youtube", "instagram", "tiktok"):
         raise ValueError(f"unknown platform: {platform}")
@@ -50,6 +62,22 @@ def publish(ts: str, platform: str, **opts) -> dict:
             "取込 が未承認のため公開できません — "
             "UI または `--canonical` で承認してください",
         )
+
+    force_republish = bool(opts.pop("force_republish", False))
+    existing = _existing_successful_publish(ts_path, platform)
+    if existing and not force_republish:
+        logger.warning(
+            "[公開] %s に既に成功済みの投稿があります (video_id=%s, url=%s) — "
+            "skip します。再投稿するなら force_republish=True を指定してください",
+            platform, existing.get("video_id"), existing.get("url"),
+        )
+        return {
+            "platform": platform,
+            "video_id": existing.get("video_id"),
+            "url": existing.get("url"),
+            "manual": bool(existing.get("manual", False)),
+            "skipped": True,
+        }
 
     video = resolve_canonical_video(ts_path)
     title, description, tags = read_post_caption_for_ts(ts)
@@ -396,6 +424,28 @@ def _record_publish(ts_path: str, result: dict) -> None:
 def _dedup_key(entry: dict) -> tuple[str, str]:
     vid = entry.get("video_id") or "manual"
     return (entry.get("platform") or "", str(vid))
+
+
+# Idempotent re-publish guard 対象 platform。半自動 (manual=True) の IG/TikTok は
+# ボタン連打 / 再試行に意味があるので除外する。
+_IDEMPOTENT_PLATFORMS = frozenset({"youtube"})
+
+
+def _existing_successful_publish(ts_path: str, platform: str) -> dict | None:
+    """metadata.published_posts[] から「同 platform で成功済み」の entry を返す。
+
+    成功 = ``failed`` が False (or 未指定) かつ ``video_id`` が立っている
+    (= 半自動 manual: True かつ video_id=None は対象外)。
+    """
+    if platform not in _IDEMPOTENT_PLATFORMS:
+        return None
+    meta = staged_pipeline.read_metadata(ts_path) or {}
+    for entry in meta.get("published_posts") or []:
+        if (entry.get("platform") == platform
+                and not entry.get("failed")
+                and entry.get("video_id")):
+            return entry
+    return None
 
 
 def read_post_caption_for_ts(ts: str) -> tuple[str, str, list[str]]:
