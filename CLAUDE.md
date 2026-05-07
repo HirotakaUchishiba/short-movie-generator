@@ -322,7 +322,7 @@ Sync.so のモデル切替: `SYNCSO_LIPSYNC_MODEL` で `lipsync-2` / `lipsync-2-
 ### 制約
 
 - **Sync.so**: multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
-- **DomoAI**: 出力 1〜60s。60s 超えは clamp (warning ログ)
+- **DomoAI**: 出力 1〜60s。60s 超えは LipsyncClientError raise (= fallback chain で次プロバイダへ)
 
 ## Stage 8 取込 + Stage 9 公開 (CapCut → SNS の自動化)
 

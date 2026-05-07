@@ -239,13 +239,13 @@ def _domoai_poll_until_done(task_id: str) -> str:
 def _apply_domoai_sync(video_path: str, audio_path: str,
                        output_path: str) -> None:
     audio_dur = _ffprobe_duration(audio_path)
-    seconds = max(1, min(int(math.ceil(audio_dur)),
-                          int(config.DOMOAI_MAX_DURATION_SEC)))
     if audio_dur > config.DOMOAI_MAX_DURATION_SEC:
-        logger.warning(
-            "DomoAI: 音声 %.2fs が上限 %ds を超過。clamp して送信します。",
-            audio_dur, config.DOMOAI_MAX_DURATION_SEC,
+        raise LipsyncClientError(
+            f"DomoAI: 音声 {audio_dur:.1f}s が上限 "
+            f"{int(config.DOMOAI_MAX_DURATION_SEC)}s を超過。"
+            f"fallback または分割が必要です。"
         )
+    seconds = max(1, int(math.ceil(audio_dur)))
 
     logger.info("DomoAI lipsync: アップロード開始")
     video_uri = _domoai_upload(video_path)
@@ -439,6 +439,9 @@ def _is_recoverable_error(provider: str, exc: BaseException) -> bool:
         "timeout",
         "失敗",
         "rejected",
+        "上限",
+        "超過",
+        "duration",
     ))
 
 
