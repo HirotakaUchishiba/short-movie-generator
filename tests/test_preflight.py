@@ -96,3 +96,47 @@ def test_check_stage_dispatch(monkeypatch):
 def test_check_stage_unknown_is_noop():
     preflight.check_stage("script")  # mapping 外: 何もしない
     preflight.check_stage("overlay")
+
+
+def test_check_final_import_raises_when_ffmpeg_missing(monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda _b: None)
+    with pytest.raises(preflight.PreflightError) as exc:
+        preflight.check_final_import()
+    msg = str(exc.value)
+    assert "ffmpeg" in msg
+    assert "ffprobe" in msg
+
+
+def test_check_final_import_raises_lists_only_missing(monkeypatch):
+    monkeypatch.setattr(
+        preflight.shutil, "which",
+        lambda b: "/usr/bin/ffmpeg" if b == "ffmpeg" else None,
+    )
+    with pytest.raises(preflight.PreflightError) as exc:
+        preflight.check_final_import()
+    msg = str(exc.value)
+    assert "ffprobe" in msg
+    assert "ffmpeg," not in msg
+
+
+def test_check_final_import_passes_when_both_present(monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda b: f"/usr/bin/{b}")
+    preflight.check_final_import()
+
+
+def test_check_publish_instagram_phase1_noop(monkeypatch):
+    monkeypatch.delenv("INSTAGRAM_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("INSTAGRAM_BUSINESS_ID", raising=False)
+    preflight.check_publish_instagram()
+
+
+def test_check_publish_tiktok_phase1_noop(monkeypatch):
+    monkeypatch.delenv("TIKTOK_ACCESS_TOKEN", raising=False)
+    monkeypatch.delenv("TIKTOK_OPEN_ID", raising=False)
+    preflight.check_publish_tiktok()
+
+
+def test_check_stage_final_import_dispatch(monkeypatch):
+    monkeypatch.setattr(preflight.shutil, "which", lambda _b: None)
+    with pytest.raises(preflight.PreflightError):
+        preflight.check_stage("final_import")

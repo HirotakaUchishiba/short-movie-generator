@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 import config
+import preflight
 import progress_store
 import staged_pipeline
 
@@ -101,6 +102,8 @@ def import_final(
     - progress_store の `final_import` を generated に
     - 既存承認は新バージョン取り込み時にリセット (= 再確認が必要)
     """
+    preflight.check_stage("final_import")
+
     src = Path(src_path)
     if not src.exists():
         raise FileNotFoundError(f"source not found: {src}")

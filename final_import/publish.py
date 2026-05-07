@@ -17,6 +17,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+import io_utils
 import preflight
 import progress_store
 import staged_pipeline
@@ -61,24 +62,31 @@ def publish(ts: str, platform: str, **opts) -> dict:
         preflight.check_publish_youtube()
         result = _publish_youtube(ts, video, title, description, tags, **opts)
     elif platform == "instagram":
+        preflight.check_publish_instagram()
         result = _publish_semi_auto(
             "instagram", ts, video, title, description, tags,
         )
     else:
+        preflight.check_publish_tiktok()
         result = _publish_semi_auto(
             "tiktok", ts, video, title, description, tags,
         )
 
     # 半自動経路で「app 起動も Finder reveal も失敗」かつ「クリップボードも失敗」
-    # = ユーザに何も渡せていない → 履歴に残さず例外で job failure
+    # = ユーザに何も渡せていない → failed フラグを立てて履歴に残し、例外で job failure
     if result.get("manual"):
         ms = result.get("manual_status") or {}
         if not (ms.get("app_opened") or ms.get("finder_revealed")
                 or ms.get("clipboard")):
+            reason = (
+                f"アプリ起動 / Finder reveal / クリップボード のすべてが失敗 — "
+                f"diagnostics: {ms.get('diagnostics')}"
+            )
+            result["failed"] = True
+            result["failure_reason"] = reason
+            _record_publish(ts_path, result)
             raise RuntimeError(
-                f"公開 {platform}: アプリ起動 / Finder reveal / クリップボード "
-                f"のすべてが失敗しました。手動で動画 ({video}) を開いてください — "
-                f"diagnostics: {ms.get('diagnostics')}",
+                f"公開 {platform}: {reason}。手動で動画 ({video}) を開いてください",
             )
 
     _record_publish(ts_path, result)
@@ -347,25 +355,47 @@ def _run_finder_reveal(video: Path) -> tuple[bool, str | None]:
 
 
 def _record_publish(ts_path: str, result: dict) -> None:
-    """metadata.json の published_posts に追記し、Stage 9 を generated に。"""
+    """metadata.json の published_posts に追記し、Stage 9 を generated に。
+
+    同じ ``(platform, video_id)`` の既存エントリがあれば、その場で update する
+    (= 重複防止)。video_id が None (= 半自動) の場合は ``(platform, "manual")``
+    を判定キーとし、再試行 / 失敗の上書きが同一スロットになるようにする。
+    """
     meta = staged_pipeline.read_metadata(ts_path) or {}
-    posts = meta.get("published_posts") or []
-    posts.append({
+    posts = list(meta.get("published_posts") or [])
+    failed = bool(result.get("failed"))
+    entry = {
         "platform": result["platform"],
         "video_id": result.get("video_id"),
         "url": result.get("url"),
         "manual": bool(result.get("manual")),
         "published_at": datetime.now().isoformat(timespec="seconds"),
-    })
-    meta["published_posts"] = posts
-    p = os.path.join(ts_path, "metadata.json")
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, p)
+        "failed": failed,
+    }
+    if failed and result.get("failure_reason"):
+        entry["failure_reason"] = result["failure_reason"]
 
+    key = _dedup_key(entry)
+    replaced = False
+    for i, existing in enumerate(posts):
+        if _dedup_key(existing) == key:
+            posts[i] = entry
+            replaced = True
+            break
+    if not replaced:
+        posts.append(entry)
+    meta["published_posts"] = posts
+    io_utils.atomic_write_json(os.path.join(ts_path, "metadata.json"), meta)
+
+    if failed:
+        return
     if not progress_store.is_generated(ts_path, "publish"):
         progress_store.mark_generated(ts_path, "publish")
+
+
+def _dedup_key(entry: dict) -> tuple[str, str]:
+    vid = entry.get("video_id") or "manual"
+    return (entry.get("platform") or "", str(vid))
 
 
 def read_post_caption_for_ts(ts: str) -> tuple[str, str, list[str]]:
