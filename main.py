@@ -77,8 +77,15 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
     ts_path = os.path.join(config.TEMP_DIR, ts)
     os.makedirs(ts_path, exist_ok=True)
 
-    screenplay = staged_pipeline.load_template(screenplay_name)
-    logger.info("台本: %s | TS: %s", screenplay_name, ts)
+    # Stage 1 が既に走っていれば project snapshot を SSOT として読む
+    # (= UI 編集や analyze 由来 compose 結果を CLI からも反映)。
+    # 未実行なら template から立ち上げる (= 新規 project / Stage 1 起動経路)。
+    if progress_store.is_generated(ts_path, "script"):
+        screenplay = staged_pipeline.load_project_screenplay(ts_path)
+        logger.info("台本: %s (snapshot) | TS: %s", screenplay_name, ts)
+    else:
+        screenplay = staged_pipeline.load_template(screenplay_name)
+        logger.info("台本: %s (template) | TS: %s", screenplay_name, ts)
 
     nxt = progress_store.next_stage(ts_path)
     cur = progress_store.current_stage(ts_path)
