@@ -1975,7 +1975,41 @@ def _recover_lost_jobs() -> None:
         )
 
 
+def _replay_pending_analytics() -> None:
+    """analytics_pending.jsonl が残っていれば起動時に replay し、各 ts の
+    Stage 9 を ``mark_generated`` に昇格させる。
+
+    publish 中に analytics DB が一時的に落ちて queue 落ちした entry を
+    自動回収するため。失敗 entry は queue に残して次回 / 手動 sync を待つ。
+    """
+    try:
+        from analytics import pending_queue
+        from final_import.publish import finalize_pending_publish
+    except Exception as e:
+        logger.warning("[起動時] pending queue モジュール読込失敗: %s", e)
+        return
+    try:
+        result = pending_queue.replay()
+    except Exception as e:
+        logger.warning("[起動時] pending queue replay 失敗: %s", e)
+        return
+    if result["success"] == 0 and result["failed"] == 0:
+        return
+    logger.info(
+        "[起動時] analytics queue replay: %d 同期 / %d 失敗",
+        result["success"], result["failed"],
+    )
+    for ts in set(result["synced_ts"]):
+        try:
+            finalize_pending_publish(ts)
+        except Exception as e:
+            logger.warning(
+                "[起動時] finalize_pending_publish(%s) 失敗: %s", ts, e,
+            )
+
+
 _recover_lost_jobs()
+_replay_pending_analytics()
 _start_final_watcher_if_enabled()
 
 

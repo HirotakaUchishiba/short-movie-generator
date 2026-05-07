@@ -17,47 +17,32 @@ ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT))
 
 import log_setup  # noqa: E402
-from analytics import db, pending_queue  # noqa: E402
+from analytics import pending_queue  # noqa: E402
+from final_import.publish import finalize_pending_publish  # noqa: E402
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
 
 
 def sync() -> tuple[int, int]:
-    entries = pending_queue.read_all()
-    if not entries:
+    """queue を replay し、成功した ts については Stage 9 を mark_generated。"""
+    result = pending_queue.replay()
+    if result["success"] == 0 and result["failed"] == 0:
         logger.info("queue は空です")
         return 0, 0
 
-    db.init_db()
-    remaining: list[dict] = []
-    success = 0
-    failed = 0
-    for entry in entries:
+    for ts in set(result["synced_ts"]):
         try:
-            db.register_post(
-                video_id=entry["ts"],
-                platform=entry["platform"],
-                platform_post_id=entry["platform_post_id"],
-                url=entry.get("url"),
-                posted_at=entry.get("posted_at"),
-                caption=entry.get("caption"),
-                hashtags=entry.get("hashtags"),
-            )
-            success += 1
-            logger.info("同期成功: %s:%s",
-                        entry["platform"], entry["platform_post_id"])
+            finalize_pending_publish(ts)
         except Exception as e:
-            failed += 1
-            remaining.append(entry)
-            logger.error("同期失敗 (queue に残します): %s:%s — %s",
-                         entry.get("platform"),
-                         entry.get("platform_post_id"), e)
+            logger.warning("finalize_pending_publish(%s) 失敗: %s", ts, e)
 
-    pending_queue.rewrite(remaining)
-    logger.info("完了: %d成功 / %d失敗 (残 queue %d)",
-                success, failed, len(remaining))
-    return success, failed
+    logger.info(
+        "完了: %d成功 / %d失敗 (残 queue %d)",
+        result["success"], result["failed"],
+        result["failed"],
+    )
+    return result["success"], result["failed"]
 
 
 def main() -> int:
