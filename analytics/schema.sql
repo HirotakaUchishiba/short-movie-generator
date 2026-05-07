@@ -133,8 +133,60 @@ CREATE TABLE IF NOT EXISTS reference_videos (
     size_bytes INTEGER NOT NULL,
     duration_sec REAL,
     uploaded_at TEXT NOT NULL,
-    last_used_at TEXT
+    last_used_at TEXT,
+    -- フルオート量産で参考動画を yt-dlp 等で fetch した経路の追跡用。
+    -- 既存 (= UI upload) 経路では NULL のまま。license_status="unconfirmed" は
+    -- analyze pipeline に進めない gate として Phase 1 で使う。
+    source_url TEXT,
+    fetched_at TEXT,
+    license_status TEXT DEFAULT 'unconfirmed'
 );
+
+-- ─────────────────────────────────────────────────────────────────
+-- Phase 0: フルオート量産経路の計測基盤
+-- (詳細は docs/plannings/2026-05-07_full-automation-implementation-plan.md §2)
+-- ─────────────────────────────────────────────────────────────────
+
+-- 1 project (= temp/<TS>) の生成履歴。video_id は ingest_video.py 完了後に
+-- backfill される (= snapshot 完成前の段階でも ts ベースで stage_runs を
+-- append できるよう PK は ts)。
+CREATE TABLE IF NOT EXISTS generation_records (
+    ts TEXT PRIMARY KEY,
+    video_id TEXT REFERENCES videos(id),
+    reference_video_id TEXT REFERENCES reference_videos(sha256),
+    screenplay_sha TEXT,
+    stage_runs TEXT NOT NULL DEFAULT '[]',
+    prompts TEXT NOT NULL DEFAULT '{}',
+    seeds TEXT NOT NULL DEFAULT '{}',
+    api_meta TEXT NOT NULL DEFAULT '{}',
+    total_cost_usd REAL NOT NULL DEFAULT 0,
+    validator_scores TEXT,
+    status TEXT NOT NULL DEFAULT 'in_progress',
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_genrec_video ON generation_records(video_id);
+CREATE INDEX IF NOT EXISTS idx_genrec_status ON generation_records(status);
+
+-- QA 不良サンプルの台帳。Phase 0 では UI reject + regenerate 暗黙アーカイブ、
+-- Phase 1 で auto_flagged、Phase 3 で post_publish_lowperf を追加していく。
+CREATE TABLE IF NOT EXISTS qa_failures (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    ts TEXT NOT NULL,
+    stage TEXT NOT NULL,
+    scene_idx INTEGER,
+    line_idx INTEGER,
+    tags TEXT NOT NULL DEFAULT '[]',
+    note TEXT,
+    source TEXT NOT NULL,
+    artifact_path TEXT,
+    screenplay_snapshot_path TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_qaf_ts ON qa_failures(ts);
+CREATE INDEX IF NOT EXISTS idx_qaf_stage ON qa_failures(stage);
+CREATE INDEX IF NOT EXISTS idx_qaf_source ON qa_failures(source);
 
 -- Performance summary (screenplay × platform latest metrics)
 CREATE VIEW IF NOT EXISTS v_performance AS
