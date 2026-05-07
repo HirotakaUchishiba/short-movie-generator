@@ -1,4 +1,4 @@
-"""Stage 9: canonical な final 動画をプラットフォームに公開する。
+"""Stage 8: canonical な final 動画をプラットフォームに公開する。
 
 YouTube は Data API resumable upload で完全自動。Instagram / TikTok は
 Phase 1 までは半自動 (= caption をクリップボードにコピー + アプリ起動 +
@@ -156,7 +156,7 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
                                  hashtags: list[str]) -> bool:
     """analytics DB に register_post を試みる。成功で True、queue 落ち or 完全
     失敗で False を返す。caller (= _publish_youtube) はこれを result の
-    ``analytics_persisted`` に流し、_record_publish が False の時は Stage 9 の
+    ``analytics_persisted`` に流し、_record_publish が False の時は Stage 8 の
     progress_store.mark_generated を保留する (= queue replay 完了後に立てる)。
     """
     from analytics import db as analytics_db
@@ -391,14 +391,14 @@ def _run_finder_reveal(video: Path) -> tuple[bool, str | None]:
 
 
 def _record_publish(ts_path: str, result: dict) -> None:
-    """metadata.json の published_posts に追記し、Stage 9 を generated に。
+    """metadata.json の published_posts に追記し、Stage 8 を generated に。
 
     同じ ``(platform, video_id)`` の既存エントリがあれば、その場で update する
     (= 重複防止)。video_id が None (= 半自動) の場合は ``(platform, "manual")``
     を判定キーとし、再試行 / 失敗の上書きが同一スロットになるようにする。
 
     publish 自体は成功したが analytics DB への永続化が queue 落ちしている
-    (= ``analytics_persisted=False``) 場合は、Stage 9 の ``mark_generated`` を
+    (= ``analytics_persisted=False``) 場合は、Stage 8 の ``mark_generated`` を
     保留する。queue を sync (preview_server 起動時の自動 replay または
     ``scripts/sync_pending_analytics.py``) して永続化が完了してから
     ``finalize_pending_publish`` 経由で立てる。
@@ -435,7 +435,7 @@ def _record_publish(ts_path: str, result: dict) -> None:
         return
     if not analytics_persisted:
         logger.warning(
-            "[公開] DB 永続化が pending — Stage 9 完了は queue 同期後に立てます",
+            "[公開] DB 永続化が pending — Stage 8 完了は queue 同期後に立てます",
         )
         return
     if not progress_store.is_generated(ts_path, "publish"):
@@ -443,7 +443,7 @@ def _record_publish(ts_path: str, result: dict) -> None:
 
 
 def finalize_pending_publish(ts: str) -> bool:
-    """analytics queue が sync された後に、対象 project の Stage 9 を generated に
+    """analytics queue が sync された後に、対象 project の Stage 8 を generated に
     格上げする。preview_server 起動時の自動 replay や sync_pending_analytics.py
     から呼ばれる想定。published_posts[] のうち analytics_pending=True の entry を
     False に flip し、すべての成功 entry が DB 永続化済みなら mark_generated。
