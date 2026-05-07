@@ -6,9 +6,12 @@
 
 ## ドキュメント
 
+- `CLAUDE.md` — プロジェクト全体の前提・段階的ゲート方式・最重要ルール
 - `docs/content-strategy.md` — **動画制作の根本戦略**（Transformation / MVP / 最適化）。企画と台本の考え方はすべてここから
-- `docs/development-rules.md` — 開発ルール・前提事項・禁止事項
-- `docs/architecture-decisions.md` — 採用技術・API・ワークフロー設計の意思決定
+- `docs/architecture-decisions.md` — 採用技術・API・コスト構造・cost_tracking 仕様
+- `docs/abstract-screenplay-design.md` — 抽象台本生成 + compose 合成の設計
+- `docs/developments/` — 静的設計ドキュメント (architecture / coding-rules / testing / ubiquitous-language / claude-code-usage)
+- `docs/plannings/` — 実装計画・監査記録 (日付付き YYYY-MM-DD\_\*.md)
 
 ## セットアップ
 
