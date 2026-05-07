@@ -428,6 +428,27 @@ STAGE_RUNNERS = {
 }
 
 
+def _record_stage_run(ts_path: str, stage: str, started_at: str,
+                      status: str, error: str | None = None) -> None:
+    """generation_records.stage_runs に 1 stage 実行を追記する (best-effort)。
+
+    ``temp/<TS>`` 形式の ts_path から TS を抽出する。analytics DB エラーは
+    warn で握りつぶし pipeline を止めない (= cost 履歴と同様の方針)。
+    """
+    ts = os.path.basename(ts_path.rstrip("/")) or os.path.basename(ts_path)
+    ended_at = datetime.now().isoformat(timespec="seconds")
+    extra = {"error": error[:500]} if error else None
+    try:
+        from analytics import db as _adb
+        _adb.append_stage_run(
+            ts=ts, stage=stage,
+            started_at=started_at, ended_at=ended_at,
+            status=status, extra=extra,
+        )
+    except Exception as e:
+        logger.warning("[gen-rec] append_stage_run failed (%s): %s", stage, e)
+
+
 def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str | None:
     """次に実行すべきstageを1つだけ実行する。
 
@@ -445,10 +466,17 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
     runner = STAGE_RUNNERS.get(nxt)
     if not runner:
         raise RuntimeError(f"unknown stage: {nxt}")
-    if nxt in ("script", "overlay"):
-        runner(screenplay, screenplay_name, ts_path)
-    else:
-        runner(screenplay, ts_path)
+    started_at = datetime.now().isoformat(timespec="seconds")
+    try:
+        if nxt in ("script", "overlay"):
+            runner(screenplay, screenplay_name, ts_path)
+        else:
+            runner(screenplay, ts_path)
+    except Exception as e:
+        _record_stage_run(ts_path, nxt, started_at,
+                          status="failed", error=str(e))
+        raise
+    _record_stage_run(ts_path, nxt, started_at, status="completed")
     return nxt
 
 
