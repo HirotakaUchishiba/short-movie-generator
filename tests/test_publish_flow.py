@@ -388,8 +388,42 @@ def _setup_youtube_mocks(monkeypatch, video_id="yt_xyz"):
 # ─── C1: published_posts の重複排除 ───────────────
 
 
-def test_publish_youtube_dedups_repeated_publish(project, monkeypatch):
-    """同じ ts で publish("youtube") を 2 回呼んでも published_posts は 1 件 (= update)."""
+def test_publish_youtube_skips_repeated_publish_by_default(project, monkeypatch):
+    """idempotency: 既に成功済みの YouTube 投稿があれば 2 回目は skip して既存を返す."""
+    from final_import.publish import publish
+
+    ts, ts_path = project
+    upload_calls = {"count": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        upload_calls["count"] += 1
+        return _MockResp(200, json_data={"id": f"yt_{upload_calls['count']}"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    first = publish(ts, "youtube", privacy="unlisted")
+    assert first["video_id"] == "yt_1"
+    assert not first.get("skipped")
+
+    # 2 回目 — force_republish 未指定なので skip されるべき
+    second = publish(ts, "youtube", privacy="unlisted")
+    assert second.get("skipped") is True
+    assert second["video_id"] == "yt_1"   # 既存を返す
+    assert upload_calls["count"] == 1     # YouTube に 2 回目の upload は走っていない
+
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
+    assert len(posts) == 1
+
+
+def test_publish_youtube_force_republish_creates_new_entry(project, monkeypatch):
+    """force_republish=True を指定すると 2 回目も upload され、新エントリが追加される."""
     from final_import.publish import publish
 
     ts, ts_path = project
@@ -407,19 +441,12 @@ def test_publish_youtube_dedups_repeated_publish(project, monkeypatch):
     monkeypatch.setattr("requests.put", fake_put)
 
     publish(ts, "youtube", privacy="unlisted")
-    first_meta = json.loads((Path(ts_path) / "metadata.json").read_text())
-    first_posts = first_meta["published_posts"]
-    assert len(first_posts) == 1
-    first_published_at = first_posts[0]["published_at"]
-    first_video_id = first_posts[0]["video_id"]
+    publish(ts, "youtube", privacy="unlisted", force_republish=True)
 
-    # 2 回目の publish — video_id は別なので新規エントリ (= 別 key) として追加される
-    publish(ts, "youtube", privacy="unlisted")
     meta = json.loads((Path(ts_path) / "metadata.json").read_text())
     posts = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
-    # 別 video_id は別 entry なので 2 件、but 同じ video_id を 2 回送ったら 1 件 update
     assert len(posts) == 2
-    assert {p["video_id"] for p in posts} == {first_video_id, "yt_second"}
+    assert {p["video_id"] for p in posts} == {"yt_first", "yt_second"}
 
 
 def test_publish_youtube_dedups_same_video_id(project, monkeypatch):
@@ -447,7 +474,8 @@ def test_publish_youtube_dedups_same_video_id(project, monkeypatch):
     import time as _time
     _time.sleep(1.1)
 
-    publish(ts, "youtube", privacy="public")
+    # force_republish で同 video_id が再度返ったときの dedup 動作を確認
+    publish(ts, "youtube", privacy="public", force_republish=True)
     meta = json.loads((Path(ts_path) / "metadata.json").read_text())
     posts = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
     assert len(posts) == 1
@@ -666,8 +694,9 @@ def test_publish_concurrent_queue_writes_are_complete_json(
     monkeypatch.setattr("requests.post", fake_post)
     monkeypatch.setattr("requests.put", fake_put)
 
+    # idempotency ガード回避のため 2 回目は force_republish=True
     publish(ts, "youtube")
-    publish(ts, "youtube")
+    publish(ts, "youtube", force_republish=True)
 
     queue_path = tmp_path / "analytics_pending.jsonl"
     raw_lines = queue_path.read_text(encoding="utf-8").splitlines()

@@ -38,6 +38,9 @@ def _build_parser() -> argparse.ArgumentParser:
     g.add_argument("--privacy", choices=["private", "unlisted", "public"],
                    default="private",
                    help="--publish youtube の公開範囲 (既定: private)")
+    g.add_argument("--force-republish", action="store_true",
+                   help="既存の成功済み投稿があっても再投稿する "
+                        "(= 二重 upload ガードを bypass)")
     return p
 
 
@@ -188,11 +191,18 @@ def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
             result = publish(
                 ts, args.publish,
                 privacy=args.privacy,
+                force_republish=args.force_republish,
             )
         except Exception as e:
             logger.exception("公開失敗: %s", e)
             sys.exit(1)
-        logger.info("[公開] 完了: %s %s", args.publish, result.get("url") or "")
+        if result.get("skipped"):
+            logger.info(
+                "[公開] %s は既に成功済みのため skip しました: %s",
+                args.publish, result.get("url") or "",
+            )
+        else:
+            logger.info("[公開] 完了: %s %s", args.publish, result.get("url") or "")
 
 
 def _ui_url(ts: str) -> str:
