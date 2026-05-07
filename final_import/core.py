@@ -19,6 +19,7 @@ import config
 import io_utils
 import preflight
 import progress_store
+import project_state
 import staged_pipeline
 
 logger = logging.getLogger(__name__)
@@ -50,7 +51,7 @@ def ensure_final_dir(ts_path: str) -> Path:
 
 
 def list_final_versions(ts_path: str) -> list[FinalVersion]:
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     rows = meta.get("final_versions") or []
     out: list[FinalVersion] = []
     for r in rows:
@@ -201,7 +202,7 @@ def set_canonical_final(ts_path: str, filename: str) -> FinalVersion:
     新 canonical に流用されないように)。`metadata.json.published_posts` の
     投稿履歴は残る。
     """
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     versions = meta.get("final_versions") or []
     target: dict | None = None
     canonical_changed = False
@@ -231,7 +232,7 @@ def delete_final_version(ts_path: str, filename: str) -> None:
     全バージョンが消えると Stage 7 の進捗そのものをリセット (= reset_stage が
     Stage 8 もまとめて消す)。
     """
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     versions = meta.get("final_versions") or []
     target = next((v for v in versions if v.get("filename") == filename), None)
     if target is None:
@@ -259,7 +260,7 @@ def delete_final_version(ts_path: str, filename: str) -> None:
 
 
 def _append_final_version(ts_path: str, version: FinalVersion) -> None:
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     existing = meta.get("final_versions") or []
     for v in existing:
         v["is_canonical"] = False
