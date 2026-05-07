@@ -94,7 +94,7 @@ def generate_video(image_path: str, prompt: str, output_path: str,
             )
 
             video_url = result["video"]["url"]
-            resp = requests.get(video_url)
+            resp = requests.get(video_url, timeout=300)
             resp.raise_for_status()
             io_utils.atomic_write_bytes(output_path, resp.content)
             return

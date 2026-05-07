@@ -69,7 +69,8 @@ def test_apply_fal_sync_happy_path(tmp_path, monkeypatch) -> None:
     fake_resp = MagicMock()
     fake_resp.content = b"videodata"
     fake_resp.raise_for_status.return_value = None
-    monkeypatch.setattr(lipsync_client.requests, "get", lambda url: fake_resp)
+    monkeypatch.setattr(lipsync_client.requests, "get",
+                        lambda url, **_kw: fake_resp)
 
     out = tmp_path / "out.mp4"
     lipsync_client._apply_fal_sync("/v.mp4", "/a.mp3", str(out))

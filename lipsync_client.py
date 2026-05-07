@@ -81,7 +81,7 @@ def _apply_fal_sync(video_path: str, audio_path: str, output_path: str) -> None:
                 name=f"lipsync-attempt{attempt + 1}",
             )
             result_url = result["video"]["url"]
-            resp = requests.get(result_url)
+            resp = requests.get(result_url, timeout=300)
             resp.raise_for_status()
             io_utils.atomic_write_bytes(output_path, resp.content)
             return
