@@ -107,7 +107,8 @@ def _imagen_model_id() -> str:
     try:
         import imagen_client
         return getattr(imagen_client, "MODEL", "unknown")
-    except Exception:
+    except Exception as e:
+        logger.debug("bg_cache imagen_model_id resolution failed: %s", e)
         return "unknown"
 
 
@@ -176,8 +177,11 @@ def store(key: str, image_path: str | Path, meta: dict[str, Any]) -> None:
             try:
                 if tmp_dst.exists():
                     os.remove(tmp_dst)
-            except Exception:
-                pass
+            except Exception as cleanup_err:
+                logger.debug(
+                    "bg_cache store cleanup failed (%s): %s",
+                    tmp_dst, cleanup_err,
+                )
             return
         full_meta = {
             **meta,
@@ -215,7 +219,9 @@ def touch(key: str) -> None:
         try:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug("bg_cache touch meta load failed (%s): %s",
+                         meta_path, e)
             return
         meta["hit_count"] = int(meta.get("hit_count", 0)) + 1
         meta["last_used_at"] = _now()
@@ -236,7 +242,8 @@ def load_meta(key: str) -> dict | None:
     try:
         with open(meta_path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.debug("bg_cache load_meta failed (%s): %s", meta_path, e)
         return None
 
 
@@ -255,7 +262,11 @@ def list_entries() -> list[dict[str, Any]]:
             try:
                 with open(meta_path, encoding="utf-8") as f:
                     meta = json.load(f)
-            except Exception:
+            except Exception as e:
+                logger.debug(
+                    "bg_cache list_entries meta load failed (%s): %s",
+                    meta_path, e,
+                )
                 meta = {}
         out.append({
             "key": img.stem,
@@ -339,8 +350,8 @@ def _evaluate_quality(meta: dict) -> dict:
             created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
             if datetime.now(timezone.utc) - created > timedelta(days=ttl_days):
                 rejected.append(f"TTL 超過 ({ttl_days}日)")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("bg_cache TTL parse failed: %s (%s)", created_at, e)
     if not quality.get("final_render_completed"):
         warnings.append("元プロジェクトで最終納品未到達")
     return {
@@ -437,7 +448,9 @@ def _update_quality(key: str, **fields: Any) -> bool:
         try:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug("bg_cache _update_quality meta load failed "
+                         "(%s): %s", meta_path, e)
             return False
         quality = dict(meta.get("quality") or {})
         quality.update(fields)
@@ -480,7 +493,8 @@ def verify(key: str) -> bool:
         with Image.open(img) as im:
             im.verify()  # type: ignore[no-untyped-call]
         ok = True
-    except Exception:
+    except Exception as e:
+        logger.debug("bg_cache verify integrity failed (%s): %s", img, e)
         ok = False
     _update_quality(key, integrity_ok=ok)
     return ok
