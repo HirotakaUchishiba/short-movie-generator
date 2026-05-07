@@ -2020,17 +2020,70 @@ def _start_final_watcher_if_enabled() -> None:
         logger.warning("final watcher 起動失敗: %s", e)
 
 
+_PARTIAL_ARTIFACT_PATTERNS = (
+    "tts_full.tmp.mp3",
+    "tts_full.tmp.json",
+    "*.tmp",
+    "*.tmp.mp3",
+    "*.tmp.mp4",
+    "*.tmp.json",
+    "*.tmp.png",
+)
+
+
+def _cleanup_partial_artifacts(ts: str) -> list[str]:
+    """ts の temp ディレクトリから ``.tmp`` 系の中間ファイルを掃除する。
+
+    process kill / crash で stage runner が中断したとき、scene_gen が
+    atomic write 用に書きかけた `.tmp` ファイルが残ることがある。
+    次の resume が同じ stage を再実行する前に破棄しておく。
+    """
+    if not ts:
+        return []
+    ts_path = _ts_path(ts)
+    if not os.path.isdir(ts_path):
+        return []
+    import glob as _glob
+    removed: list[str] = []
+    for pattern in _PARTIAL_ARTIFACT_PATTERNS:
+        for p in _glob.glob(os.path.join(ts_path, pattern)):
+            try:
+                os.remove(p)
+                removed.append(os.path.relpath(p, ts_path))
+            except OSError as e:
+                logger.warning("[lost-cleanup] %s 削除失敗: %s", p, e)
+    return removed
+
+
 def _recover_lost_jobs() -> None:
     try:
         lost = job_store.recover_lost()
     except Exception as e:
         logger.warning("job_store.recover_lost 失敗: %s", e)
         return
-    if lost:
-        logger.warning(
-            "[起動時] running のままだった job %d 件を lost に書換: %s",
-            len(lost), ", ".join(lost),
-        )
+    if not lost:
+        return
+    job_ids = [j.get("id") or "?" for j in lost]
+    logger.warning(
+        "[起動時] running のままだった job %d 件を lost に書換: %s",
+        len(lost), ", ".join(job_ids),
+    )
+    seen_ts: set[str] = set()
+    for rec in lost:
+        ts = rec.get("ts")
+        if not ts or ts in seen_ts:
+            continue
+        seen_ts.add(ts)
+        try:
+            removed = _cleanup_partial_artifacts(ts)
+        except Exception as e:
+            logger.warning("[起動時] cleanup(%s) 失敗: %s", ts, e)
+            continue
+        if removed:
+            logger.warning(
+                "[起動時] %s の partial artifact を削除: %s",
+                ts, ", ".join(removed),
+            )
 
 
 def _replay_pending_analytics() -> None:
