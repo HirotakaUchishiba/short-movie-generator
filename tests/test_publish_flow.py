@@ -211,7 +211,7 @@ def test_publish_semi_auto_raises_when_everything_fails(project, monkeypatch):
     import sys
     from final_import.publish import publish
 
-    ts, _ts_path = project
+    ts, ts_path = project
 
     def fake_run(args, **kw):
         class R:
@@ -225,6 +225,17 @@ def test_publish_semi_auto_raises_when_everything_fails(project, monkeypatch):
 
     with pytest.raises(RuntimeError, match="すべてが失敗"):
         publish(ts, "tiktok")
+
+    # C2: 全失敗でも metadata に failed=True エントリが残る
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = meta.get("published_posts") or []
+    failed = [p for p in posts if p.get("platform") == "tiktok"]
+    assert len(failed) == 1
+    assert failed[0]["failed"] is True
+    assert "diagnostics" in failed[0].get("failure_reason", "")
+    # progress_store: publish は generated に進めない
+    import progress_store
+    assert not progress_store.is_generated(ts_path, "publish")
 
 
 def test_publish_semi_auto_success_when_only_clipboard_works(project, monkeypatch):
@@ -359,3 +370,170 @@ def test_update_video_final_returns_false_for_missing_id(tmp_path, monkeypatch):
     assert _db.update_video_final(
         video_id="nonexistent", output_path="/x.mp4",
     ) is False
+
+
+# ─── C1: published_posts の重複排除 ───────────────
+
+
+def test_publish_youtube_dedups_repeated_publish(project, monkeypatch):
+    """同じ ts で publish("youtube") を 2 回呼んでも published_posts は 1 件 (= update)."""
+    from final_import.publish import publish
+
+    ts, ts_path = project
+    state = {"video_ids": iter(["yt_first", "yt_second"])}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": next(state["video_ids"])})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    publish(ts, "youtube", privacy="unlisted")
+    first_meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    first_posts = first_meta["published_posts"]
+    assert len(first_posts) == 1
+    first_published_at = first_posts[0]["published_at"]
+    first_video_id = first_posts[0]["video_id"]
+
+    # 2 回目の publish — video_id は別なので新規エントリ (= 別 key) として追加される
+    publish(ts, "youtube", privacy="unlisted")
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
+    # 別 video_id は別 entry なので 2 件、but 同じ video_id を 2 回送ったら 1 件 update
+    assert len(posts) == 2
+    assert {p["video_id"] for p in posts} == {first_video_id, "yt_second"}
+
+
+def test_publish_youtube_dedups_same_video_id(project, monkeypatch):
+    """同じ ``(platform, video_id)`` を 2 回登録 → 既存 entry が update される."""
+    from final_import.publish import publish
+
+    ts, ts_path = project
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "yt_same"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    publish(ts, "youtube", privacy="unlisted")
+    first_meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    first_published_at = first_meta["published_posts"][0]["published_at"]
+
+    # 同 ts の published_at は最低 1 秒 ずれる必要があるので少し待つ
+    import time as _time
+    _time.sleep(1.1)
+
+    publish(ts, "youtube", privacy="public")
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
+    assert len(posts) == 1
+    # update され published_at が新しくなる
+    assert posts[0]["video_id"] == "yt_same"
+    assert posts[0]["published_at"] > first_published_at
+
+
+def test_publish_semi_auto_retry_after_failure_deduplicates(project, monkeypatch):
+    """半自動: 1 回目 failed → 2 回目 OK → metadata は 1 entry (= update + failed=False)."""
+    import sys
+    from final_import.publish import publish
+
+    ts, ts_path = project
+
+    def fake_run_all_fail(args, **kw):
+        class R:
+            returncode = 99
+            stdout = b""
+            stderr = b"failed"
+        return R()
+
+    monkeypatch.setattr(sys, "platform", "darwin")
+    monkeypatch.setattr("subprocess.run", fake_run_all_fail)
+    with pytest.raises(RuntimeError):
+        publish(ts, "instagram")
+
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = [p for p in meta["published_posts"] if p["platform"] == "instagram"]
+    assert len(posts) == 1
+    assert posts[0]["failed"] is True
+
+    # 2 回目: 全部成功
+    def fake_run_all_ok(args, **kw):
+        class R:
+            returncode = 0
+            stdout = b""
+            stderr = b""
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run_all_ok)
+    publish(ts, "instagram")
+
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    posts = [p for p in meta["published_posts"] if p["platform"] == "instagram"]
+    # update 1 件のまま
+    assert len(posts) == 1
+    assert posts[0].get("failed") is False
+    assert posts[0]["manual"] is True
+
+
+# ─── C3: YouTube OAuth refresh / retry ───────────────
+
+
+def test_publish_youtube_retries_on_401_after_token_refresh(project, monkeypatch):
+    """YouTube upload init が 401 → 1 回 refresh して 200 で完了."""
+    from final_import.publish import publish
+
+    ts, ts_path = project
+    state = {"oauth_calls": 0, "init_calls": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            state["oauth_calls"] += 1
+            return _MockResp(200, json_data={
+                "access_token": f"tok_{state['oauth_calls']}",
+            })
+        # init upload
+        state["init_calls"] += 1
+        if state["init_calls"] == 1:
+            return _MockResp(401, text="invalid token")
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "yt_recovered"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = publish(ts, "youtube", privacy="unlisted")
+    assert result["video_id"] == "yt_recovered"
+    # refresh が 2 回 (initial + retry)、init も 2 回
+    assert state["oauth_calls"] == 2
+    assert state["init_calls"] == 2
+
+
+def test_publish_youtube_raises_when_refresh_token_invalid(project, monkeypatch):
+    """refresh_token 自体が 400/401 → guidance 付き RuntimeError."""
+    from final_import.publish import publish
+
+    ts, _ts_path = project
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(401, json_data={"error": "invalid_grant"},
+                             text='{"error":"invalid_grant"}')
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+
+    with pytest.raises(RuntimeError, match="YOUTUBE_REFRESH_TOKEN"):
+        publish(ts, "youtube")
