@@ -476,12 +476,12 @@ def verify(key: str) -> bool:
              "-print_format", "json", str(mp4)],
             capture_output=True, text=True, timeout=30,
         )
-        ok = r.returncode == 0
+        is_ffprobe_ok = r.returncode == 0
     except Exception as e:
         logger.debug("kling_cache verify ffprobe failed (%s): %s", mp4, e)
-        ok = False
-    _update_quality(key, ffprobe_ok=ok)
-    return ok
+        is_ffprobe_ok = False
+    _update_quality(key, ffprobe_ok=is_ffprobe_ok)
+    return is_ffprobe_ok
 
 
 # ───────────── 一覧 / prune ─────────────

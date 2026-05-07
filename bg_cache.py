@@ -492,9 +492,9 @@ def verify(key: str) -> bool:
         from PIL import Image
         with Image.open(img) as im:
             im.verify()  # type: ignore[no-untyped-call]
-        ok = True
+        is_integrity_ok = True
     except Exception as e:
         logger.debug("bg_cache verify integrity failed (%s): %s", img, e)
-        ok = False
-    _update_quality(key, integrity_ok=ok)
-    return ok
+        is_integrity_ok = False
+    _update_quality(key, integrity_ok=is_integrity_ok)
+    return is_integrity_ok

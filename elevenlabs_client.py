@@ -152,7 +152,7 @@ def generate_speech_with_timestamps(text: str, voice_id: str, output_path: str,
                                     language: str = "ja",
                                     previous_text: str | None = None,
                                     next_text: str | None = None,
-                                    keep_whitespace: bool = False) -> list[dict]:
+                                    should_keep_whitespace: bool = False) -> list[dict]:
     import base64
     import json as _json
 
@@ -199,7 +199,7 @@ def generate_speech_with_timestamps(text: str, voice_id: str, output_path: str,
     ends = alignment.get("character_end_times_seconds", [])
 
     char_timestamps = []
-    if keep_whitespace:
+    if should_keep_whitespace:
         for i, ch in enumerate(raw_chars):
             char_timestamps.append({
                 "char": ch,
