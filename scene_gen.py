@@ -9,6 +9,7 @@ import subprocess as sp
 from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 
+import artifact_integrity
 import config
 import elevenlabs_client
 import fal_video_client
@@ -772,7 +773,9 @@ def _generate_single_background(scene_idx: int, scene: dict, temp_dir: str,
     bg_key = f"bg_{scene_idx:03d}"
     path = os.path.join(temp_dir, f"{bg_key}.png")
 
-    if os.path.exists(path):
+    if os.path.exists(path) and artifact_integrity.check_existing(
+        path, "png", label=f"scene {scene_idx + 1} BG",
+    ):
         return bg_key, path
 
     # cache lookup: storyboard retry 時 (= _storyboard_retry_neg ありの再呼び出し)
@@ -1804,7 +1807,13 @@ def _trim_and_finalize_kling(
     trimmed_path = os.path.join(temp_dir, f"scene_{scene_idx:03d}.trim.mp4")
     raw_dur = _get_duration(kling_raw_path)
     trim_at = min(final_duration, raw_dur)
-    if not os.path.exists(trimmed_path):
+    trimmed_skip_ok = (
+        os.path.exists(trimmed_path)
+        and artifact_integrity.check_existing(
+            trimmed_path, "mp4", label=f"scene {scene_idx + 1} trim",
+        )
+    )
+    if not trimmed_skip_ok:
         _trim_video(kling_raw_path, trim_at, trimmed_path)
         logger.info("シーン%d trim → %.2fs (final=%.2fs, raw=%.2fs)",
                     scene_idx + 1, trim_at, final_duration, raw_dur)
@@ -1838,7 +1847,13 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
     logger.info("シーン%d final=%.2fs kling=%.0fs",
                 scene_idx + 1, final_duration, kling_duration)
 
-    if not os.path.exists(kling_raw_path):
+    kling_raw_skip_ok = (
+        os.path.exists(kling_raw_path)
+        and artifact_integrity.check_existing(
+            kling_raw_path, "mp4", label=f"scene {scene_idx + 1} Kling raw",
+        )
+    )
+    if not kling_raw_skip_ok:
         cache_used = False
         cache_enabled = (
             getattr(config, "KLING_CACHE_ENABLED", True)
@@ -2086,7 +2101,13 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
                        and scene.get("lipsync", True)
                        and bool(scene.get("lines")))
 
-    if not os.path.exists(final_path):
+    final_skip_ok = (
+        os.path.exists(final_path)
+        and artifact_integrity.check_existing(
+            final_path, "mp4", label=f"scene {scene_idx + 1} final",
+        )
+    )
+    if not final_skip_ok:
         if lipsync_enabled:
             logger.info("シーン%d リップシンク処理中 (%s)",
                         scene_idx + 1, config.LIPSYNC_PROVIDER)
