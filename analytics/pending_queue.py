@@ -85,7 +85,7 @@ def replay() -> dict[str, Any]:
 
     成功した entry は queue から削除、失敗は残す。caller (= preview_server 起動時
     auto-replay や ``scripts/sync_pending_analytics.py``) は戻り値の
-    ``synced_ts`` を見て、対応する project の Stage 9 を ``mark_generated`` に
+    ``synced_ts`` を見て、対応する project の Stage 8 を ``mark_generated`` に
     昇格させる (= ``final_import.publish.finalize_pending_publish``)。
 
     Returns: {"success": int, "failed": int, "synced_ts": list[str]}

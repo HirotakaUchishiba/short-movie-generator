@@ -25,7 +25,7 @@ logger = logging.getLogger(__name__)
 
 
 def sync() -> tuple[int, int]:
-    """queue を replay し、成功した ts については Stage 9 を mark_generated。"""
+    """queue を replay し、成功した ts については Stage 8 を mark_generated。"""
     result = pending_queue.replay()
     if result["success"] == 0 and result["failed"] == 0:
         logger.info("queue は空です")

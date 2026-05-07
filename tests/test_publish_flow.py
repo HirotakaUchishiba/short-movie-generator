@@ -634,10 +634,10 @@ def test_publish_queues_when_analytics_db_fails_3_times(
     assert yt[0]["analytics_pending"] is True
 
 
-def test_finalize_pending_publish_promotes_stage9_after_replay(
+def test_finalize_pending_publish_promotes_stage8_after_replay(
     project, monkeypatch, tmp_path,
 ):
-    """queue replay 成功 → finalize_pending_publish が Stage 9 を立て、
+    """queue replay 成功 → finalize_pending_publish が Stage 8 を立て、
     published_posts[].analytics_pending を False に flip する。"""
     from final_import.publish import publish, finalize_pending_publish
     from analytics import pending_queue, db as analytics_db

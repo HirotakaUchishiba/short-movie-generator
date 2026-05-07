@@ -221,9 +221,9 @@ def set_canonical_final(ts_path: str, filename: str) -> FinalVersion:
 def delete_final_version(ts_path: str, filename: str) -> None:
     """final version を削除。canonical だった場合は最新の他バージョンが canonical に。
 
-    canonical が変わったときは Stage 8/9 の承認を取り直しにする。
-    全バージョンが消えると Stage 8 の進捗そのものをリセット (= reset_stage が
-    Stage 9 もまとめて消す)。
+    canonical が変わったときは Stage 7/8 の承認を取り直しにする。
+    全バージョンが消えると Stage 7 の進捗そのものをリセット (= reset_stage が
+    Stage 8 もまとめて消す)。
     """
     meta = staged_pipeline.read_metadata(ts_path) or {}
     versions = meta.get("final_versions") or []
