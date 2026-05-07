@@ -165,6 +165,12 @@ def import_final(
             score = compute_match_score(ts_path, dst)
         except Exception as e:
             logger.warning("fingerprint 計算失敗 (%s): %s", dst_name, e)
+    if score is not None and score < config.FINGERPRINT_THRESHOLD:
+        logger.warning(
+            "[取込] fingerprint score=%.2f が閾値 %.2f 未満 — "
+            "pipeline raw との音声乖離の可能性: %s",
+            score, config.FINGERPRINT_THRESHOLD, dst_name,
+        )
 
     new_version = FinalVersion(
         filename=dst_name,

@@ -2130,9 +2130,19 @@ _start_final_watcher_if_enabled()
 
 
 if __name__ == "__main__":
-    port = int(os.environ.get("PREVIEW_PORT", "5555"))
+    def _parse_port(value: str | None, default: int) -> int:
+        try:
+            return int(value or "")
+        except (TypeError, ValueError):
+            logger.warning(
+                "[startup] port '%s' を int 変換できません (default=%d)",
+                value, default,
+            )
+            return default
+
+    port = _parse_port(os.environ.get("PREVIEW_PORT"), 5555)
     if len(sys.argv) > 1:
-        port = int(sys.argv[1])
+        port = _parse_port(sys.argv[1], port)
     debug = os.environ.get("FLASK_DEBUG", "0") == "1"
     host = os.environ.get("FLASK_HOST", "127.0.0.1")
     logger.info("プレビューサーバー起動中: http://%s:%d", host, port)
