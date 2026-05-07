@@ -12,7 +12,7 @@ def _get_duration(path: str) -> float:
     result = subprocess.run(
         ["ffprobe", "-v", "quiet", "-print_format", "json",
          "-show_format", path],
-        capture_output=True, text=True,
+        capture_output=True, text=True, timeout=30,
     )
     return float(json.loads(result.stdout)["format"]["duration"])
 
@@ -90,7 +90,7 @@ def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
     ])
 
     logger.info("シーン結合中")
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
         logger.error("Merge error: %s", r.stderr[-1500:])
         raise RuntimeError("Scene merge failed")
@@ -594,7 +594,7 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
            output_path]
 
     logger.info("テロップ焼き込み中")
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
     if r.returncode != 0:
         logger.error("Overlay error: %s", r.stderr[-1500:])
         raise RuntimeError("Overlay application failed")

@@ -17,7 +17,7 @@ def _ensure_wav(audio_path: str) -> tuple[str, bool]:
         "-vn",
         tmp.name,
     ]
-    r = subprocess.run(cmd, capture_output=True, text=True)
+    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
     if r.returncode != 0:
         raise RuntimeError(f"ffmpeg conversion failed: {r.stderr[-400:]}")
     return tmp.name, True
