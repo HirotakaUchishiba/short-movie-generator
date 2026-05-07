@@ -682,6 +682,20 @@ def test_resolve_timings_empty_returns_empty() -> None:
     assert compositor._resolve_subtitle_timings([], 0.0, 5.0) == []
 
 
+def test_resolve_timings_warns_on_anchor_overwrite(caplog) -> None:
+    """前 chunk の end が次 chunk の start に上書きされる時、warning が出る。
+    validator が事前に reject するのが本来の防衛線だが、古い snapshot 経由で
+    残った場合に silent にならず気づけることを保証する。"""
+    items = [
+        {"text": "a", "start": 0.0, "end": 3.0},
+        {"text": "b", "start": 1.0, "end": 4.0},  # start=1.0 が前 chunk end=3.0 を上書き
+    ]
+    with caplog.at_level("WARNING", logger="compositor"):
+        compositor._resolve_subtitle_timings(items, 0.0, 5.0)
+    msgs = [r.message for r in caplog.records if "subtitle-anchor" in r.message]
+    assert msgs, f"expected anchor-overwrite warning, got: {[r.message for r in caplog.records]}"
+
+
 def test_manual_subtitles_text_only_auto_distributes(
     tmp_path,
 ) -> None:
