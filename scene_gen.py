@@ -1570,7 +1570,7 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
                 style=vs["style"],
                 speed=vs["speed"],
                 language=config.LANGUAGE,
-                keep_whitespace=True,
+                should_keep_whitespace=True,
             )
             if not artifact_integrity.is_valid_audio(full_mp3_tmp):
                 raise RuntimeError(
@@ -1863,7 +1863,7 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
         )
     )
     if not kling_raw_skip_ok:
-        cache_used = False
+        is_cache_used = False
         cache_enabled = (
             getattr(config, "KLING_CACHE_ENABLED", True)
             and not force_fresh
@@ -1882,10 +1882,10 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
                             candidates[0]["key"], kling_raw_path)
                         scene["_kling_cache_hit"] = True
                         scene["_kling_cache_key"] = candidates[0]["key"]
-                        cache_used = True
+                        is_cache_used = True
             except Exception as e:
                 logger.warning("kling_cache lookup failed: %s", e)
-        if not cache_used:
+        if not is_cache_used:
             anim_prompt = _get_animation_prompt(scene, ts_path=temp_dir,
                                                   s_idx=scene_idx,
                                                   screenplay=screenplay)

@@ -382,7 +382,7 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
     if os.path.exists(overlaid):
         os.remove(overlaid)
 
-    success = False
+    is_overlay_success = False
     try:
         merged_path = _merge_scenes(scene_videos, scene_durations, ts_path)
         _apply_overlays(merged_path, screenplay, ts_path, overlaid,
@@ -392,9 +392,9 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
         shutil.copyfile(overlaid, output_path)
         caption_path = generate_post_captions(
             screenplay, screenplay_name, output_path)
-        success = True
+        is_overlay_success = True
     finally:
-        if not success:
+        if not is_overlay_success:
             # 部分書き込み artifact を掃除して、再実行が old merged を流用しない
             for p in (merged, overlaid, output_path):
                 if os.path.exists(p):
@@ -513,7 +513,7 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
         subs = ln.get("subtitles")
         if not isinstance(subs, list) or not subs:
             continue
-        line_was_reset = False
+        is_line_reset = False
         new_subs: list[dict] = []
         for sub in subs:
             if not isinstance(sub, dict):
@@ -523,10 +523,10 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
                 stripped = {k: v for k, v in sub.items() if k not in ("start", "end")}
                 new_subs.append(stripped)
                 subtitles_reset_chunks += 1
-                line_was_reset = True
+                is_line_reset = True
             else:
                 new_subs.append(sub)
-        if line_was_reset:
+        if is_line_reset:
             ln["subtitles"] = new_subs
             subtitles_reset_lines += 1
     if subtitles_reset_lines > 0:

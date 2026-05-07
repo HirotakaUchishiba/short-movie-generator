@@ -195,13 +195,13 @@ def save_character_meta(meta: CharacterMeta) -> None:
 def delete_character_meta(char_id: str) -> bool:
     """nested の voice.json か旧 flat の <id>.json を削除。両方無ければ False。"""
     base, _ = split_resolved_id(char_id)
-    deleted = False
+    is_deleted = False
     nested = _voice_path(base)
     if nested.exists():
         nested.unlink()
-        deleted = True
+        is_deleted = True
     flat = _flat_voice_path(char_id)
     if flat.exists():
         flat.unlink()
-        deleted = True
-    return deleted
+        is_deleted = True
+    return is_deleted

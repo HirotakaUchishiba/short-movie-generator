@@ -1624,12 +1624,12 @@ def _stage_cache_delete(stage: str, key: str):
     if not _HASH16_RE.match(key):
         return jsonify({"error": "invalid key"}), 400
     mp4_or_png, meta = handler.cache_module._entry_paths(key)
-    deleted = False
+    is_deleted = False
     for p in (mp4_or_png, meta):
         if p.exists():
             try:
                 os.remove(p)
-                deleted = True
+                is_deleted = True
             except Exception as e:
                 return jsonify({"error": str(e)}), 500
     if not deleted:
