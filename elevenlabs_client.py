@@ -1,11 +1,99 @@
+import logging
 import os
+import time
 
 import requests
 import config
 from cost_tracking import pricebook as _pricebook
 
+logger = logging.getLogger(__name__)
+
 API_BASE = "https://api.elevenlabs.io/v1"
 MODEL_ID = os.getenv("ELEVENLABS_MODEL", "eleven_v3")
+
+MAX_RETRIES = 5
+BACKOFF_SECONDS = [10, 20, 40, 80, 120]
+
+
+class ElevenLabsClientError(Exception):
+    pass
+
+
+def _classify_status(status: int | None, body_lower: str) -> str:
+    """HTTP status とレスポンス本文から retry / fail を分類する。
+
+    fal_video_client._classify_error と同じ方針:
+      - 残高切れ / アカウント停止系 → fail
+      - 429 / 5xx / 接続不能 → retry
+      - その他 4xx (= validation エラー等) → fail
+    """
+    if "exhausted" in body_lower or "out of credits" in body_lower:
+        return "fail"
+    if "user is locked" in body_lower or "voice not found" in body_lower:
+        return "fail"
+    if status == 429:
+        return "retry"
+    if status is not None and 500 <= status < 600:
+        return "retry"
+    if status is not None and 400 <= status < 500:
+        return "fail"
+    return "retry"
+
+
+def _post_with_retry(url: str, headers: dict, json_body: dict,
+                     timeout: float = 120.0) -> requests.Response:
+    """ElevenLabs API への POST を retry 付きで叩く。
+
+    429 / 5xx / 接続エラー → 指数バックオフで MAX_RETRIES 回まで。
+    4xx (validation) や残高切れ → 即座に ElevenLabsClientError。
+    """
+    last_exc: BaseException | None = None
+    last_status: int | None = None
+    last_body: str = ""
+    for attempt in range(MAX_RETRIES):
+        try:
+            resp = requests.post(url, headers=headers, json=json_body,
+                                 timeout=timeout)
+        except (requests.ConnectionError, requests.Timeout) as exc:
+            last_exc = exc
+            if attempt >= MAX_RETRIES - 1:
+                break
+            wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+            logger.warning(
+                "ElevenLabs 接続エラー (%d回目/%d): %s — %d秒後にリトライ",
+                attempt + 1, MAX_RETRIES, exc, wait,
+            )
+            time.sleep(wait)
+            continue
+
+        if resp.ok:
+            return resp
+
+        last_status = resp.status_code
+        last_body = resp.text or ""
+        classification = _classify_status(resp.status_code, last_body.lower())
+        if classification == "fail":
+            raise ElevenLabsClientError(
+                f"ElevenLabs 非リトライエラー ({resp.status_code}): "
+                f"{last_body[:500]}"
+            )
+        if attempt >= MAX_RETRIES - 1:
+            break
+        wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+        logger.warning(
+            "ElevenLabs %s (%d回目/%d) — %d秒後にリトライ: %s",
+            resp.status_code, attempt + 1, MAX_RETRIES, wait,
+            last_body[:200],
+        )
+        time.sleep(wait)
+
+    if last_exc is not None:
+        raise ElevenLabsClientError(
+            f"ElevenLabs 接続リトライ上限超過: {last_exc}"
+        ) from last_exc
+    raise ElevenLabsClientError(
+        f"ElevenLabs リトライ上限超過 ({last_status}): {last_body[:500]}"
+    )
 
 MODELS_WITHOUT_CONTEXT = {"eleven_v3"}
 
@@ -94,17 +182,11 @@ def generate_speech_with_timestamps(text: str, voice_id: str, output_path: str,
             MODEL_ID,
         )
 
-    resp = requests.post(
+    resp = _post_with_retry(
         f"{API_BASE}/text-to-speech/{voice_id}/with-timestamps",
         headers={**_headers(), "Content-Type": "application/json"},
-        json=payload,
+        json_body=payload,
     )
-    if not resp.ok:
-        import logging
-        logging.getLogger(__name__).error(
-            "ElevenLabs %s response: %s", resp.status_code, resp.text[:1500]
-        )
-    resp.raise_for_status()
     data = resp.json()
 
     audio_bytes = base64.b64decode(data["audio_base64"])
