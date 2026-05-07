@@ -225,6 +225,8 @@ def _base_scene(duration: float = 5.0) -> dict:
 def test_scene_video_passes_extended_path_to_lipsync(temp_dir, monkeypatch) -> None:
     """TTS 尺 > 動画尺 の場合、lipsync には extended 動画が渡される。"""
     monkeypatch.setattr(scene_gen.config, "LIPSYNC_ENABLED", True)
+    monkeypatch.setattr(scene_gen, "_validate_lipsynced_scene",
+                          lambda *a, **kw: True)
     trim = os.path.join(temp_dir, "scene_000.trim.mp4")
     audio = os.path.join(temp_dir, "audio_000.m4a")
     _make_dummy(trim)
@@ -270,6 +272,8 @@ def test_scene_video_uses_trim_directly_when_long_enough(
 ) -> None:
     """動画尺が音声以上なら extended は作らない。"""
     monkeypatch.setattr(scene_gen.config, "LIPSYNC_ENABLED", True)
+    monkeypatch.setattr(scene_gen, "_validate_lipsynced_scene",
+                          lambda *a, **kw: True)
     trim = os.path.join(temp_dir, "scene_000.trim.mp4")
     audio = os.path.join(temp_dir, "audio_000.m4a")
     _make_dummy(trim)
