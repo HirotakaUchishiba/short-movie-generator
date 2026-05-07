@@ -224,6 +224,9 @@ def test_one_shot_full_flow_with_mocked_api(temp_dir, monkeypatch) -> None:
     """APIをmockし、char timestampsから line.start/end と scene.duration が
     正しく逆算されることを検証する。"""
     monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "test-key")
+    # ダミー mp3 (b"fake_mp3") は ffprobe で読めないので integrity check を bypass
+    monkeypatch.setattr(scene_gen.artifact_integrity, "is_valid_audio",
+                          lambda p, **kw: True)
 
     sp = _minimal_screenplay()
     full_text, _ = scene_gen._build_screenplay_text(sp)
@@ -300,6 +303,8 @@ def test_one_shot_full_flow_with_mocked_api(temp_dir, monkeypatch) -> None:
 def test_one_shot_caches_when_text_unchanged(temp_dir, monkeypatch) -> None:
     """text_hash (text + voice + speed の hash) が変わらなければAPI再呼び出ししない。"""
     monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setattr(scene_gen.artifact_integrity, "is_valid_audio",
+                          lambda p, **kw: True)
     sp = _minimal_screenplay()
 
     full_text, _ = scene_gen._build_screenplay_text(sp)
@@ -343,6 +348,8 @@ def test_one_shot_caches_when_text_unchanged(temp_dir, monkeypatch) -> None:
 def test_regen_tts_full_clears_cache(temp_dir, monkeypatch) -> None:
     """regen_tts_full は既存生成物を削除してから生成。"""
     monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setattr(scene_gen.artifact_integrity, "is_valid_audio",
+                          lambda p, **kw: True)
     open(os.path.join(temp_dir, "tts_full.mp3"), "wb").write(b"old")
     open(os.path.join(temp_dir, "audio_000.m4a"), "wb").write(b"old")
 

@@ -73,6 +73,27 @@ def is_valid_mp4(path: str) -> bool:
         return False
 
 
+def is_valid_audio(path: str, *, min_duration: float = 0.05) -> bool:
+    """mp3 / m4a / wav が ffprobe で正の duration を返すかを確認。
+
+    truncated TTS file を検出するために使う。ffprobe は moov/header が壊れた
+    audio に対して非ゼロ exit するか、duration を返さない。
+    """
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", path],
+            capture_output=True, text=True, check=False, timeout=10,
+        )
+        if r.returncode != 0:
+            return False
+        data = json.loads(r.stdout or "{}")
+        dur = float((data.get("format") or {}).get("duration", 0) or 0)
+        return dur >= min_duration
+    except Exception:
+        return False
+
+
 def check_existing(path: str, kind: str, *, label: str = "") -> bool:
     """既存 artifact が妥当か検証する。
 
@@ -99,7 +120,12 @@ def check_existing(path: str, kind: str, *, label: str = "") -> bool:
     if not os.path.exists(path):
         return True
 
-    checker = is_valid_png if kind == "png" else is_valid_mp4
+    if kind == "png":
+        checker = is_valid_png
+    elif kind == "audio":
+        checker = is_valid_audio
+    else:
+        checker = is_valid_mp4
     if checker(path):
         return True
 
