@@ -338,8 +338,11 @@ def store(key: str, mp4_path: str | Path, meta: dict[str, Any]) -> None:
             try:
                 if tmp_dst.exists():
                     os.remove(tmp_dst)
-            except Exception:
-                pass
+            except OSError as cleanup_err:
+                logger.warning(
+                    "[kling-cache] rollback tmp %s 削除失敗: %s",
+                    tmp_dst, cleanup_err,
+                )
             return
         full_meta = {
             **meta,

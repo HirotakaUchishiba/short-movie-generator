@@ -412,8 +412,8 @@ def _query_resumable_offset(upload_url: str, file_size: int):
             data = r.json()
             if data:
                 return data
-        except Exception:
-            pass
+        except ValueError as e:
+            logger.warning("[youtube] status JSON parse 失敗: %s", e)
         return "complete"
     if r.status_code == 308:
         return _parse_range_offset(r.headers)

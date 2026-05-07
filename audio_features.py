@@ -94,8 +94,8 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
             import os
             try:
                 os.remove(wav_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("[acoustic] tmp wav %s 削除失敗: %s", wav_path, e)
 
 
 def wpm_from_text(text: str, duration: float) -> float:
@@ -200,5 +200,5 @@ def has_background_music(audio_path: str) -> dict:
             import os
             try:
                 os.remove(wav_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("[acoustic] tmp wav %s 削除失敗: %s", wav_path, e)

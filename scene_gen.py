@@ -471,8 +471,10 @@ def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
         attempt += 1
         try:
             os.remove(path)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning(
+                "[storyboard-retry] %s 削除失敗: %s", path, e,
+            )
         logger.warning("シーン%d 背景画像にコマ割り検出 → retry %d/%d",
                        scene_idx + 1, attempt, max_retries)
         scene["_storyboard_retry_neg"] = (
@@ -1430,8 +1432,8 @@ def _clear_tts_artifacts(ts_path: str) -> None:
         for f in glob.glob(os.path.join(ts_path, pat)):
             try:
                 os.remove(f)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("[tts-cleanup] %s 削除失敗: %s", f, e)
 
 
 def _split_global_speed(target: float | None = None) -> tuple[float, float]:
@@ -1533,8 +1535,11 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
         try:
             with open(text_meta_json) as f:
                 cached_hash = json.load(f).get("text_hash")
-        except (json.JSONDecodeError, OSError):
-            pass
+        except (json.JSONDecodeError, OSError) as e:
+            logger.warning(
+                "[tts-cache] text_hash JSON load 失敗 path=%s: %s",
+                text_meta_json, e,
+            )
 
     need_regen = (cached_hash != text_hash
                   or not os.path.exists(full_mp3)
@@ -1578,8 +1583,10 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
                 try:
                     if os.path.exists(p):
                         os.remove(p)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    logger.warning(
+                        "[tts-rollback] %s 削除失敗: %s", p, cleanup_err,
+                    )
             raise
         try:
             cost_recorder.record_tts(
@@ -2142,16 +2149,22 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
                 try:
                     if os.path.exists(final_path):
                         os.remove(final_path)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    logger.warning(
+                        "[lipsync-rollback] %s 削除失敗: %s",
+                        final_path, cleanup_err,
+                    )
                 raise
             # 出力の audio stream + duration を検証。lipsync provider が
             # silent stream / truncated mp4 を返したらここで弾く。
             if not _validate_lipsynced_scene(final_path, audio_dur):
                 try:
                     os.remove(final_path)
-                except OSError:
-                    pass
+                except OSError as cleanup_err:
+                    logger.warning(
+                        "[lipsync-rollback] %s 削除失敗: %s",
+                        final_path, cleanup_err,
+                    )
                 raise RuntimeError(
                     f"シーン {scene_idx + 1}: lipsync 出力が検証を通過しませんでした "
                     f"(audio stream 欠落 / duration 不整合の可能性) — "
