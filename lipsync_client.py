@@ -386,12 +386,104 @@ _PROVIDERS = {
 }
 
 
+def _provider_available(provider: str) -> bool:
+    """指定 provider に必要な API key が設定済みか。"""
+    if provider == "syncso":
+        return bool(config.SYNCSO_API_KEY)
+    if provider == "fal-sync":
+        return bool(config.FAL_API_KEY)
+    if provider == "domoai":
+        return bool(config.DOMOAI_API_KEY)
+    return False
+
+
+def _build_fallback_chain(primary: str) -> list[str]:
+    """primary を先頭に、利用可能な他 provider を順に並べた fallback chain を返す。
+
+    fallback 順は「成功率の高さ + 制約の少なさ」で:
+      syncso → fal-sync → domoai
+    fal-sync は size 上限が緩く 60s 超も扱える。domoai は 60s 上限あり。
+    """
+    chain: list[str] = []
+    if primary in _PROVIDERS:
+        chain.append(primary)
+    for p in ("syncso", "fal-sync", "domoai"):
+        if p == primary:
+            continue
+        if _provider_available(p):
+            chain.append(p)
+    return chain
+
+
+def _is_recoverable_error(provider: str, exc: BaseException) -> bool:
+    """この provider のエラーは fallback で別 provider に切替える価値があるか。
+
+    - syncso: 20MB multipart 上限超は典型的な failover ケース。
+    - fal-sync / domoai: 残高切れ・upload 失敗等も次の provider で救える可能性。
+
+    認証エラー (key 設定誤り等) も別 provider なら通る可能性があるので
+    fallback 対象にする。
+    """
+    if not isinstance(exc, LipsyncClientError):
+        return False
+    msg = str(exc).lower()
+    # 残高切れは全 provider 同じ会社なら無理だが、別社なら救える
+    return any(kw in msg for kw in (
+        "multipart 上限",
+        "size",
+        "20mb",
+        "残高",
+        "exhausted",
+        "balance",
+        "rate limit",
+        "timeout",
+        "失敗",
+        "rejected",
+    ))
+
+
+def _fallback_enabled() -> bool:
+    if os.environ.get("LIPSYNC_FALLBACK_DISABLED", "").lower() in (
+        "1", "true", "yes"
+    ):
+        return False
+    return bool(getattr(config, "LIPSYNC_FALLBACK_ENABLED", True))
+
+
 def apply(video_path: str, audio_path: str, output_path: str) -> None:
-    provider = config.LIPSYNC_PROVIDER
-    handler = _PROVIDERS.get(provider)
-    if handler is None:
+    primary = config.LIPSYNC_PROVIDER
+    if primary not in _PROVIDERS:
         raise LipsyncClientError(
-            f"未知のリップシンクプロバイダー: {provider} "
+            f"未知のリップシンクプロバイダー: {primary} "
             f"(対応: {', '.join(_PROVIDERS.keys())})"
         )
-    handler(video_path, audio_path, output_path)
+
+    if not _fallback_enabled():
+        _PROVIDERS[primary](video_path, audio_path, output_path)
+        return
+
+    chain = _build_fallback_chain(primary)
+    last_exc: BaseException | None = None
+    for idx, p in enumerate(chain):
+        try:
+            _PROVIDERS[p](video_path, audio_path, output_path)
+            if idx > 0:
+                logger.warning(
+                    "[lipsync] primary=%s が失敗したため fallback=%s で成功: %s",
+                    primary, p, last_exc,
+                )
+            return
+        except Exception as exc:
+            last_exc = exc
+            if not _is_recoverable_error(p, exc):
+                raise
+            if idx == len(chain) - 1:
+                break
+            logger.warning(
+                "[lipsync] %s 失敗 — 次の provider にフォールバック: %s",
+                p, exc,
+            )
+
+    raise LipsyncClientError(
+        f"lipsync 全 provider が失敗しました (chain={chain}): {last_exc}"
+    ) from last_exc
