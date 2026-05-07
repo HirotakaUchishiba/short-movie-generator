@@ -1740,7 +1740,7 @@ def _stage_cache_delete(stage: str, key: str):
                 is_deleted = True
             except Exception as e:
                 return jsonify({"error": str(e)}), 500
-    if not deleted:
+    if not is_deleted:
         return jsonify({"error": "entry not found"}), 404
     return jsonify({"ok": True, "deleted": key})
 
