@@ -20,6 +20,7 @@ import config
 import elevenlabs_client
 import fal_video_client
 import imagen_client
+import job_store
 import log_setup
 import progress_store
 import scene_gen
@@ -622,23 +623,27 @@ def api_presets():
 
 def _spawn_job(fn, *, kind: str, ts: str) -> str:
     job_id = str(uuid.uuid4())[:8]
+    started_at = time.time()
     with _jobs_lock:
         _jobs[job_id] = {
             "id": job_id, "kind": kind, "ts": ts,
-            "status": "running", "log": [], "started_at": time.time(),
+            "status": "running", "log": [], "started_at": started_at,
             "error": None,
         }
+    job_store.create(job_id, kind=kind, ts=ts, started_at=started_at)
 
     def runner():
         try:
             fn()
             with _jobs_lock:
                 _jobs[job_id]["status"] = "completed"
+            job_store.update(job_id, status="completed")
         except Exception as e:
             logger.exception("job %s failed", job_id)
             with _jobs_lock:
                 _jobs[job_id]["status"] = "failed"
                 _jobs[job_id]["error"] = str(e)
+            job_store.update(job_id, status="failed", error=str(e))
     threading.Thread(target=runner, daemon=True).start()
     return job_id
 
@@ -648,13 +653,21 @@ def api_job(job_id):
     with _jobs_lock:
         job = _jobs.get(job_id)
     if not job:
-        return jsonify({"error": "ジョブが見つかりません"}), 404
+        # メモリに無ければ disk から復元 (= サーバ再起動後も lost / completed
+        # を UI に返せる)
+        persisted = job_store.get(job_id)
+        if not persisted:
+            return jsonify({"error": "ジョブが見つかりません"}), 404
+        job = persisted
+    started = job.get("started_at") or time.time()
+    finished = job.get("finished_at")
+    elapsed = round((finished or time.time()) - started, 1)
     return jsonify({
         "id": job["id"],
         "kind": job["kind"],
         "ts": job["ts"],
         "status": job["status"],
-        "elapsed": round(time.time() - job["started_at"], 1),
+        "elapsed": elapsed,
         "error": job.get("error"),
     })
 
@@ -1948,6 +1961,20 @@ def _start_final_watcher_if_enabled() -> None:
         logger.warning("final watcher 起動失敗: %s", e)
 
 
+def _recover_lost_jobs() -> None:
+    try:
+        lost = job_store.recover_lost()
+    except Exception as e:
+        logger.warning("job_store.recover_lost 失敗: %s", e)
+        return
+    if lost:
+        logger.warning(
+            "[起動時] running のままだった job %d 件を lost に書換: %s",
+            len(lost), ", ".join(lost),
+        )
+
+
+_recover_lost_jobs()
 _start_final_watcher_if_enabled()
 
 
