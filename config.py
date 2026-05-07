@@ -781,3 +781,23 @@ BANDIT_EPSILON = float(os.getenv("BANDIT_EPSILON", "0.2"))
 BANDIT_AXES: tuple[str, ...] = (
     "hook_type", "tone", "dominant_emotion", "theme",
 )
+
+_VALID_IMPROVEMENT_STRATEGIES: tuple[str, ...] = ("baseline", "shadow", "active")
+if IMPROVEMENT_STRATEGY not in _VALID_IMPROVEMENT_STRATEGIES:
+    import warnings as _warnings
+    _warnings.warn(
+        f"IMPROVEMENT_STRATEGY={IMPROVEMENT_STRATEGY!r} is invalid "
+        f"(valid: {_VALID_IMPROVEMENT_STRATEGIES}). "
+        "Falling back to 'baseline'.",
+        RuntimeWarning, stacklevel=2,
+    )
+    IMPROVEMENT_STRATEGY = "baseline"
+
+# ───────────── Phase 4: 本番展開 ─────────────
+# True (= 既定): publish 直前に人手承認を要求する (= 半自動運用)
+# False: 完全自動 (= cron で publish まで通る、本番アカウントへの直撃含む)
+# 注: AUTO_LOOP_ALLOW_PUBLIC=0 の間は public 公開が unlisted に降格されるので、
+# このフラグを False にしても public 暴発は二重防衛で抑止される。
+PRODUCTION_HUMAN_GATE_ENABLED = os.getenv(
+    "PRODUCTION_HUMAN_GATE_ENABLED", "1",
+) in ("1", "true", "True")
