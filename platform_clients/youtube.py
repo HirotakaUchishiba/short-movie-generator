@@ -9,6 +9,7 @@
 """
 import logging
 import os
+import time
 from datetime import date, timedelta
 from pathlib import Path
 
@@ -20,6 +21,12 @@ UPLOAD_API_BASE = "https://www.googleapis.com/upload/youtube/v3/videos"
 UPLOAD_SCOPE = "https://www.googleapis.com/auth/youtube.upload"
 DEFAULT_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 DEFAULT_CATEGORY_ID = "22"  # People & Blogs
+
+REFRESH_TOKEN_GUIDANCE = (
+    "YOUTUBE_REFRESH_TOKEN が無効です (取り消し / 期限切れの可能性)。"
+    "OAuth flow で再取得してください "
+    "(https://developers.google.com/youtube/v3/quickstart/python)"
+)
 
 
 def _iso_duration_to_seconds(dur: str) -> float:
@@ -74,19 +81,52 @@ def fetch_public_stats(video_id: str, api_key: str | None = None) -> dict:
 
 def _oauth_access_token(client_id: str, client_secret: str,
                         refresh_token: str) -> str:
+    """refresh_token から access_token を取得。
+
+    transient エラー (5xx / ConnectionError) は exponential backoff で 2 回 retry。
+    400/401 (= refresh_token 自体が無効) は即座に明示的な RuntimeError を上げる
+    (= ユーザに OAuth 再取得を促す)。
+    """
     import requests
-    resp = requests.post(
-        "https://oauth2.googleapis.com/token",
-        data={
-            "client_id": client_id,
-            "client_secret": client_secret,
-            "refresh_token": refresh_token,
-            "grant_type": "refresh_token",
-        },
-        timeout=15,
-    )
-    resp.raise_for_status()
-    return resp.json()["access_token"]
+
+    last_exc: Exception | None = None
+    for attempt in range(3):
+        try:
+            resp = requests.post(
+                "https://oauth2.googleapis.com/token",
+                data={
+                    "client_id": client_id,
+                    "client_secret": client_secret,
+                    "refresh_token": refresh_token,
+                    "grant_type": "refresh_token",
+                },
+                timeout=15,
+            )
+        except requests.ConnectionError as e:
+            last_exc = e
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                logger.warning("oauth token endpoint 接続失敗 (retry %d/2): %s",
+                               attempt + 1, e)
+                continue
+            raise
+        if resp.status_code in (400, 401):
+            raise RuntimeError(REFRESH_TOKEN_GUIDANCE)
+        if 500 <= resp.status_code < 600:
+            last_exc = RuntimeError(
+                f"oauth token endpoint {resp.status_code}: {resp.text[:200]}",
+            )
+            if attempt < 2:
+                time.sleep(2 ** attempt)
+                logger.warning("oauth token endpoint 5xx (retry %d/2): %s",
+                               attempt + 1, resp.status_code)
+                continue
+            raise last_exc
+        resp.raise_for_status()
+        return resp.json()["access_token"]
+    if last_exc:
+        raise last_exc
+    raise RuntimeError("oauth token 取得に失敗しました")
 
 
 def fetch_analytics(video_id: str,
@@ -212,16 +252,31 @@ def upload_video(
         },
     }
 
-    init_resp = requests.post(
-        f"{UPLOAD_API_BASE}?uploadType=resumable&part=snippet,status",
-        json=metadata,
-        headers={
-            "Authorization": f"Bearer {token}",
-            "X-Upload-Content-Length": str(file_size),
-            "X-Upload-Content-Type": "video/*",
-        },
-        timeout=30,
-    )
+    def _do_init(t: str):
+        return requests.post(
+            f"{UPLOAD_API_BASE}?uploadType=resumable&part=snippet,status",
+            json=metadata,
+            headers={
+                "Authorization": f"Bearer {t}",
+                "X-Upload-Content-Length": str(file_size),
+                "X-Upload-Content-Type": "video/*",
+            },
+            timeout=30,
+        )
+
+    init_resp = _do_init(token)
+    if init_resp.status_code in (401, 403):
+        logger.info("youtube upload init: %d → access_token 失効と判断して refresh",
+                    init_resp.status_code)
+        token = _oauth_access_token(client_id, client_secret, refresh_token)
+        init_resp = _do_init(token)
+    transient_retries = 0
+    while 500 <= init_resp.status_code < 600 and transient_retries < 2:
+        time.sleep(2 ** transient_retries)
+        transient_retries += 1
+        logger.warning("youtube upload init 5xx (retry %d/2): %d",
+                       transient_retries, init_resp.status_code)
+        init_resp = _do_init(token)
     init_resp.raise_for_status()
     upload_url = init_resp.headers.get("Location")
     if not upload_url:

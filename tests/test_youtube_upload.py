@@ -274,3 +274,117 @@ def test_parse_range_offset_helper():
     assert _parse_range_offset({}) is None
     assert _parse_range_offset({"Range": "bytes="}) is None
     assert _parse_range_offset({"Range": "weird"}) is None
+
+
+# ─── OAuth refresh / retry (C3) ───────────────
+
+
+def test_oauth_token_raises_with_guidance_on_invalid_grant(monkeypatch):
+    """refresh_token が無効 (= 401/invalid_grant) → guidance 付き RuntimeError."""
+    from platform_clients import youtube
+
+    def fake_post(url, **kw):
+        return _MockResp(
+            401, json_data={"error": "invalid_grant"},
+            text='{"error":"invalid_grant"}',
+        )
+
+    monkeypatch.setattr("requests.post", fake_post)
+    with pytest.raises(RuntimeError, match="YOUTUBE_REFRESH_TOKEN"):
+        youtube._oauth_access_token("id", "sec", "ref")
+
+
+def test_oauth_token_retries_on_5xx(monkeypatch):
+    """oauth endpoint 5xx → exponential backoff で 2 回 retry → 成功."""
+    from platform_clients import youtube
+
+    state = {"calls": 0}
+
+    def fake_post(url, **kw):
+        state["calls"] += 1
+        if state["calls"] < 3:
+            return _MockResp(503, text="oauth temporarily unavailable")
+        return _MockResp(200, json_data={"access_token": "tok"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+    token = youtube._oauth_access_token("id", "sec", "ref")
+    assert token == "tok"
+    assert state["calls"] == 3
+
+
+def test_oauth_token_retries_on_connection_error(monkeypatch):
+    """ConnectionError → backoff retry → 成功."""
+    import requests
+    from platform_clients import youtube
+
+    state = {"calls": 0}
+
+    def fake_post(url, **kw):
+        state["calls"] += 1
+        if state["calls"] == 1:
+            raise requests.ConnectionError("boom")
+        return _MockResp(200, json_data={"access_token": "tok"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+    assert youtube._oauth_access_token("id", "sec", "ref") == "tok"
+    assert state["calls"] == 2
+
+
+def test_upload_video_refreshes_token_on_401(monkeypatch, fake_video):
+    """init が 401 → access_token を取り直して 1 回だけ retry → upload 成功."""
+    from platform_clients import youtube
+
+    state = {"oauth": 0, "init": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com/token" in url:
+            state["oauth"] += 1
+            return _MockResp(200, json_data={
+                "access_token": f"tok_{state['oauth']}",
+            })
+        state["init"] += 1
+        if state["init"] == 1:
+            return _MockResp(401, text="token expired")
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "vid_recovered"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = youtube.upload_video(fake_video, "T", "D")
+    assert result["video_id"] == "vid_recovered"
+    # initial token + 1 refresh = 2 calls, init = 2 calls (401 → retry)
+    assert state["oauth"] == 2
+    assert state["init"] == 2
+
+
+def test_upload_video_retries_on_5xx_init(monkeypatch, fake_video):
+    """init が 5xx → backoff retry."""
+    from platform_clients import youtube
+
+    state = {"init": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        state["init"] += 1
+        if state["init"] < 3:
+            return _MockResp(502, text="bad gateway")
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "vid_after_5xx"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+    monkeypatch.setattr("time.sleep", lambda *_: None)
+
+    result = youtube.upload_video(fake_video, "T", "D")
+    assert result["video_id"] == "vid_after_5xx"
+    assert state["init"] == 3
