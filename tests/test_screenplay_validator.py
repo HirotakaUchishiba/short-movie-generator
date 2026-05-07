@@ -396,6 +396,31 @@ def test_subtitles_empty_text_rejected() -> None:
         screenplay_validator.validate_screenplay(sp)
 
 
+def test_subtitles_mixed_manual_and_auto_with_one_invalid_rejected() -> None:
+    """混在: chunk0=両方有 / chunk1=両方無 / chunk2=start のみ → chunk2 だけがエラー。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["duration"] = 5.0
+    sp["scenes"][0]["lines"][0] = {
+        "text": "x", "start": 0.0, "end": 4.0,
+        "subtitles": [
+            {"text": "a", "start": 0.0, "end": 1.0},
+            {"text": "b"},
+            {"text": "c", "start": 2.0},
+        ],
+    }
+    errors = screenplay_validator.validate_screenplay(sp, strict=False)
+    half_errors = [e for e in errors if "片方だけ" in e]
+    assert len(half_errors) == 1
+    assert "subtitles/2" in half_errors[0]
+
+
+def test_line_without_subtitles_field_passes() -> None:
+    """subtitles フィールドが無い line は素通り (= 既存挙動を壊さない)。"""
+    sp = _valid_screenplay()
+    assert "subtitles" not in sp["scenes"][0]["lines"][0]
+    screenplay_validator.validate_screenplay(sp)
+
+
 # ─── abstract / composed 形式の二段検証 ───────────────────────────
 
 
