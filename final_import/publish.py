@@ -20,6 +20,7 @@ import config
 import io_utils
 import preflight
 import progress_store
+import project_state
 import staged_pipeline
 
 from .core import resolve_canonical_video
@@ -218,7 +219,7 @@ def _ensure_video_in_analytics(ts: str, video: Path) -> None:
     from analytics import db as analytics_db
     ts_path = os.path.join(config.TEMP_DIR, ts)
 
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     final_meta = next(
         (v for v in (meta.get("final_versions") or []) if v.get("is_canonical")),
         None,
@@ -403,7 +404,7 @@ def _record_publish(ts_path: str, result: dict) -> None:
     ``scripts/sync_pending_analytics.py``) して永続化が完了してから
     ``finalize_pending_publish`` 経由で立てる。
     """
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     posts = list(meta.get("published_posts") or [])
     failed = bool(result.get("failed"))
     analytics_persisted = result.get("analytics_persisted", True)
@@ -451,7 +452,7 @@ def finalize_pending_publish(ts: str) -> bool:
     ts_path = os.path.join(config.TEMP_DIR, ts)
     if not os.path.isdir(ts_path):
         return False
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     posts = list(meta.get("published_posts") or [])
     if not posts:
         return False
@@ -490,7 +491,7 @@ def _existing_successful_publish(ts_path: str, platform: str) -> dict | None:
     """
     if platform not in _IDEMPOTENT_PLATFORMS:
         return None
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     for entry in meta.get("published_posts") or []:
         if (entry.get("platform") == platform
                 and not entry.get("failed")
@@ -505,7 +506,7 @@ def read_post_caption_for_ts(ts: str) -> tuple[str, str, list[str]]:
     Returns: (title, description, tags)
     """
     ts_path = os.path.join(config.TEMP_DIR, ts)
-    meta = staged_pipeline.read_metadata(ts_path) or {}
+    meta = project_state.read_metadata(ts_path) or {}
     name = meta.get("screenplay_name") or meta.get("screenplay_template_name") or ""
     title_base = os.path.splitext(name)[0]
 

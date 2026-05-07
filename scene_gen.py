@@ -1631,13 +1631,14 @@ def _persist_tts_derived_timings(screenplay: dict, ts_path: str) -> None:
     UI 編集の caption / emotion / speaker 等とは独立に timing を永続化できる。
     Stage 3 以降は load_project_screenplay 経由で hydrate された値を読む。
     """
+    import project_state
     import staged_pipeline
-    meta = staged_pipeline.read_metadata(ts_path)
+    meta = project_state.read_metadata(ts_path)
     if not meta:
         return
     ts_key = os.path.basename(ts_path.rstrip(os.sep))
 
-    with staged_pipeline.screenplay_lock(ts_key):
+    with project_state.screenplay_lock(ts_key):
         meta_scenes: list[dict] = []
         for scene in screenplay.get("scenes") or []:
             scene_meta: dict = {}

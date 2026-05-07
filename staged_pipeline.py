@@ -3,7 +3,6 @@ import json
 import logging
 import os
 import shutil
-import threading
 from datetime import datetime
 
 import config
@@ -13,6 +12,7 @@ import progress_store
 import scene_gen
 from compositor import compose_video, _apply_overlays, _merge_scenes
 from post_captions_gen import generate_post_captions
+from project_state import read_metadata, screenplay_lock
 from screenplay_validator import validate_screenplay
 
 logger = logging.getLogger(__name__)
@@ -24,23 +24,6 @@ TTS_META_FILENAME = "tts_meta.json"
 # snapshot に書き込まないフィールド (= TTS 派生で tts_meta.json が SSOT)
 _TTS_DERIVED_SCENE_FIELDS = ("duration",)
 _TTS_DERIVED_LINE_FIELDS = ("start", "end")
-
-
-# project snapshot への書き込みを直列化する per-ts Lock。
-# preview_server (REST patch) と scene_gen (TTS regen 後の duration 永続化) の
-# 両方から取得して共有する。同時アクセスで disk 上の書き込みが混ざらないように。
-_screenplay_locks: dict[str, threading.Lock] = {}
-_screenplay_locks_guard = threading.Lock()
-
-
-def screenplay_lock(name: str) -> threading.Lock:
-    """per-key の書き込みロックを返す (テンプレ名 or ts_path どちらでも可)。"""
-    with _screenplay_locks_guard:
-        lk = _screenplay_locks.get(name)
-        if lk is None:
-            lk = threading.Lock()
-            _screenplay_locks[name] = lk
-        return lk
 
 
 # ───────────────── テンプレ (新規 project 作成の素材) ─────────────────
@@ -250,17 +233,6 @@ def write_metadata(temp_dir: str, screenplay_name: str,
     io_utils.atomic_write_json(
         os.path.join(temp_dir, "metadata.json"), meta,
     )
-
-
-def read_metadata(temp_dir: str) -> dict | None:
-    p = os.path.join(temp_dir, "metadata.json")
-    if not os.path.exists(p):
-        return None
-    try:
-        with open(p) as f:
-            return json.load(f)
-    except (json.JSONDecodeError, OSError):
-        return None
 
 
 def _ensure_prev_approved(prev_stage: str | None, ts_path: str) -> None:
