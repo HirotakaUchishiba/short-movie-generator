@@ -2269,11 +2269,24 @@ def regen_scene_video(scene_idx: int, screenplay: dict, temp_dir: str) -> None:
 
 
 def collect_scene_videos(screenplay: dict, temp_dir: str) -> list[str]:
-    """既に生成済みの scene_<i>.mp4 を返す。"""
+    """既に生成済みの scene_<i>.mp4 を返す。
+
+    存在チェックに加え ffprobe で moov atom + duration を直接検証する。
+    `artifact_integrity.check_existing` は AUTO_DELETE off なら破損時も
+    True を返す (= 課金済み API 出力を温存) 設計だが、Stage 7 直前では
+    truncated mp4 を merge に流すと壊れた最終動画になるので、ここでは
+    破損検出 = 即停止 + ユーザに再生成を促す方針を取る。
+    """
     paths = []
     for i in range(len(screenplay["scenes"])):
         p = os.path.join(temp_dir, f"scene_{i:03d}.mp4")
         if not os.path.exists(p):
             raise FileNotFoundError(f"シーン動画が見つかりません: {p}")
+        if (artifact_integrity.is_enabled()
+                and not artifact_integrity.is_valid_mp4(p)):
+            raise RuntimeError(
+                f"シーン動画が破損しています: {p} — 該当シーンを再生成してください "
+                f"(scene 再生成ボタン or `regen scene {i}`)"
+            )
         paths.append(p)
     return paths

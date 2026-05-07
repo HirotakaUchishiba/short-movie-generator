@@ -585,19 +585,36 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
         shutil.copyfile(base_video, output_path)
         return
 
+    # ffmpeg が中断したときに output_path に partial mp4 が残るのを防ぐため、
+    # 一旦 .tmp に書いて成功時のみ replace する。
+    tmp_path = output_path + ".tmp"
     cmd = ["ffmpeg", "-y", "-i", base_video,
            "-filter_complex", filter_complex,
            "-map", "[vout]", "-map", "0:a?",
            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
            "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k",
-           output_path]
+           tmp_path]
 
     logger.info("テロップ焼き込み中")
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    try:
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=900)
+    except BaseException:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
+        raise
     if r.returncode != 0:
+        if os.path.exists(tmp_path):
+            try:
+                os.remove(tmp_path)
+            except OSError:
+                pass
         logger.error("Overlay error: %s", r.stderr[-1500:])
         raise RuntimeError("Overlay application failed")
+    os.replace(tmp_path, output_path)
 
 
 def compose_video(
