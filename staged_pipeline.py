@@ -362,22 +362,48 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     pipeline raw である ``output/reels_<TS>.mp4`` と SNS 投稿キャプション、
     Stage 8 (final_import) 用の drop folder までこの stage で生成する。
+
+    古い snapshot を resume する経路では UI の保存時 validator を通過していない
+    ことがあるため、Stage 7 直前で composed 形式 + subtitle anchor 順序を
+    再検証して silent overwrite (= 字幕が消える) を防ぐ。
+    途中で失敗した場合は merged.mp4 / overlaid.mp4 を削除し、再実行で
+    古い中間ファイルが流用されないようにする。
     """
     _ensure_prev_approved("scene", ts_path)
+    validate_screenplay(screenplay, require_composed=True)
+
     scene_videos = scene_gen.collect_scene_videos(screenplay, ts_path)
     scene_durations = [float(s["duration"]) for s in screenplay["scenes"]]
-    merged = _merge_scenes(scene_videos, scene_durations, ts_path)
+    merged = os.path.join(ts_path, "merged.mp4")
     overlaid = os.path.join(ts_path, "overlaid.mp4")
+    ts = os.path.basename(ts_path)
+    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
+
     if os.path.exists(overlaid):
         os.remove(overlaid)
-    _apply_overlays(merged, screenplay, ts_path, overlaid,
-                      scene_videos=scene_videos)
 
-    ts = os.path.basename(ts_path)
-    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
-    shutil.copyfile(overlaid, output_path)
-    caption_path = generate_post_captions(screenplay, screenplay_name, output_path)
+    success = False
+    try:
+        merged_path = _merge_scenes(scene_videos, scene_durations, ts_path)
+        _apply_overlays(merged_path, screenplay, ts_path, overlaid,
+                          scene_videos=scene_videos)
+
+        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+        shutil.copyfile(overlaid, output_path)
+        caption_path = generate_post_captions(
+            screenplay, screenplay_name, output_path)
+        success = True
+    finally:
+        if not success:
+            # 部分書き込み artifact を掃除して、再実行が old merged を流用しない
+            for p in (merged, overlaid, output_path):
+                if os.path.exists(p):
+                    try:
+                        os.remove(p)
+                    except OSError as e:
+                        logger.warning(
+                            "[overlay-cleanup] %s 削除失敗: %s", p, e,
+                        )
 
     # Stage 8 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
     os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
