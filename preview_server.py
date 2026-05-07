@@ -361,10 +361,13 @@ def api_run_next(ts):
     if not os.path.isdir(_ts_path(ts)):
         return jsonify({"error": "プロジェクトが存在しません"}), 404
     sp, name = _load_screenplay_for_project(ts)
-    job_id = _spawn_job(
-        lambda: staged_pipeline.run_next_stage(sp, name, _ts_path(ts)),
-        kind="run-next", ts=ts,
-    )
+    try:
+        job_id = _spawn_job(
+            lambda: staged_pipeline.run_next_stage(sp, name, _ts_path(ts)),
+            kind="run-next", ts=ts,
+        )
+    except JobAlreadyRunningError as e:
+        return _job_already_running_response(e)
     return jsonify({"job_id": job_id})
 
 
@@ -392,12 +395,15 @@ def api_regen(ts):
             for s in scenes:
                 s["_bg_force_no_cache"] = True
 
-    job_id = _spawn_job(
-        lambda: staged_pipeline.regen(
-            stage, sp, _ts_path(ts), scene_idx, line_idx, force=force,
-            screenplay_name=name),
-        kind=f"regen-{stage}", ts=ts,
-    )
+    try:
+        job_id = _spawn_job(
+            lambda: staged_pipeline.regen(
+                stage, sp, _ts_path(ts), scene_idx, line_idx, force=force,
+                screenplay_name=name),
+            kind=f"regen-{stage}", ts=ts,
+        )
+    except JobAlreadyRunningError as e:
+        return _job_already_running_response(e)
     return jsonify({"job_id": job_id})
 
 
@@ -621,15 +627,50 @@ def api_presets():
 
 # ───────────────── ジョブステータス ─────────────────
 
-def _spawn_job(fn, *, kind: str, ts: str) -> str:
+class JobAlreadyRunningError(RuntimeError):
+    """同一 ts に対して既に running の job がある時に raise される。"""
+
+    def __init__(self, ts: str, existing_job_id: str, existing_kind: str):
+        super().__init__(
+            f"ts={ts} には既に実行中の job があります "
+            f"(job_id={existing_job_id}, kind={existing_kind})"
+        )
+        self.ts = ts
+        self.existing_job_id = existing_job_id
+        self.existing_kind = existing_kind
+
+
+# ts → 現在実行中の job_id。`_spawn_job(exclusive_ts=True)` で同 ts への並行
+# spawn を防ぐ。runner 終了時に _jobs_lock 配下で削除する。
+_active_ts: dict[str, str] = {}
+
+
+def _spawn_job(fn, *, kind: str, ts: str, exclusive_ts: bool = True) -> str:
+    """job runner を spawn する。
+
+    exclusive_ts=True (= 既定) のとき、同じ ts に対して既に running の job が
+    あれば JobAlreadyRunningError を raise する。caller は HTTP 409 を返す。
+    並行起動禁止対象は stage runner / regen / cache fresh / publish。read-only
+    job (= 過去ログ取得など) はそもそも _spawn_job を使わないので影響なし。
+    """
     job_id = str(uuid.uuid4())[:8]
     started_at = time.time()
     with _jobs_lock:
+        if exclusive_ts:
+            existing_id = _active_ts.get(ts)
+            if existing_id and existing_id in _jobs:
+                existing = _jobs[existing_id]
+                if existing.get("status") == "running":
+                    raise JobAlreadyRunningError(
+                        ts, existing_id, existing.get("kind") or "?",
+                    )
         _jobs[job_id] = {
             "id": job_id, "kind": kind, "ts": ts,
             "status": "running", "log": [], "started_at": started_at,
             "error": None,
         }
+        if exclusive_ts:
+            _active_ts[ts] = job_id
     job_store.create(job_id, kind=kind, ts=ts, started_at=started_at)
 
     def runner():
@@ -637,15 +678,28 @@ def _spawn_job(fn, *, kind: str, ts: str) -> str:
             fn()
             with _jobs_lock:
                 _jobs[job_id]["status"] = "completed"
+                if _active_ts.get(ts) == job_id:
+                    _active_ts.pop(ts, None)
             job_store.update(job_id, status="completed")
         except Exception as e:
             logger.exception("job %s failed", job_id)
             with _jobs_lock:
                 _jobs[job_id]["status"] = "failed"
                 _jobs[job_id]["error"] = str(e)
+                if _active_ts.get(ts) == job_id:
+                    _active_ts.pop(ts, None)
             job_store.update(job_id, status="failed", error=str(e))
     threading.Thread(target=runner, daemon=True).start()
     return job_id
+
+
+def _job_already_running_response(e: JobAlreadyRunningError):
+    return jsonify({
+        "error": str(e),
+        "ts": e.ts,
+        "existing_job_id": e.existing_job_id,
+        "existing_kind": e.existing_kind,
+    }), 409
 
 
 @app.route("/api/jobs/<job_id>", methods=["GET"])
@@ -1516,10 +1570,13 @@ def _stage_generate_remaining(ts: str, stage: str):
             "pending_scenes": pending,
         }), 400
 
-    job_id = _spawn_job(
-        lambda: _generate_fresh_and_mark(stage, sp, _ts_path(ts), fresh_queue),
-        kind=handler.generate_kind, ts=ts,
-    )
+    try:
+        job_id = _spawn_job(
+            lambda: _generate_fresh_and_mark(stage, sp, _ts_path(ts), fresh_queue),
+            kind=handler.generate_kind, ts=ts,
+        )
+    except JobAlreadyRunningError as e:
+        return _job_already_running_response(e)
     return jsonify({"job_id": job_id, "fresh_scenes": fresh_queue})
 
 
@@ -1921,7 +1978,10 @@ def api_publish(ts):
         from final_import.publish import publish
         return publish(ts, platform, privacy=privacy)
 
-    job_id = _spawn_job(_do_publish, kind=f"publish-{platform}", ts=ts)
+    try:
+        job_id = _spawn_job(_do_publish, kind=f"publish-{platform}", ts=ts)
+    except JobAlreadyRunningError as e:
+        return _job_already_running_response(e)
     return jsonify({"job_id": job_id})
 
 
