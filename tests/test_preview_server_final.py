@@ -1,4 +1,4 @@
-"""Stage 8 (final import) と Stage 9 (publish) HTTP routes の単体テスト。"""
+"""Stage 7 (final import) と Stage 8 (publish) HTTP routes の単体テスト。"""
 
 import io
 import json

@@ -275,7 +275,7 @@ def test_run_next_stage_blocks_on_unapproved(
 def test_run_next_stage_skips_external_action_stages(
     env, stub_locations, minimal_screenplay, monkeypatch,
 ):
-    """Stage 8 (final_import) は run_next_stage から除外される。"""
+    """Stage 7 (final_import) は run_next_stage から除外される。"""
     _write_template(env["sp"], "smoke", minimal_screenplay)
     ts = "20990101_140000"
     ts_path = os.path.join(str(env["temp"]), ts)

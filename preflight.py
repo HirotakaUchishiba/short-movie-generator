@@ -91,7 +91,7 @@ def check_kling() -> None:
 
 
 def check_scene() -> None:
-    """Stage 5+6: lipsync provider に応じた key を検査。"""
+    """Stage 5: lipsync provider に応じた key を検査。"""
     if not getattr(config, "LIPSYNC_ENABLED", True):
         check_disk_space(_min_free_bytes(_DEFAULT_MIN_FREE_BYTES_BIG))
         return
@@ -135,11 +135,11 @@ def check_publish_youtube() -> None:
 
 
 def check_final_import() -> None:
-    """Stage 8: ffmpeg / ffprobe が PATH 上に居ないと取り込めない。"""
+    """Stage 7: ffmpeg / ffprobe が PATH 上に居ないと取り込めない。"""
     missing = [b for b in ("ffmpeg", "ffprobe") if shutil.which(b) is None]
     if missing:
         raise PreflightError(
-            f"Stage 8 (取込) に必要なバイナリが PATH に見つかりません: "
+            f"Stage 7 (取込) に必要なバイナリが PATH に見つかりません: "
             f"{', '.join(missing)}。"
             "macOS なら `brew install ffmpeg` でインストールしてください。"
         )
