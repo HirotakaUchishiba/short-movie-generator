@@ -466,7 +466,8 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
     は scene index を含むので全削除し、`tts_full.mp3` から新しい index で再構築する。
     bg 以降の progress / approval は reset される (= 後段は再生成必要)。
 
-    Returns: {"scenes": int, "lines": int}
+    Returns: {"scenes": int, "lines": int, "subtitles_reset_lines": int}
+        subtitles_reset_lines: subtitles[].start/end が auto に戻された line 数
     """
     sp = load_project_screenplay(ts_path)
     flat_lines: list[dict] = []
@@ -476,6 +477,39 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
     n_lines = len(flat_lines)
     if n_lines == 0:
         raise ValueError("snapshot に line が 1 つもありません")
+
+    # scene 再分割で line が別 scene に移動すると元 scene 基準だった
+    # subtitles[].start/end (= シーン内相対秒) は意味が壊れる。完全な migration は
+    # scene duration が変わる以上不可能なので、保守的に「auto に戻す」(= text のみ保持)。
+    subtitles_reset_lines = 0
+    subtitles_reset_chunks = 0
+    for ln in flat_lines:
+        subs = ln.get("subtitles")
+        if not isinstance(subs, list) or not subs:
+            continue
+        line_was_reset = False
+        new_subs: list[dict] = []
+        for sub in subs:
+            if not isinstance(sub, dict):
+                new_subs.append(sub)
+                continue
+            if "start" in sub or "end" in sub:
+                stripped = {k: v for k, v in sub.items() if k not in ("start", "end")}
+                new_subs.append(stripped)
+                subtitles_reset_chunks += 1
+                line_was_reset = True
+            else:
+                new_subs.append(sub)
+        if line_was_reset:
+            ln["subtitles"] = new_subs
+            subtitles_reset_lines += 1
+    if subtitles_reset_lines > 0:
+        logger.info(
+            "[scene-boundaries] subtitle 時刻を auto に戻しました: "
+            "%d line / %d chunk",
+            subtitles_reset_lines,
+            subtitles_reset_chunks,
+        )
 
     if not line_boundaries:
         raise ValueError("line_boundaries が空です")
@@ -571,7 +605,11 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
         pg["stages"]["tts"]["approved_at"] = None
         progress_store.save(ts_path, pg)
 
-    return {"scenes": len(new_scenes), "lines": n_lines}
+    return {
+        "scenes": len(new_scenes),
+        "lines": n_lines,
+        "subtitles_reset_lines": subtitles_reset_lines,
+    }
 
 
 def regen(stage: str, screenplay: dict, ts_path: str,
