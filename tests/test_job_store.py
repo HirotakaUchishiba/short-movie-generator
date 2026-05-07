@@ -50,7 +50,9 @@ def test_recover_lost_marks_running_as_lost():
     job_store.update("b", status="completed")
 
     affected = job_store.recover_lost()
-    assert affected == ["a"]
+    assert [r["id"] for r in affected] == ["a"]
+    assert affected[0]["ts"] == "1"
+    assert affected[0]["status"] == "lost"
 
     a = job_store.get("a")
     b = job_store.get("b")
@@ -63,7 +65,7 @@ def test_recover_lost_idempotent():
     job_store.create("a", kind="x", ts="1")
     first = job_store.recover_lost()
     second = job_store.recover_lost()
-    assert first == ["a"]
+    assert [r["id"] for r in first] == ["a"]
     assert second == []
 
 

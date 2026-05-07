@@ -134,13 +134,14 @@ def list_all() -> list[dict]:
     return jobs
 
 
-def recover_lost() -> list[str]:
+def recover_lost() -> list[dict]:
     """サーバ起動時に呼ぶ: status="running" のエントリを "lost" に書換える。
 
     Returns:
-        書換えた job_id のリスト。
+        書換えた job のリスト (= dict with id, ts, kind, ...)。caller は ts を
+        使って partial artifact のクリーンアップに使う。
     """
-    affected: list[str] = []
+    affected: list[dict] = []
     with _lock:
         data = _load()
         now = time.time()
@@ -152,7 +153,7 @@ def recover_lost() -> list[str]:
                     "preview_server 再起動時に running のままだったため lost "
                     "扱い (生成物が disk に残っていれば run-next で再開可能)"
                 )
-                affected.append(jid)
+                affected.append(dict(rec))
         if affected:
             _save(data)
     return affected
