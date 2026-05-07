@@ -68,6 +68,30 @@
 
 実消費額は fal.ai ダッシュボードで照合する。リトライやタイムアウトで理論値を上回ることがある。
 
+### cost_tracking モジュール
+
+**記録 / 見積もり / レポート** を分離する設計:
+
+- **記録**: 各 stage の API 呼び出し直後に `cost_tracking.recorder` が `data/cost_records.jsonl` に append-only で書き込む。記録失敗はパイプライン本流を止めない (= `try / except` 隔離)
+- **単価カタログ**: `data/pricebook.json` (運用者管理) — provider 公式料金に追従して手で更新する。コードに単価ハードコードは置かない
+- **見積もり**: `cost_tracking.estimator` が実コスト履歴から per-unit median を取って算定。履歴 < 3 件なら `confidence="insufficient"` を返し、catalog fallback はしない
+- **レポート**: `cost_tracking.report` がプロジェクト別 / 全体の集計を提供
+- **為替**: `JPY_PER_USD` 環境変数 > `pricebook.json#jpy_per_usd` (既定 150)
+
+主要 API:
+
+- `GET /api/cost/pricebook` — 単価カタログ
+- `GET /api/cost/median/<stage>?model=...` — 履歴 median rate (frontend で units × rate)
+- `GET /api/cost/estimate/<stage>?model=...&...` — 動的見積もり
+- `GET /api/cost/report/project/<ts>` — プロジェクト別実コスト
+- `GET /api/cost/report` — 全体レポート
+
+### コスト削減の方針
+
+- シーン数・動画長は台本のテキスト量で自然に決まる。無理に短くしない
+- 品質を下げるモデル切替はしない
+- コスト削減したい場合は台本のテキスト量を調整する
+
 ---
 
 ## 6. プロンプト設計
