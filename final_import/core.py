@@ -16,6 +16,7 @@ from pathlib import Path
 from typing import Literal
 
 import config
+import io_utils
 import preflight
 import progress_store
 import staged_pipeline
@@ -295,11 +296,12 @@ def _on_canonical_change(ts_path: str, *, ensure_generated: bool) -> None:
 
 
 def _save_metadata(ts_path: str, meta: dict) -> None:
-    p = os.path.join(ts_path, "metadata.json")
-    tmp = p + ".tmp"
-    with open(tmp, "w") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
-    os.replace(tmp, p)
+    """metadata.json を fsync 込みで atomic に書き出す。
+    手書きの open+replace は fsync が抜けて kill -9 で 0byte ファイルが
+    残ったり .tmp が孤立する可能性があったので、io_utils.atomic_write_json
+    に統一する (= preview_server の _cleanup_partial_artifacts も同じ規約で
+    .tmp を回収できる)。"""
+    io_utils.atomic_write_json(os.path.join(ts_path, "metadata.json"), meta)
 
 
 def _now_iso() -> str:
