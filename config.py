@@ -643,6 +643,17 @@ KLING_DURATION_TOLERANCE_RATIO = 1.2
 FAL_KLING_TIMEOUT_SEC = float(os.getenv("FAL_KLING_TIMEOUT_SEC", "3600"))     # 1 hour
 FAL_LIPSYNC_TIMEOUT_SEC = float(os.getenv("FAL_LIPSYNC_TIMEOUT_SEC", "3600"))  # 1 hour
 
+# fingerprint threshold (= final_import の audio match warning)
+FINGERPRINT_THRESHOLD = 0.6
+
+# lipsync provider への HTTP request timeout (秒)
+# QUERY = status / presigned upload, SUBMIT = task 作成,
+# UPLOAD = multipart submit, DOWNLOAD = result fetch
+LIPSYNC_HTTP_TIMEOUT_QUERY_SEC = 30
+LIPSYNC_HTTP_TIMEOUT_SUBMIT_SEC = 60
+LIPSYNC_HTTP_TIMEOUT_UPLOAD_SEC = 120
+LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC = 300
+
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
 # fal-sync (= sync.so の lipsync-1.9.0-beta) は顎が伸びる等の崩れが多いため、
 # 既定を Sync.so 公式 API + lipsync-2 に切替。SYNC_API_KEY を .env に入れる

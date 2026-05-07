@@ -81,7 +81,7 @@ def _apply_fal_sync(video_path: str, audio_path: str, output_path: str) -> None:
                 name=f"lipsync-attempt{attempt + 1}",
             )
             result_url = result["video"]["url"]
-            resp = requests.get(result_url, timeout=300)
+            resp = requests.get(result_url, timeout=config.LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC)
             resp.raise_for_status()
             io_utils.atomic_write_bytes(output_path, resp.content)
             return
@@ -140,7 +140,7 @@ def _domoai_upload(local_path: str) -> str:
         f"{base}/upload/file",
         headers={**_domoai_headers(), "Content-Type": "application/json"},
         json={"filename": filename},
-        timeout=30,
+        timeout=config.LIPSYNC_HTTP_TIMEOUT_QUERY_SEC,
     )
     r.raise_for_status()
     info = r.json().get("data") or {}
@@ -154,7 +154,7 @@ def _domoai_upload(local_path: str) -> str:
 
     with open(local_path, "rb") as f:
         put_r = requests.put(presigned, data=f, headers=extra_headers,
-                              timeout=300)
+                              timeout=config.LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC)
     if put_r.status_code >= 400:
         raise LipsyncClientError(
             f"DomoAI presigned PUT 失敗 ({put_r.status_code}): "
@@ -177,7 +177,7 @@ def _domoai_create_task(video_uri: str, audio_uri: str,
         f"{base}/video/talking-avatar",
         headers={**_domoai_headers(), "Content-Type": "application/json"},
         json=payload,
-        timeout=60,
+        timeout=config.LIPSYNC_HTTP_TIMEOUT_SUBMIT_SEC,
     )
     if r.status_code >= 400:
         raise LipsyncClientError(
@@ -257,7 +257,7 @@ def _apply_domoai_sync(video_path: str, audio_path: str,
 
     result_url = _domoai_poll_until_done(task_id)
 
-    resp = requests.get(result_url, timeout=300)
+    resp = requests.get(result_url, timeout=config.LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC)
     resp.raise_for_status()
     io_utils.atomic_write_bytes(output_path, resp.content)
     logger.info("DomoAI lipsync: 完了 → %s", output_path)
@@ -301,7 +301,7 @@ def _syncso_create_task(video_path: str, audio_path: str) -> str:
             headers=_syncso_headers(),
             files=files,
             data=data,
-            timeout=120,
+            timeout=config.LIPSYNC_HTTP_TIMEOUT_UPLOAD_SEC,
         )
 
     if r.status_code >= 400:
@@ -373,7 +373,7 @@ def _apply_syncso_sync(video_path: str, audio_path: str,
 
     result_url = _syncso_poll_until_done(task_id)
 
-    resp = requests.get(result_url, timeout=300)
+    resp = requests.get(result_url, timeout=config.LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC)
     resp.raise_for_status()
     io_utils.atomic_write_bytes(output_path, resp.content)
     logger.info("Sync.so lipsync: 完了 → %s", output_path)
