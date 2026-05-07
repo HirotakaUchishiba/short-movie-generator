@@ -132,7 +132,7 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
     )
 
     posted_at = datetime.now().isoformat(timespec="seconds")
-    _record_analytics_with_retry(
+    persisted = _record_analytics_with_retry(
         ts=ts, video=video,
         platform_post_id=upload["video_id"],
         url=upload["url"],
@@ -147,12 +147,18 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
         "url": upload["url"],
         "privacy": privacy,
         "manual": False,
+        "analytics_persisted": persisted,
     }
 
 
 def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
                                  url: str, posted_at: str, caption: str,
-                                 hashtags: list[str]) -> None:
+                                 hashtags: list[str]) -> bool:
+    """analytics DB に register_post を試みる。成功で True、queue 落ち or 完全
+    失敗で False を返す。caller (= _publish_youtube) はこれを result の
+    ``analytics_persisted`` に流し、_record_publish が False の時は Stage 9 の
+    progress_store.mark_generated を保留する (= queue replay 完了後に立てる)。
+    """
     from analytics import db as analytics_db
     from analytics import pending_queue
 
@@ -167,7 +173,7 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
                 url=url, posted_at=posted_at,
                 caption=caption, hashtags=hashtags,
             )
-            return
+            return True
         except Exception as e:
             last_err = e
             logger.warning(
@@ -189,7 +195,8 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
         })
         logger.error(
             "analytics 登録失敗 → analytics_pending.jsonl に queue。"
-            "`scripts/sync_pending_analytics.py` で後で同期してください "
+            "preview_server 起動時に自動 replay されますが、"
+            "今すぐ同期するなら `scripts/sync_pending_analytics.py` を実行 "
             "(last error: %s)", last_err,
         )
     except Exception as e:
@@ -197,6 +204,7 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
             "analytics_pending.jsonl への queue 書き込みも失敗: %s "
             "(original analytics error: %s)", e, last_err,
         )
+    return False
 
 
 def _ensure_video_in_analytics(ts: str, video: Path) -> None:
@@ -388,10 +396,17 @@ def _record_publish(ts_path: str, result: dict) -> None:
     同じ ``(platform, video_id)`` の既存エントリがあれば、その場で update する
     (= 重複防止)。video_id が None (= 半自動) の場合は ``(platform, "manual")``
     を判定キーとし、再試行 / 失敗の上書きが同一スロットになるようにする。
+
+    publish 自体は成功したが analytics DB への永続化が queue 落ちしている
+    (= ``analytics_persisted=False``) 場合は、Stage 9 の ``mark_generated`` を
+    保留する。queue を sync (preview_server 起動時の自動 replay または
+    ``scripts/sync_pending_analytics.py``) して永続化が完了してから
+    ``finalize_pending_publish`` 経由で立てる。
     """
     meta = staged_pipeline.read_metadata(ts_path) or {}
     posts = list(meta.get("published_posts") or [])
     failed = bool(result.get("failed"))
+    analytics_persisted = result.get("analytics_persisted", True)
     entry = {
         "platform": result["platform"],
         "video_id": result.get("video_id"),
@@ -399,6 +414,7 @@ def _record_publish(ts_path: str, result: dict) -> None:
         "manual": bool(result.get("manual")),
         "published_at": datetime.now().isoformat(timespec="seconds"),
         "failed": failed,
+        "analytics_pending": not analytics_persisted,
     }
     if failed and result.get("failure_reason"):
         entry["failure_reason"] = result["failure_reason"]
@@ -417,8 +433,43 @@ def _record_publish(ts_path: str, result: dict) -> None:
 
     if failed:
         return
+    if not analytics_persisted:
+        logger.warning(
+            "[公開] DB 永続化が pending — Stage 9 完了は queue 同期後に立てます",
+        )
+        return
     if not progress_store.is_generated(ts_path, "publish"):
         progress_store.mark_generated(ts_path, "publish")
+
+
+def finalize_pending_publish(ts: str) -> bool:
+    """analytics queue が sync された後に、対象 project の Stage 9 を generated に
+    格上げする。preview_server 起動時の自動 replay や sync_pending_analytics.py
+    から呼ばれる想定。published_posts[] のうち analytics_pending=True の entry を
+    False に flip し、すべての成功 entry が DB 永続化済みなら mark_generated。
+    """
+    ts_path = os.path.join(config.TEMP_DIR, ts)
+    if not os.path.isdir(ts_path):
+        return False
+    meta = staged_pipeline.read_metadata(ts_path) or {}
+    posts = list(meta.get("published_posts") or [])
+    if not posts:
+        return False
+    changed = False
+    for entry in posts:
+        if entry.get("analytics_pending") and not entry.get("failed"):
+            entry["analytics_pending"] = False
+            changed = True
+    if changed:
+        meta["published_posts"] = posts
+        io_utils.atomic_write_json(os.path.join(ts_path, "metadata.json"), meta)
+    has_success = any(
+        not e.get("failed") and not e.get("analytics_pending")
+        for e in posts
+    )
+    if has_success and not progress_store.is_generated(ts_path, "publish"):
+        progress_store.mark_generated(ts_path, "publish")
+    return changed
 
 
 def _dedup_key(entry: dict) -> tuple[str, str]:

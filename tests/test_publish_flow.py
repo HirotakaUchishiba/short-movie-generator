@@ -586,16 +586,18 @@ def test_publish_youtube_raises_when_refresh_token_invalid(project, monkeypatch)
 def test_publish_queues_when_analytics_db_fails_3_times(
     project, monkeypatch, tmp_path,
 ):
-    """analytics DB が 3 回連続で失敗 → queue に 1 entry、publish 自体は成功."""
+    """analytics DB が 3 回連続で失敗 → queue に 1 entry、publish 自体は成功するが
+    Stage 9 は **未** generated (= sync 後に立つ)。"""
     from final_import.publish import publish
     from analytics import pending_queue
+    import progress_store
 
     monkeypatch.setenv(
         "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
     )
     monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
 
-    ts, _ts_path = project
+    ts, ts_path = project
     _setup_youtube_mocks(monkeypatch)
 
     call_count = {"n": 0}
@@ -609,6 +611,7 @@ def test_publish_queues_when_analytics_db_fails_3_times(
 
     result = publish(ts, "youtube", privacy="unlisted")
     assert result["video_id"] == "yt_xyz"
+    assert result["analytics_persisted"] is False
     assert call_count["n"] == 3
 
     entries = pending_queue.read_all()
@@ -621,6 +624,57 @@ def test_publish_queues_when_analytics_db_fails_3_times(
     assert e["caption"]
     assert isinstance(e["hashtags"], list)
     assert e["timestamp"]
+
+    # Stage 9 は queue 同期完了まで保留 — 未 generated
+    assert not progress_store.is_generated(ts_path, "publish")
+    # published_posts entry には analytics_pending=True が入っている
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    yt = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
+    assert len(yt) == 1
+    assert yt[0]["analytics_pending"] is True
+
+
+def test_finalize_pending_publish_promotes_stage9_after_replay(
+    project, monkeypatch, tmp_path,
+):
+    """queue replay 成功 → finalize_pending_publish が Stage 9 を立て、
+    published_posts[].analytics_pending を False に flip する。"""
+    from final_import.publish import publish, finalize_pending_publish
+    from analytics import pending_queue, db as analytics_db
+    import progress_store
+
+    monkeypatch.setenv(
+        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
+    )
+    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+    ts, ts_path = project
+    _setup_youtube_mocks(monkeypatch)
+
+    # 1st publish: DB ダウンで queue に積む
+    real_register = analytics_db.register_post
+    state = {"down": True}
+
+    def conditional_register(*a, **kw):
+        if state["down"]:
+            raise RuntimeError("DB down")
+        return real_register(*a, **kw)
+
+    monkeypatch.setattr(analytics_db, "register_post", conditional_register)
+    publish(ts, "youtube", privacy="unlisted")
+    assert not progress_store.is_generated(ts_path, "publish")
+
+    # DB 復旧 → replay → finalize
+    state["down"] = False
+    result = pending_queue.replay()
+    assert result["success"] == 1
+    for synced in set(result["synced_ts"]):
+        finalize_pending_publish(synced)
+
+    assert progress_store.is_generated(ts_path, "publish")
+    meta = json.loads((Path(ts_path) / "metadata.json").read_text())
+    yt = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
+    assert yt[0]["analytics_pending"] is False
 
 
 def test_publish_no_queue_when_db_succeeds_on_third_attempt(

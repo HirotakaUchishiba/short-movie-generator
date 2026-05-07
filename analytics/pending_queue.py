@@ -78,3 +78,54 @@ def rewrite(entries: list[dict[str, Any]]) -> None:
             finally:
                 fcntl.flock(f.fileno(), fcntl.LOCK_UN)
         os.replace(tmp, path)
+
+
+def replay() -> dict[str, Any]:
+    """queue を消費して analytics DB に再登録する。
+
+    成功した entry は queue から削除、失敗は残す。caller (= preview_server 起動時
+    auto-replay や ``scripts/sync_pending_analytics.py``) は戻り値の
+    ``synced_ts`` を見て、対応する project の Stage 9 を ``mark_generated`` に
+    昇格させる (= ``final_import.publish.finalize_pending_publish``)。
+
+    Returns: {"success": int, "failed": int, "synced_ts": list[str]}
+    """
+    entries = read_all()
+    if not entries:
+        return {"success": 0, "failed": 0, "synced_ts": []}
+
+    from analytics import db as analytics_db  # 遅延 import で循環回避
+
+    analytics_db.init_db()
+    remaining: list[dict[str, Any]] = []
+    success = 0
+    failed = 0
+    synced_ts: list[str] = []
+    for entry in entries:
+        try:
+            analytics_db.register_post(
+                video_id=entry["ts"],
+                platform=entry["platform"],
+                platform_post_id=entry["platform_post_id"],
+                url=entry.get("url"),
+                posted_at=entry.get("posted_at"),
+                caption=entry.get("caption"),
+                hashtags=entry.get("hashtags"),
+            )
+            success += 1
+            synced_ts.append(entry["ts"])
+            logger.info(
+                "[analytics-replay] 同期成功: %s:%s",
+                entry["platform"], entry["platform_post_id"],
+            )
+        except Exception as e:
+            failed += 1
+            remaining.append(entry)
+            logger.error(
+                "[analytics-replay] 同期失敗 (queue に残します): %s:%s — %s",
+                entry.get("platform"),
+                entry.get("platform_post_id"), e,
+            )
+
+    rewrite(remaining)
+    return {"success": success, "failed": failed, "synced_ts": synced_ts}
