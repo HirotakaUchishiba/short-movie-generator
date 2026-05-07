@@ -35,7 +35,8 @@ frontend/tsconfig.tsbuildinfo
 # editor
 .vscode/
 .idea/
-.claude/
+.claude/settings.local.json
+.claude/worktrees/
 docs/.obsidian/
 
 # Python builds

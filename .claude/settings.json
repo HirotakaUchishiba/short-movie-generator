@@ -1,0 +1,29 @@
+{
+  "hooks": {
+    "PostToolUse": [
+      {
+        "matcher": "Edit|Write",
+        "hooks": [
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -qE '\\.py$'; then ruff format \"$CLAUDE_FILE_PATH\" >/dev/null 2>&1 && ruff check --fix \"$CLAUDE_FILE_PATH\" >/dev/null 2>&1 || true; fi"
+          },
+          {
+            "type": "command",
+            "command": "if echo \"$CLAUDE_FILE_PATH\" | grep -qE 'frontend/.*\\.(ts|tsx|js|jsx|css|json|md)$'; then (cd frontend && npx --no-install prettier --write \"$CLAUDE_FILE_PATH\") >/dev/null 2>&1 || true; fi"
+          }
+        ]
+      }
+    ],
+    "SessionStart": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "echo 'See docs/developments/ for architecture / testing / coding-rules / ubiquitous-language / claude-code-usage.'"
+          }
+        ]
+      }
+    ]
+  }
+}
