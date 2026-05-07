@@ -8,6 +8,7 @@ import requests
 from PIL import Image
 
 import config
+import io_utils
 from fal_runner import FalJobTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)
@@ -95,8 +96,7 @@ def generate_video(image_path: str, prompt: str, output_path: str,
             video_url = result["video"]["url"]
             resp = requests.get(video_url)
             resp.raise_for_status()
-            with open(output_path, "wb") as f:
-                f.write(resp.content)
+            io_utils.atomic_write_bytes(output_path, resp.content)
             return
 
         except Exception as exc:

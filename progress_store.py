@@ -1,6 +1,7 @@
-import json
 import os
 from datetime import datetime
+
+import io_utils
 
 STAGES = [
     "script", "tts", "bg", "kling", "scene", "overlay",
@@ -22,6 +23,7 @@ def _empty() -> dict:
 
 
 def load(ts_path: str) -> dict:
+    import json
     p = _path(ts_path)
     if not os.path.exists(p):
         return _empty()
@@ -37,8 +39,7 @@ def load(ts_path: str) -> dict:
 
 def save(ts_path: str, progress: dict) -> None:
     os.makedirs(ts_path, exist_ok=True)
-    with open(_path(ts_path), "w") as f:
-        json.dump(progress, f, ensure_ascii=False, indent=2)
+    io_utils.atomic_write_json(_path(ts_path), progress)
 
 
 def _now() -> str:

@@ -9,6 +9,7 @@ import fal_client
 import requests
 
 import config
+import io_utils
 from fal_runner import FalJobTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)
@@ -82,8 +83,7 @@ def _apply_fal_sync(video_path: str, audio_path: str, output_path: str) -> None:
             result_url = result["video"]["url"]
             resp = requests.get(result_url)
             resp.raise_for_status()
-            with open(output_path, "wb") as f:
-                f.write(resp.content)
+            io_utils.atomic_write_bytes(output_path, resp.content)
             return
 
         except Exception as exc:
@@ -259,8 +259,7 @@ def _apply_domoai_sync(video_path: str, audio_path: str,
 
     resp = requests.get(result_url, timeout=300)
     resp.raise_for_status()
-    with open(output_path, "wb") as f:
-        f.write(resp.content)
+    io_utils.atomic_write_bytes(output_path, resp.content)
     logger.info("DomoAI lipsync: 完了 → %s", output_path)
 
 
@@ -376,8 +375,7 @@ def _apply_syncso_sync(video_path: str, audio_path: str,
 
     resp = requests.get(result_url, timeout=300)
     resp.raise_for_status()
-    with open(output_path, "wb") as f:
-        f.write(resp.content)
+    io_utils.atomic_write_bytes(output_path, resp.content)
     logger.info("Sync.so lipsync: 完了 → %s", output_path)
 
 
