@@ -23,6 +23,13 @@ def _isolate_cost_records(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_job_store(tmp_path, monkeypatch):
+    """preview_server を import するテストが本番 ``data/jobs.json`` を汚染
+    しないよう、JOB_STORE_DIR を tmp_path に向ける。"""
+    monkeypatch.setenv("JOB_STORE_DIR", str(tmp_path / "jobstore"))
+
+
+@pytest.fixture(autouse=True)
 def _stub_character_images(request, monkeypatch):
     """validator / diagnose_abstract の character ref 物理存在検証は
     既定スキップ (= 開発機の characters/ に依存しない)。
