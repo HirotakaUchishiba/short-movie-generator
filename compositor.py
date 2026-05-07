@@ -65,6 +65,17 @@ def _merge_scenes(scene_videos: list[str], scene_durations: list[float],
         pad = ""
         if target_dur > vid_dur + 0.05:
             pad = f",tpad=stop=-1:stop_mode=clone:stop_duration={target_dur - vid_dur:.3f}"
+        elif vid_dur > target_dur + 0.1:
+            # screenplay の duration 編集忘れ / slow_mo 後の整合性ズレで
+            # 動画が想定より長いケース。concat 自体は走るが、字幕 timing は
+            # screenplay 想定値ベースで計算されるため、後半の字幕が動画後ろに
+            # 余って見えなくなる可能性がある。warning で気付けるようにする。
+            logger.warning(
+                "シーン%d: 実動画 %.2fs が想定 %.2fs より %.2fs 長い — "
+                "字幕タイミングがズレる可能性。screenplay の scene.duration を "
+                "更新するか scene を再生成してください",
+                i + 1, vid_dur, target_dur, vid_dur - target_dur,
+            )
         filter_parts.append(
             f"[{i}:v]scale={config.VIDEO_WIDTH}:{config.VIDEO_HEIGHT}:"
             f"force_original_aspect_ratio=increase,"
