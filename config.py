@@ -725,3 +725,19 @@ KLING_CACHE_TTL_DAYS = int(os.getenv("KLING_CACHE_TTL_DAYS", "365"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")
+
+# ───────────── Phase 1: フルオート量産経路 ─────────────
+# auto_loop / cron が暴走しないための上限。0 を指定すると無制限。
+DAILY_COST_CAP_USD = float(os.getenv("DAILY_COST_CAP_USD", "20"))
+MONTHLY_COST_CAP_USD = float(os.getenv("MONTHLY_COST_CAP_USD", "300"))
+DAILY_VIDEO_CAP = int(os.getenv("DAILY_VIDEO_CAP", "5"))
+
+# auto_loop が unlisted 以外で publish するのを許すかの gate。
+# Phase 4 までは "0" 固定 (= unlisted / private 強制)。
+AUTO_LOOP_ALLOW_PUBLIC = os.getenv("AUTO_LOOP_ALLOW_PUBLIC", "0") in ("1", "true", "True")
+
+# Slack Incoming Webhook (= 失敗 / cap 抵触時の通知先)。空ならスキップ。
+SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
+
+# 1 ステージあたりの最長許容秒数 (= auto_loop が実行を打ち切る目安)。
+AUTO_LOOP_STAGE_TIMEOUT_SEC = int(os.getenv("AUTO_LOOP_STAGE_TIMEOUT_SEC", "1800"))
