@@ -2048,7 +2048,30 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
         if lipsync_enabled:
             logger.info("シーン%d リップシンク処理中 (%s)",
                         scene_idx + 1, config.LIPSYNC_PROVIDER)
-            lipsync_client.apply(video_path, audio_path, final_path)
+            try:
+                lipsync_client.apply(video_path, audio_path, final_path)
+            except Exception:
+                # provider が partial-fail で truncated mp4 を残すと
+                # `os.path.exists` + header validation を通過してしまうため、
+                # 出力を削除してから再 raise する。
+                try:
+                    if os.path.exists(final_path):
+                        os.remove(final_path)
+                except OSError:
+                    pass
+                raise
+            # 出力の audio stream + duration を検証。lipsync provider が
+            # silent stream / truncated mp4 を返したらここで弾く。
+            if not _validate_lipsynced_scene(final_path, audio_dur):
+                try:
+                    os.remove(final_path)
+                except OSError:
+                    pass
+                raise RuntimeError(
+                    f"シーン {scene_idx + 1}: lipsync 出力が検証を通過しませんでした "
+                    f"(audio stream 欠落 / duration 不整合の可能性) — "
+                    f"再生成してください",
+                )
             if config.LIPSYNC_PROVIDER == "syncso":
                 try:
                     cost_recorder.record_lipsync(
@@ -2064,6 +2087,53 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
             _replace_audio(video_path, audio_path, final_path)
 
     return final_path
+
+
+def _validate_lipsynced_scene(path: str, expected_audio_duration: float) -> bool:
+    """lipsync 後の mp4 が:
+      - ffprobe で読める正の duration
+      - audio stream が 1 本以上
+      - duration が expected_audio_duration ±0.5s
+    を満たすかを確認する。
+
+    Sync.so / DomoAI / fal-sync が partial-fail で audio 無し or truncated mp4
+    を返した時に検出する。誤検知を避けるため tolerance は緩め。
+    """
+    try:
+        r = sp.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", "-show_streams", path],
+            capture_output=True, text=True, check=False, timeout=15,
+        )
+    except (sp.TimeoutExpired, OSError):
+        return False
+    if r.returncode != 0:
+        return False
+    try:
+        data = json.loads(r.stdout or "{}")
+    except json.JSONDecodeError:
+        return False
+    fmt = data.get("format") or {}
+    try:
+        dur = float(fmt.get("duration") or 0.0)
+    except (TypeError, ValueError):
+        return False
+    if dur <= 0:
+        return False
+    streams = data.get("streams") or []
+    has_audio = any((s.get("codec_type") == "audio") for s in streams)
+    if not has_audio:
+        logger.warning(
+            "[lipsync-verify] audio stream が無い: %s (dur=%.2f)", path, dur,
+        )
+        return False
+    if expected_audio_duration > 0 and abs(dur - expected_audio_duration) > 0.5:
+        logger.warning(
+            "[lipsync-verify] duration mismatch: out=%.2fs, expected≈%.2fs (%s)",
+            dur, expected_audio_duration, path,
+        )
+        return False
+    return True
 
 
 def _maybe_extend_video(trimmed_path: str, target_duration: float,
