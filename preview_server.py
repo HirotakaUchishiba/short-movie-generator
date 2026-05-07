@@ -480,9 +480,9 @@ def api_patch_line(ts, scene_idx, line_idx):
     # なので除外する。subtitles/hidden は字幕分割・抑止フラグとして残す。
     # voice_overrides は line 個別 override が compose で base に上書き優先される
     allowed = {
-        "text", "tts_text", "rate", "emotion",
+        "text", "tts_text", "emotion",
         "emotion_intensity", "delivery", "audio_tags", "speaker",
-        "pronunciation_hints", "voice_overrides", "acoustic",
+        "pronunciation_hints", "acoustic",
         "subtitles", "hidden",
     }
     unknown = set(patch.keys()) - allowed
@@ -1252,9 +1252,7 @@ def api_config():
     ]
     return jsonify({
         "stages": progress_store.STAGES,
-        "emotions": list(config.EMOTION_VOICE_PRESETS.keys()),
-        "emotion_presets": config.EMOTION_VOICE_PRESETS,
-        "emotion_intensities": list(config.EMOTION_INTENSITY_MULTIPLIERS.keys()),
+        "emotions": list(config.EMOTION_AUDIO_TAGS.keys()),
         "available_audio_tags": config.AVAILABLE_AUDIO_TAGS,
         "emotion_audio_tags": config.EMOTION_AUDIO_TAGS,
         "voice_library": voice_lib,
