@@ -283,7 +283,8 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
             if (isinstance(start, (int, float)) and isinstance(end, (int, float))
                     and end <= start):
                 errors.append(f"{path}: end({end}) <= start({start})")
-            for sub_idx, sub in enumerate(line.get("subtitles", []) or []):
+            subs = line.get("subtitles", []) or []
+            for sub_idx, sub in enumerate(subs):
                 sub_path = f"{path}/subtitles/{sub_idx}"
                 has_start = "start" in sub
                 has_end = "end" in sub
@@ -305,6 +306,18 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
                 if (isinstance(s_start, (int, float)) and isinstance(s_end, (int, float))
                         and s_end <= s_start):
                     errors.append(f"{sub_path}: end({s_end}) <= start({s_start})")
+                # 隣接 anchor の順序違反: 前 chunk の end が次 chunk の start より大きい。
+                # _resolve_subtitle_timings は片方を silent に上書きするため、ここで早期 reject。
+                if (isinstance(s_end, (int, float)) and sub_idx + 1 < len(subs)):
+                    next_sub = subs[sub_idx + 1] or {}
+                    next_start = next_sub.get("start")
+                    if (isinstance(next_start, (int, float))
+                            and next_start + 0.001 < s_end):
+                        errors.append(
+                            f"{sub_path}: end({s_end}) が次 chunk の "
+                            f"start({next_start}) を超えています (隣接 anchor の "
+                            f"順序違反 — そのままだと字幕が silent に消える)"
+                        )
     return errors
 
 

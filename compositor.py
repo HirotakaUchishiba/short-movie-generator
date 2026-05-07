@@ -349,6 +349,9 @@ def _resolve_subtitle_timings(
 
     # boundaries[i] = i 番目のチャンクの開始時刻 (i=n は最後のチャンクの終了)
     # 既知の境界 (= line 端 + ユーザー指定値) で先に埋め、残った None を比例配分。
+    # 隣接 anchor が逆転していると後勝ちで前を silent に上書きするため、
+    # 上書き発生時は warning ログで気付けるようにする (validator が事前に reject
+    # するのが望ましいが、互換 / 古い snapshot 経由で残る可能性があるため)。
     boundaries: list[float | None] = [None] * (n + 1)
     boundaries[0] = line_start
     boundaries[n] = line_end
@@ -356,9 +359,23 @@ def _resolve_subtitle_timings(
         s = it.get("start")
         e = it.get("end")
         if s is not None:
-            boundaries[i] = float(s)
+            new_v = float(s)
+            if boundaries[i] is not None and abs(boundaries[i] - new_v) > 1e-3:
+                logger.warning(
+                    "[subtitle-anchor] chunk %d: start=%.3f が既存境界 %.3f を "
+                    "上書きします (隣接 anchor の順序違反の可能性)",
+                    i, new_v, boundaries[i],
+                )
+            boundaries[i] = new_v
         if e is not None:
-            boundaries[i + 1] = float(e)
+            new_v = float(e)
+            if boundaries[i + 1] is not None and abs(boundaries[i + 1] - new_v) > 1e-3:
+                logger.warning(
+                    "[subtitle-anchor] chunk %d: end=%.3f が既存境界 %.3f を "
+                    "上書きします (line 端 / 次 chunk start との競合の可能性)",
+                    i, new_v, boundaries[i + 1],
+                )
+            boundaries[i + 1] = new_v
 
     # 連続する None セグメントを前後の確定境界の間で文字数比例で埋める
     i = 0
