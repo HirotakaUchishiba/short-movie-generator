@@ -204,3 +204,41 @@ def test_archive_before_regen_skips_when_no_artifact(project, isolated_env):
     )
     rows = db.list_qa_failures(ts=project["ts"])
     assert rows == []
+
+
+# ─── _stage_artifact_paths の対称性 ──────────────────────────────────────────
+
+
+def test_artifact_paths_tts_full_includes_full_and_per_line(project):
+    """tts 全体 reject (scene_idx / line_idx 共に None) では tts_full.mp3 と
+    全 per-line を archive 対象に含める (= 全 audio を残す)。"""
+    _make_artifact(project["ts_dir"], "tts_full.mp3")
+    _make_artifact(project["ts_dir"], "tts_0_0.mp3")
+    _make_artifact(project["ts_dir"], "tts_0_1.mp3")
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "tts", scene_idx=None, line_idx=None,
+    )
+    basenames = {os.path.basename(p) for p in paths}
+    assert "tts_full.mp3" in basenames
+    assert "tts_0_0.mp3" in basenames
+    assert "tts_0_1.mp3" in basenames
+
+
+def test_artifact_paths_tts_scene_only(project):
+    """tts で scene_idx だけ指定すると、その scene の全 line を返す。"""
+    _make_artifact(project["ts_dir"], "tts_2_0.mp3")
+    _make_artifact(project["ts_dir"], "tts_2_1.mp3")
+    _make_artifact(project["ts_dir"], "tts_3_0.mp3")  # 別 scene
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "tts", scene_idx=2, line_idx=None,
+    )
+    basenames = {os.path.basename(p) for p in paths}
+    assert basenames == {"tts_2_0.mp3", "tts_2_1.mp3"}
+
+
+def test_artifact_paths_script_returns_empty(project):
+    """script stage は snapshot 経由で別途コピーされるので artifact list は空。"""
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "script", scene_idx=None, line_idx=None,
+    )
+    assert paths == []

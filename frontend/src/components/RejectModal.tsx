@@ -49,10 +49,8 @@ export default function RejectModal({
   };
 
   const submit = async () => {
-    if (selected.length === 0) {
-      setError("少なくとも 1 つのタグを選択してください");
-      return;
-    }
+    // submit ボタンは selected.length === 0 で disabled なので、ここに来る
+    // 時点で必ず 1 つ以上選択されている前提。
     setSubmitting(true);
     setError(null);
     try {

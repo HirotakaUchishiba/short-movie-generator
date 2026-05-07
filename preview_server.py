@@ -369,15 +369,22 @@ def _stage_artifact_paths(ts_path: str, stage: str,
 
     存在しないファイルは ``recorder.record_failure`` 側で skip されるので、
     ここでは ``os.path.exists`` チェックを省く。
+
+    ``script`` stage は screenplay.json 自体が artifact だが、recorder が
+    snapshot として別途コピーするので空 list を返す (= 二重保存を避ける)。
     """
+    import glob
     paths: list[str] = []
     if stage == "tts":
         if scene_idx is not None and line_idx is not None:
             paths.append(os.path.join(ts_path, f"tts_{scene_idx}_{line_idx}.mp3"))
         elif scene_idx is not None:
-            import glob
             paths.extend(sorted(glob.glob(
                 os.path.join(ts_path, f"tts_{scene_idx}_*.mp3"))))
+        else:
+            paths.append(os.path.join(ts_path, "tts_full.mp3"))
+            paths.extend(sorted(glob.glob(
+                os.path.join(ts_path, "tts_*_*.mp3"))))
     elif stage == "bg" and scene_idx is not None:
         paths.append(os.path.join(ts_path, f"bg_{scene_idx}.png"))
     elif stage == "kling" and scene_idx is not None:
