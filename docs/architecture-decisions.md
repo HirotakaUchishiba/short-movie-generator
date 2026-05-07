@@ -49,22 +49,7 @@
 
 ## 4. ワークフロー設計
 
-### ステージ分割
-
-```
-Stage 1: 背景生成   (Gemini)        → temp/<TS>/bg_NN.png
-Stage 2: 音声生成   (ElevenLabs)    → temp/<TS>/tts_NNN.mp3 + tts_NNN.json
-Stage 3: 動画生成   (Kling V3)      → temp/<TS>/seg_NNN.mp4
-Stage 4: 最終合成   (FFmpeg + ASS)  → output/reels_<TS>.mp4
-                                    + post_captions/<TS>.md
-                                    + reports/report_<TS>.md
-```
-
-背景生成と動画生成は `concurrent.futures.ThreadPoolExecutor` で並列実行する（背景 4並列・動画 2並列）。冪等なキャッシュ（ファイル存在チェック）で中断再開をサポートする。
-
-### セグメント単位の再生成（Redo）
-
-`main.py --redo` と Preview UI (`preview_server.py`) の両方から、セグメント単位で `bg` / `audio` / `sub` を再生成できる。字幕のみ修正したい場合は ASS と merged.mp4 のみを削除し、有料APIを呼ばずに最終合成だけを再実行する。
+現行の段階的ゲート方式 (8 ステージ: script / tts / bg / kling / scene / overlay / final_import / publish) と各ステージの成果物・承認フロー・個別シーン再生成 UI は `CLAUDE.md` を参照。
 
 ---
 

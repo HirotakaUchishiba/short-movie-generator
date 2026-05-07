@@ -36,7 +36,7 @@
      camera_distance を設定 (bulk apply で一括も可)
    ・completeness バナーで未解決の不整合を可視化
        ↓
-[5] Stage 1 OK → 以降 Stage 2〜7 が compose 済み (= 派生フィールド焼き済み) を読む
+[5] Stage 1 OK → 以降 Stage 2〜6 が compose 済み (= 派生フィールド焼き済み) を読む
 ```
 
 ポイント:
@@ -144,7 +144,7 @@
 | -------------------------------------- | ---------------- | ----------------------------------------------------- |
 | `load_template(name)`                  | template         | 新規 project 作成時のみ                               |
 | `load_project_abstract(ts_path)`       | project snapshot | UI 編集対象 (= 抽象台本のまま読む)                    |
-| `load_project_screenplay(ts_path)`     | project snapshot | Stage 2〜7 / UI から読む (= compose を毎回走らせる)   |
+| `load_project_screenplay(ts_path)`     | project snapshot | Stage 2〜6 / UI から読む (= compose を毎回走らせる)   |
 | `save_project_screenplay(ts_path, sp)` | project snapshot | 書き込みは全部これ。metadata.screenplay_sha256 も更新 |
 
 ---
@@ -261,7 +261,7 @@ analyze_job_id を持つプロジェクトでのみ表示される (手書き台
 [📹 参考動画 + analyze ジョブ情報] (折りたたみ)
 ```
 
-保存後は `progress_store.revoke_all_approvals(ts_path)` で Stage 1〜7 の承認だけ解除し、生成済み assets は保持する。再 GET で diagnostics が更新される。
+保存後は `progress_store.revoke_all_approvals(ts_path)` で Stage 1〜6 の承認だけ解除し、生成済み assets は保持する。再 GET で diagnostics が更新される。
 
 ### bulk apply
 
@@ -281,7 +281,7 @@ analyze_job_id を持つプロジェクトでのみ表示される (手書き台
 | ------------------------------------------ | ---------------------------------------------------------------------- |
 | `POST /api/projects`                       | template から snapshot を作成                                          |
 | `GET /api/projects/<ts>/abstract`          | snapshot を生のまま + diagnostics                                      |
-| `PUT /api/projects/<ts>/abstract`          | snapshot を上書き保存 (validate_abstract で軽量検証) + Stage 1〜7 解除 |
+| `PUT /api/projects/<ts>/abstract`          | snapshot を上書き保存 (validate_abstract で軽量検証) + Stage 1〜6 解除 |
 | `POST /api/projects/<ts>/scene-boundaries` | line 単位の scene 境界変更 (TTS 再課金なし)                            |
 | `PATCH /api/projects/<ts>/lines/<s>/<l>`   | line 単位の field patch                                                |
 | `PATCH /api/projects/<ts>/scenes/<s>`      | scene 単位の field patch                                               |
@@ -317,6 +317,6 @@ analyze_job_id を持つプロジェクトでのみ表示される (手書き台
 | **`POST /api/projects/<ts>/recompose`** | live derivation で不要に。snapshot 上書き = 再合成と等価                                                    |
 | **`scenes[].wardrobe_tag`**             | キャラ ID に焼き込み (`<base>__<wardrobe>`) する設計に統一                                                  |
 | **`root.location_continuity`**          | グローバル `locations/<id>.json` から引く設計に変更                                                         |
-| **`root.subtitle_y_from_bottom`**       | Stage 7 (字幕焼き込み) で決定するため、台本作成段階の責務外                                                 |
+| **`root.subtitle_y_from_bottom`**       | Stage 6 (字幕焼き込み) で決定するため、台本作成段階の責務外                                                 |
 | **`scenes[].emotion_cue_overrides`**    | ショート動画運用では細かい演出調整は不要。emotion から自動派生で十分                                        |
 | **`lines[].audio_tags` の手動 UI**      | バックエンドの emotion → audio_tags 自動補完を残してUI からは消した                                         |
