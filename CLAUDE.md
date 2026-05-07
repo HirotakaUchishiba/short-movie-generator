@@ -302,7 +302,7 @@ Stage 6 UI (`StageOverlay.tsx`) では:
 
 ## ログ
 
-`logging` モジュール経由で出力される。`LOG_LEVEL` 環境変数でレベル変更、`LOG_FILE` でファイル出力可。
+`logging` モジュール経由で出力される (規約は `docs/developments/coding-rules.md` §2)。`LOG_LEVEL` 環境変数でレベル変更、`LOG_FILE` でファイル出力可。
 
 ## リップシンクプロバイダー
 
