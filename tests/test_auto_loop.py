@@ -128,12 +128,9 @@ def stub_pipeline(auto_loop_env, monkeypatch):
         Path(tmp_path / "output" / f"reels_{ts}.mp4").write_bytes(b"raw_video")
     monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "overlay", _overlay_runner)
 
-    # validator は常に pass にする (= 個別テストで NG にすり替え)
-    from qa.validators_provisional import ValidationResult
-    monkeypatch.setattr("scripts.auto_loop.check_tts_audio",
-                        lambda p: ValidationResult(True, 1.0, "ok"))
-    monkeypatch.setattr("scripts.auto_loop.check_kling_blackframes",
-                        lambda p: ValidationResult(True, 1.0, "ok"))
+    # validator は常に空 (= 全 pass) にする。個別テストで NG にすり替える。
+    monkeypatch.setattr("scripts.auto_loop._validate_stage",
+                        lambda ts, stage: [])
 
     # final_import / publish も stub
     def _fake_import(*args, **kwargs):
@@ -220,16 +217,28 @@ def test_budget_blocks(monkeypatch, auto_loop_env):
 def test_validator_failure_triggers_retry_and_aborts_after_max(
     stub_pipeline, auto_loop_env, monkeypatch,
 ):
-    """tts validator が常に NG → retry 1 回 → 2 回目も NG で abort。"""
+    """tts validator が常に NG → retry 上限まで試みて abort。"""
     al, _ = stub_pipeline
     _, db = auto_loop_env
-    from qa.validators_provisional import ValidationResult
-    monkeypatch.setattr(
-        "scripts.auto_loop.check_tts_audio",
-        lambda p: ValidationResult(False, 0.0, "silence_ratio=99%"),
-    )
-    # regen は STAGE_RUNNERS 経由で再生成扱いにすればよいが、ここでは
-    # staged_pipeline.regen が呼ばれるので、それも no-op に。
+    from qa.validators.base import ValidationResult, failed_result
+
+    def _always_fail(ts, stage):
+        if stage == "tts":
+            r = failed_result(
+                score=0.0, reason="silence_ratio=99%",
+                tag="audio_silence", scene_idx=0, line_idx=0,
+            )
+            # 副作用: auto_loop の _validate_stage が record_failure を呼んでいる
+            # 振る舞いを test stub でも再現しないと、qa_failures に行が入らない。
+            from qa import recorder
+            recorder.record_failure(
+                ts=ts, stage=stage, source="auto_flagged",
+                tags=["audio_silence"], note=r.reason,
+                scene_idx=0, line_idx=0,
+            )
+            return [r]
+        return []
+    monkeypatch.setattr("scripts.auto_loop._validate_stage", _always_fail)
     monkeypatch.setattr("staged_pipeline.regen", lambda *a, **kw: None)
 
     with pytest.raises(al.AutoLoopAborted, match="validator NG"):
@@ -238,11 +247,9 @@ def test_validator_failure_triggers_retry_and_aborts_after_max(
             license_status="user_owned",
         )
 
-    # qa_failures に auto_flagged エントリが残る
     rows = db.list_qa_failures(source="auto_flagged")
     assert len(rows) >= 1
 
-    # generation_records.status は auto_rejected
     last_ts = sorted(os.listdir(auto_loop_env[0] / "temp"))[-1]
     rec = db.get_generation_record(last_ts)
     assert rec["status"] == "auto_rejected"

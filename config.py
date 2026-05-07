@@ -741,3 +741,26 @@ SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
 
 # 1 ステージあたりの最長許容秒数 (= auto_loop が実行を打ち切る目安)。
 AUTO_LOOP_STAGE_TIMEOUT_SEC = int(os.getenv("AUTO_LOOP_STAGE_TIMEOUT_SEC", "1800"))
+
+# ───────────── Phase 2: 自動 QA Validator ─────────────
+# 全 validator のグローバル on/off (= 緊急時 / Phase 1 状態に戻す kill-switch)。
+QA_VALIDATORS_ENABLED = os.getenv("QA_VALIDATORS_ENABLED", "1") in ("1", "true", "True")
+
+# 個別 validator を無効化する。 ":" / "," 区切りで複数指定可。
+# 例: "lipsync_quality,character_drift" → ML 依存の重量級 2 つだけ skip
+_blacklist_raw = os.getenv("QA_VALIDATOR_BLACKLIST", "")
+QA_VALIDATOR_BLACKLIST: tuple[str, ...] = tuple(
+    s.strip() for s in _blacklist_raw.replace(":", ",").split(",")
+    if s.strip()
+)
+
+# stage ごとの retry 上限 (= validator NG が続いた場合に手放す回数)。
+# Phase 1 の暫定 validator は全 stage 1 だったが、Phase 2 で stage 別に
+# コスト / 改善余地のバランスを取る。
+QA_RETRY_LIMITS: dict[str, int] = {
+    "tts": 2,
+    "bg": 2,
+    "kling": 3,
+    "scene": 2,
+    "overlay": 1,
+}

@@ -33,6 +33,7 @@ if str(ROOT) not in sys.path:
     sys.path.insert(0, str(ROOT))
 
 import log_setup  # noqa: E402
+import json  # noqa: E402
 import config  # noqa: E402
 import progress_store  # noqa: E402
 import staged_pipeline  # noqa: E402
@@ -41,16 +42,15 @@ from cost_tracking import budget  # noqa: E402
 from notify import notify_slack  # noqa: E402
 from qa import recorder as qa_recorder  # noqa: E402
 from qa.artifact_paths import stage_artifact_paths  # noqa: E402
-from qa.validators_provisional import (  # noqa: E402
-    ValidationResult,
-    check_kling_blackframes,
-    check_tts_audio,
+from qa.registry import (  # noqa: E402
+    aggregate_scores,
+    run_validators_for_stage,
 )
+from qa.validators.base import ValidationResult  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
 INTERNAL_STAGES = ("tts", "bg", "kling", "scene", "overlay")
-RETRY_PER_STAGE = 1
 VALID_LICENSES = ("user_owned", "fair_use_review", "public_domain")
 
 
@@ -149,50 +149,79 @@ def _run_one_stage(sp_name: str, ts: str, expected_stage: str) -> None:
 
 
 def _validate_stage(ts: str, stage: str) -> list[ValidationResult]:
-    """暫定 validator を回し、fail を qa_failures に auto_flagged で記録。
+    """Phase 2 validator スイートを stage 単位で実行する。
 
-    Returns: fail の ValidationResult list (空なら ok)。
+    `qa.registry.run_validators_for_stage` が disabled / blacklist を尊重しつつ
+    全 validator の結果を返す。fail だけを caller (= run_one_video) が見る。
     """
     ts_path = os.path.join(config.TEMP_DIR, ts)
-    fails: list[ValidationResult] = []
-    if stage == "tts":
-        for mp3 in sorted(glob.glob(os.path.join(ts_path, "tts_*_*.mp3"))):
-            r = check_tts_audio(mp3)
-            if not r.passed:
-                fails.append(r)
-                _record_validator_fail(ts, "tts", "audio_silence", r, [mp3])
-    elif stage == "kling":
-        for mp4 in sorted(glob.glob(os.path.join(ts_path, "kling_*.mp4"))):
-            r = check_kling_blackframes(mp4)
-            if not r.passed:
-                fails.append(r)
-                _record_validator_fail(ts, "kling", "composition_off",
-                                       r, [mp4])
-    return fails
+    sp = _load_screenplay_for_validate(ts_path)
+    results = run_validators_for_stage(ts_path, stage, screenplay=sp)
+    _record_validator_failures(ts, stage, [r for r in results if not r.passed])
+    _update_validator_scores(ts, stage, results)
+    return results
 
 
-def _record_validator_fail(ts: str, stage: str, tag: str,
-                           result: ValidationResult,
-                           artifact_paths: list[str]) -> None:
+def _load_screenplay_for_validate(ts_path: str) -> dict | None:
+    """validator が screenplay 引数を要する場合の lazy load (= 失敗を吸収)。"""
+    try:
+        return staged_pipeline.load_project_screenplay(ts_path)
+    except Exception as e:
+        logger.warning("[auto-loop] load_project_screenplay failed: %s", e)
+        return None
+
+
+def _record_validator_failures(ts: str, stage: str,
+                               fails: list[ValidationResult]) -> None:
     ts_path = os.path.join(config.TEMP_DIR, ts)
     snapshot = staged_pipeline.project_screenplay_path(ts_path)
     snap = snapshot if os.path.exists(snapshot) else None
-    try:
-        qa_recorder.record_failure(
-            ts=ts, stage=stage, source="auto_flagged",
-            tags=[tag], note=result.reason,
-            artifact_paths=artifact_paths,
-            screenplay_snapshot_path=snap,
+    for r in fails:
+        if not r.tag:
+            continue
+        artifact_paths = stage_artifact_paths(
+            ts_path, stage, r.scene_idx, r.line_idx,
         )
+        try:
+            qa_recorder.record_failure(
+                ts=ts, stage=stage, source="auto_flagged",
+                tags=[r.tag], note=r.reason,
+                scene_idx=r.scene_idx, line_idx=r.line_idx,
+                artifact_paths=artifact_paths,
+                screenplay_snapshot_path=snap,
+            )
+        except Exception as e:
+            logger.warning(
+                "[auto-loop] qa_recorder.record_failure failed: %s", e,
+            )
+
+
+def _update_validator_scores(ts: str, stage: str,
+                             results: list[ValidationResult]) -> None:
+    """``generation_records.validator_scores`` の stage キーに集計を書き込む。"""
+    summary = aggregate_scores(results)
+    existing: dict = {}
+    rec = _adb.get_generation_record(ts)
+    if rec:
+        try:
+            existing = json.loads(rec.get("validator_scores") or "{}")
+            if not isinstance(existing, dict):
+                existing = {}
+        except (json.JSONDecodeError, TypeError):
+            existing = {}
+    existing[stage] = summary
+    try:
+        _adb.update_generation_record(ts, validator_scores=existing)
     except Exception as e:
-        logger.warning("[auto-loop] qa_recorder.record_failure failed: %s", e)
+        logger.warning("[auto-loop] update_generation_record failed: %s", e)
 
 
-def _archive_before_retry(ts: str, stage: str) -> None:
+def _archive_before_retry(ts: str, stage: str,
+                          scene_idx: int | None = None) -> None:
     """retry 直前に前世代を regenerate_implicit でアーカイブ。"""
     ts_path = os.path.join(config.TEMP_DIR, ts)
     paths = stage_artifact_paths(ts_path, stage,
-                                 scene_idx=None, line_idx=None)
+                                 scene_idx=scene_idx, line_idx=None)
     if not any(os.path.exists(p) for p in paths):
         return
     snapshot = staged_pipeline.project_screenplay_path(ts_path)
@@ -200,22 +229,36 @@ def _archive_before_retry(ts: str, stage: str) -> None:
     try:
         qa_recorder.record_failure(
             ts=ts, stage=stage, source="regenerate_implicit",
-            tags=None, note=None,
+            tags=None, note=None, scene_idx=scene_idx,
             artifact_paths=paths, screenplay_snapshot_path=snap,
         )
     except Exception as e:
         logger.warning("[auto-loop] retry archive failed: %s", e)
 
 
-def _retry_stage(sp_name: str, ts: str, stage: str) -> None:
-    """stage 全体を regen する (= scene_idx=None で全シーン再生成)。"""
-    _archive_before_retry(ts, stage)
+def _retry_stage(sp_name: str, ts: str, stage: str,
+                 scene_idx: int | None = None) -> None:
+    """stage を regen する。``scene_idx`` 指定で per-scene retry。"""
+    _archive_before_retry(ts, stage, scene_idx=scene_idx)
     ts_path = os.path.join(config.TEMP_DIR, ts)
     sp = _load_screenplay(sp_name, ts_path)
-    logger.info("[auto-loop] retry stage=%s ts=%s", stage, ts)
+    logger.info("[auto-loop] retry stage=%s scene=%s ts=%s",
+                stage, scene_idx, ts)
     staged_pipeline.regen(stage, sp, ts_path,
-                          scene_idx=None, line_idx=None,
+                          scene_idx=scene_idx, line_idx=None,
                           force=True, screenplay_name=sp_name)
+
+
+def _retry_failed_scenes(sp_name: str, ts: str, stage: str,
+                         fails: list[ValidationResult]) -> None:
+    """fail のあったシーンだけを regen する。stage 全体 fail なら full regen。"""
+    fail_scenes = sorted({r.scene_idx for r in fails
+                          if r.scene_idx is not None})
+    if fail_scenes:
+        for s_idx in fail_scenes:
+            _retry_stage(sp_name, ts, stage, scene_idx=s_idx)
+    else:
+        _retry_stage(sp_name, ts, stage, scene_idx=None)
 
 
 def _approve(ts: str, stage: str) -> None:
@@ -275,25 +318,27 @@ def run_one_video(
 
     try:
         for stage in INTERNAL_STAGES:
-            # attempt=0 は初回生成、それ以降は regen での上書き再試行。
-            for attempt in range(RETRY_PER_STAGE + 1):
-                if attempt == 0:
-                    _run_one_stage(sp_name, ts, stage)
-                else:
-                    _retry_stage(sp_name, ts, stage)
-                fails = _validate_stage(ts, stage)
+            max_retries = config.QA_RETRY_LIMITS.get(stage, 1)
+            _run_one_stage(sp_name, ts, stage)
+            retries = 0
+            while True:
+                results = _validate_stage(ts, stage)
+                fails = [r for r in results if not r.passed]
                 if not fails:
                     break
-                if attempt == RETRY_PER_STAGE:
+                if retries >= max_retries:
                     notify_slack(
                         "error",
-                        f"auto_loop: stage {stage} validator failed after retry",
+                        f"auto_loop: stage {stage} validator failed "
+                        f"after {retries} retries",
                         context={"ts": ts, "fails": len(fails)},
                     )
                     raise AutoLoopAborted(
                         f"stage {stage} validator NG after retry: "
                         f"{[r.reason for r in fails][:3]}",
                     )
+                retries += 1
+                _retry_failed_scenes(sp_name, ts, stage, fails)
             _approve(ts, stage)
 
         # Stage 7: raw を canonical に (= CapCut 編集スキップ)
