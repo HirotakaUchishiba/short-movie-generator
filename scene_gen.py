@@ -31,6 +31,58 @@ def _project_ts(temp_dir: str) -> str:
 BG_PARALLEL_WORKERS = 4
 
 
+class PartialBackgroundFailure(RuntimeError):
+    """Stage 3 で一部のシーンが失敗したことを示す。
+
+    成功シーンの ``tmp/bg_<S>.png`` は保持される (= UI / CLI で失敗シーンのみ
+    個別再生成で復旧可能)。``failed_scene_indices`` は 0-origin。
+    """
+
+    def __init__(self, failed: list[int], total: int,
+                 errors: dict[int, str] | None = None) -> None:
+        self.failed_scene_indices = sorted(failed)
+        self.total_scenes = total
+        self.errors = errors or {}
+        succeeded = total - len(self.failed_scene_indices)
+        msg = (
+            f"Stage 3 (BG) 部分失敗: {succeeded}/{total} シーン成功、"
+            f"失敗シーン (0-origin): {self.failed_scene_indices}。"
+            "成功した bg_<S>.png は temp/ に保持されているので、"
+            "失敗シーンのみ個別再生成で復旧してください。"
+        )
+        super().__init__(msg)
+
+
+def _run_bg_pool_collecting(
+    submit_args: list[tuple[int, dict]],
+    temp_dir: str,
+    screenplay: dict,
+) -> tuple[dict[str, str], dict[int, BaseException]]:
+    # 1 シーンの例外で全体を止めず、成功 dict と失敗 dict に振り分けて返す。
+    # raise / mark_generated / ログ集計は呼び出し側責務。
+    bg_paths: dict[str, str] = {}
+    errors: dict[int, BaseException] = {}
+    if not submit_args:
+        return bg_paths, errors
+    with ThreadPoolExecutor(max_workers=BG_PARALLEL_WORKERS) as pool:
+        futures = {
+            pool.submit(_generate_background_with_retry, i, scene,
+                        temp_dir, screenplay): i
+            for i, scene in submit_args
+        }
+        for fut in as_completed(futures):
+            i = futures[fut]
+            try:
+                bg_key, path = fut.result()
+            except BaseException as e:
+                errors[i] = e
+                logger.exception("シーン%d 背景生成失敗: %s", i + 1, e)
+                continue
+            bg_paths[bg_key] = path
+            screenplay["scenes"][i]["_bg_key"] = bg_key
+    return bg_paths, errors
+
+
 def _dominant_emotion(scene: dict) -> str | None:
     emotions = [l.get("emotion") for l in (scene.get("lines") or []) if l.get("emotion")]
     if not emotions:
@@ -958,28 +1010,28 @@ def bg_generate_fresh(screenplay: dict, temp_dir: str,
     cache lookup はバイパス、生成成功後は cache に store される。
     """
     scenes = screenplay.get("scenes") or []
-    bg_paths: dict[str, str] = {}
     if not scene_indices:
-        return bg_paths
+        return {}
     # force_fresh hint を一時的に立て、retry helper 内の _generate_single_background
     # で cache を必ず bypass させる
     for i in scene_indices:
         scenes[i]["bg_force_fresh"] = True
     try:
-        with ThreadPoolExecutor(max_workers=BG_PARALLEL_WORKERS) as pool:
-            futures = {
-                pool.submit(_generate_background_with_retry, i, scenes[i],
-                            temp_dir, screenplay): i
-                for i in scene_indices
-            }
-            for fut in as_completed(futures):
-                i = futures[fut]
-                bg_key, path = fut.result()
-                bg_paths[bg_key] = path
-                scenes[i]["_bg_key"] = bg_key
+        submit_args = [(i, scenes[i]) for i in scene_indices]
+        bg_paths, errors = _run_bg_pool_collecting(
+            submit_args, temp_dir, screenplay)
     finally:
         for i in scene_indices:
             scenes[i].pop("bg_force_fresh", None)
+    if errors:
+        failed = list(errors.keys())
+        succeeded = len(scene_indices) - len(failed)
+        logger.info(
+            "[背景] %d/%d シーン成功、失敗シーン: %s",
+            succeeded, len(scene_indices), sorted(i + 1 for i in failed))
+        raise PartialBackgroundFailure(
+            failed, len(scene_indices),
+            errors={i: repr(e) for i, e in errors.items()})
     return bg_paths
 
 
@@ -1010,24 +1062,34 @@ def generate_backgrounds(screenplay: dict, temp_dir: str,
                 cache_indices.append(i)
             else:
                 fresh_indices.append(i)
-        # 2. fresh シーンは pool で並列生成
-        fresh_paths = bg_generate_fresh(screenplay, temp_dir, fresh_indices)
+        # 2. fresh シーンは pool で並列生成 (= 失敗 1 件以上で PartialBackgroundFailure。
+        #    cache 経由で commit 済みシーンの artifact はそのまま残す)
+        try:
+            fresh_paths = bg_generate_fresh(screenplay, temp_dir, fresh_indices)
+        except PartialBackgroundFailure as e:
+            logger.info(
+                "[背景] cache=%d は確定済みのまま保持。fresh=%d 中 %d 失敗。",
+                len(cache_indices), len(fresh_indices),
+                len(e.failed_scene_indices))
+            raise
         bg_paths.update(fresh_paths)
         logger.info("背景: %d枚 (cache=%d, fresh=%d)",
                     len(bg_paths), len(cache_indices), len(fresh_indices))
         return bg_paths
 
     # ─── legacy: 全シーン並列、cache lookup auto ───
-    with ThreadPoolExecutor(max_workers=BG_PARALLEL_WORKERS) as pool:
-        futures = {
-            pool.submit(_generate_background_with_retry, i, scene, temp_dir, screenplay): i
-            for i, scene in enumerate(scenes)
-        }
-        for fut in as_completed(futures):
-            i = futures[fut]
-            bg_key, path = fut.result()
-            bg_paths[bg_key] = path
-            scenes[i]["_bg_key"] = bg_key
+    submit_args = list(enumerate(scenes))
+    bg_paths, errors = _run_bg_pool_collecting(
+        submit_args, temp_dir, screenplay)
+    if errors:
+        failed = list(errors.keys())
+        succeeded = len(scenes) - len(failed)
+        logger.info(
+            "[背景] %d/%d シーン成功、失敗シーン: %s",
+            succeeded, len(scenes), sorted(i + 1 for i in failed))
+        raise PartialBackgroundFailure(
+            failed, len(scenes),
+            errors={i: repr(e) for i, e in errors.items()})
 
     logger.info("背景: %d枚", len(bg_paths))
     return bg_paths
