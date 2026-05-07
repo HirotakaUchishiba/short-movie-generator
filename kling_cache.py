@@ -128,7 +128,8 @@ def load_meta(key: str) -> dict | None:
     try:
         with open(meta_path, encoding="utf-8") as f:
             return json.load(f)
-    except Exception:
+    except Exception as e:
+        logger.debug("kling_cache load_meta failed (%s): %s", meta_path, e)
         return None
 
 
@@ -300,8 +301,8 @@ def _evaluate_quality(meta: dict) -> dict:
             created = datetime.fromisoformat(created_at.replace("Z", "+00:00"))
             if datetime.now(timezone.utc) - created > timedelta(days=ttl_days):
                 rejected.append(f"TTL 超過 ({ttl_days}日)")
-        except Exception:
-            pass
+        except Exception as e:
+            logger.debug("kling_cache TTL parse failed: %s (%s)", created_at, e)
     if not quality.get("final_render_completed"):
         warnings.append("元プロジェクトで最終納品未到達")
     return {
@@ -399,7 +400,9 @@ def touch(key: str) -> None:
         try:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug("kling_cache touch meta load failed (%s): %s",
+                         meta_path, e)
             return
         meta["hit_count"] = int(meta.get("hit_count", 0)) + 1
         meta["last_used_at"] = _now()
@@ -423,7 +426,9 @@ def _update_quality(key: str, **fields: Any) -> bool:
         try:
             with open(meta_path, encoding="utf-8") as f:
                 meta = json.load(f)
-        except Exception:
+        except Exception as e:
+            logger.debug("kling_cache _update_quality meta load failed "
+                         "(%s): %s", meta_path, e)
             return False
         quality = dict(meta.get("quality") or {})
         quality.update(fields)
@@ -466,10 +471,11 @@ def verify(key: str) -> bool:
         r = subprocess.run(
             ["ffprobe", "-v", "error", "-show_entries", "format=duration",
              "-print_format", "json", str(mp4)],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=30,
         )
         ok = r.returncode == 0
-    except Exception:
+    except Exception as e:
+        logger.debug("kling_cache verify ffprobe failed (%s): %s", mp4, e)
         ok = False
     _update_quality(key, ffprobe_ok=ok)
     return ok
@@ -492,7 +498,9 @@ def list_entries() -> list[dict[str, Any]]:
             try:
                 with open(meta_path, encoding="utf-8") as f:
                     meta = json.load(f)
-            except Exception:
+            except Exception as e:
+                logger.debug("kling_cache list_entries meta load failed "
+                             "(%s): %s", meta_path, e)
                 meta = {}
         out.append({
             "key": mp4.stem,

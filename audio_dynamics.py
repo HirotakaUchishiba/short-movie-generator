@@ -28,11 +28,15 @@ def _ffprobe_duration(path: str) -> float:
         r = subprocess.run(
             ["ffprobe", "-v", "quiet", "-show_entries", "format=duration",
              "-of", "csv=p=0", path],
-            capture_output=True, text=True,
+            capture_output=True, text=True, timeout=30,
         )
         s = r.stdout.strip()
         return float(s) if s else 0.0
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "[audio_dynamics] ffprobe 失敗 — duration=0 で続行: %s (%s)",
+            path, e,
+        )
         return 0.0
 
 
@@ -66,9 +70,13 @@ def _classify_silence_pattern(audio_path: str, total_dur: float) -> str:
             "-af", "silencedetect=noise=-40dB:d=0.15",
             "-f", "null", "-",
         ]
-        r = subprocess.run(cmd, capture_output=True, text=True)
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=60)
         n_silences = r.stderr.count("silence_start:")
-    except Exception:
+    except Exception as e:
+        logger.warning(
+            "[audio_dynamics] silencedetect 失敗 — fluent 扱いで続行: %s (%s)",
+            audio_path, e,
+        )
         n_silences = 0
 
     if total_dur < 1.0:
