@@ -16,6 +16,7 @@ from datetime import datetime
 from pathlib import Path
 
 import config
+import preflight
 import progress_store
 import staged_pipeline
 
@@ -53,6 +54,7 @@ def publish(ts: str, platform: str, **opts) -> dict:
     )
 
     if platform == "youtube":
+        preflight.check_publish_youtube()
         result = _publish_youtube(ts, video, title, description, tags, **opts)
     elif platform == "instagram":
         result = _publish_semi_auto(

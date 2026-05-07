@@ -8,6 +8,7 @@ from datetime import datetime
 
 import config
 import io_utils
+import preflight
 import progress_store
 import scene_gen
 from compositor import compose_video, _apply_overlays, _merge_scenes
@@ -305,6 +306,7 @@ def run_script(screenplay: dict, screenplay_name: str, ts_path: str,
 def run_tts(screenplay: dict, ts_path: str) -> None:
     """Stage 2: TTS生成。"""
     _ensure_prev_approved("script", ts_path)
+    preflight.check_stage("tts")
     scene_gen.generate_tts_for_screenplay(screenplay, ts_path)
     progress_store.mark_generated(ts_path, "tts")
     logger.info("[TTS] 生成完了")
@@ -319,6 +321,7 @@ def run_bg(screenplay: dict, ts_path: str) -> None:
     miss は fresh 生成にフォールバック。
     """
     _ensure_prev_approved("tts", ts_path)
+    preflight.check_stage("bg")
     decisions_state = progress_store.get_decisions(ts_path, "bg")
     decisions = decisions_state.get("scene_decisions") or {}
     bg_paths = scene_gen.generate_backgrounds(
@@ -336,6 +339,7 @@ def run_kling(screenplay: dict, ts_path: str) -> None:
     miss は fresh 生成にフォールバック。
     """
     _ensure_prev_approved("bg", ts_path)
+    preflight.check_stage("kling")
     decisions_state = progress_store.get_kling_decisions(ts_path)
     decisions = decisions_state.get("scene_decisions") or {}
     scene_gen.generate_kling_for_screenplay(
@@ -347,6 +351,7 @@ def run_kling(screenplay: dict, ts_path: str) -> None:
 def run_scene(screenplay: dict, ts_path: str) -> None:
     """Stage 5+6: 音声合成 + リップシンクで scene_<i>.mp4 を作成。"""
     _ensure_prev_approved("kling", ts_path)
+    preflight.check_stage("scene")
     paths = scene_gen.assemble_scene_videos(screenplay, ts_path)
     progress_store.mark_generated(ts_path, "scene")
     logger.info("[音声/リップシンク合成] 完了 — %d本", len(paths))
