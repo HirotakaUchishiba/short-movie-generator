@@ -211,17 +211,17 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 | `lipsync`           | 既定true。silent時は無視                                                                                                                                                                                  |
 | `lines[]`           | シーン内のセリフ配列                                                                                                                                                                                      |
 
-| ライン                | 説明                                                                                                                       |
-| --------------------- | -------------------------------------------------------------------------------------------------------------------------- |
-| `text`                | セリフ。ASCIIの `,` `.` 禁止（validatorで拒否）。全角句読点/括弧はTTS直前に自動除去                                        |
-| `start`               | シーン内相対秒でのセリフ開始。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                       |
-| `end`                 | セリフ末尾の相対秒。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                                 |
-| `rate`                | TTS速度（例 `"+10%"`）。指定時は`emotion`プリセットと`acoustic.wpm`の自動算出を上書き                                      |
-| `emotion`             | `config.EMOTION_VOICE_PRESETS`のキーと対応。自動でTTS paramとKling motion addon適用                                        |
-| `delivery`            | 話し方の自然言語記述。`config.DELIVERY_TAG_ENABLED=True`なら eleven_v3 inline tag として `[delivery] text` 形式でTTSへ送信 |
-| `acoustic`            | librosa由来のpitch/rms/wpm。**自動活用**: `wpm`→rate算出、`pitch_trend`→style微調整、`rms_peak`→ffmpeg音量±dB              |
-| `voice_overrides`     | 特定lineに限定したElevenLabs paramの明示上書き。`emotion`プリセットより優先                                                |
-| `pronunciation_hints` | TTS送信前のテキスト置換（例 `{"IT": "アイティー"}`）                                                                       |
+| ライン                | 説明                                                                                                                                                             |
+| --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `text`                | セリフ。ASCIIの `,` `.` 禁止（validatorで拒否）。全角句読点/括弧はTTS直前に自動除去                                                                              |
+| `start`               | シーン内相対秒でのセリフ開始。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                                                             |
+| `end`                 | セリフ末尾の相対秒。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では編集しない                                                                       |
+| `emotion`             | 感情ラベル。`config.EMOTION_AUDIO_TAGS` のキーが eleven_v3 inline tag (`[surprised]` 等) として line.text 先頭に自動挿入される + Kling motion addon が適用される |
+| `audio_tags`          | eleven_v3 inline tag を line 単位で手動指定 (例: `["whispers"]`, `["shouts"]`)。emotion 由来のタグと併用される                                                   |
+| `delivery`            | 話し方の自然言語記述。`config.DELIVERY_TAG_ENABLED=True`なら eleven_v3 inline tag として `[delivery] text` 形式でTTSへ送信                                       |
+| `emotion_intensity`   | `soft` / `normal` / `strong`。analyzer / UI 編集メタとして保持されるが TTS パラメータには反映されない (= one-shot TTS 制約)                                      |
+| `acoustic`            | analyze pipeline 由来の pitch/rms/wpm。表示・LLM 補助入力用 (TTS には反映されない)                                                                               |
+| `pronunciation_hints` | TTS送信前のテキスト置換（例 `{"IT": "アイティー"}`）                                                                                                             |
 
 | シーン拡張        | 説明                                                                                     |
 | ----------------- | ---------------------------------------------------------------------------------------- |
@@ -257,24 +257,23 @@ python3 scripts/analyze_video.py path/to/reference.mov --instructions "TikTok UI
 - 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
-## 感情→TTS/モーション自動適用
+## 感情 → inline tag / Kling motion 自動適用
 
-`scenes[].lines[].emotion`に以下のいずれかを入れると、`config.EMOTION_VOICE_PRESETS`と`config.EMOTION_MOTION_ADDONS`から自動でTTSパラメータとKlingアニメーションキーワードが適用される:
+`scenes[].lines[].emotion` に以下のいずれかを入れると、ElevenLabs eleven_v3 の inline audio tag (`config.EMOTION_AUDIO_TAGS`) が line.text 先頭に `[surprised]` 等の形で自動挿入され、Kling animation_prompt にも `config.EMOTION_MOTION_ADDONS` 由来のモーションキーワードが追加される:
 
 `驚き / 喜び / 焦り / 落胆 / 中立 / 満足 / 困惑 / 怒り / 恥ずかしさ`
 
-手動で細かく制御したい場合は `voice_overrides` で個別に上書き。
+per-line で voice 表現を細かく制御したい場合は `audio_tags[]` (例: `["whispers"]`, `["shouts"]`, `["crying"]`) を直接指定する。`config.AVAILABLE_AUDIO_TAGS` に候補一覧がある。
 
-## 自動活用される音響メタデータ
+## TTS の制約 (one-shot 経路)
 
-`acoustic` の各値は scene_gen で以下のように自動消費される:
+Stage 2 は **screenplay 全体を 1 ElevenLabs API call** で生成する (= `generate_screenplay_tts_one_shot`)。連続音声で char-level timestamps を取得することで line 境界を silence-detect で snap し、自然な抑揚と pacing を実現している。
 
-| メタ                   | 使われ方                                                                   |
-| ---------------------- | -------------------------------------------------------------------------- |
-| `acoustic.wpm`         | `WPM_BASELINE`(=280) を基準に `rate` を自動算出。`rate` 明示があれば上書き |
-| `acoustic.pitch_trend` | `rising`→TTS style +0.10、`falling`→-0.05                                  |
-| `acoustic.rms_peak`    | <0.30→TTS音声を `-6dB` で生成、>0.55→`+3dB`。中間は手付かず                |
-| `delivery`             | `[delivery] text` の inline tag として eleven_v3 へ送信                    |
+このため:
+
+- `voice_id` / `stability` / `similarity_boost` / `style` / `speed` は **screenplay-wide で 1 セット** (= `config.ELEVENLABS_*` グローバル + `TTS_GLOBAL_SPEED`)。per-line 切替不可
+- per-line の表現切替は **inline tag だけ** で行う (= `audio_tags[]`, `emotion`, `delivery`)
+- analyze pipeline が記録する `acoustic.wpm` / `pitch_trend` / `rms_peak` は表示・LLM 補助用で TTS パラメータには反映されない
 
 ## オーバーレイ
 

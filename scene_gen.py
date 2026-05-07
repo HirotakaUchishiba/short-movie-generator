@@ -229,124 +229,6 @@ def _load_global_furigana_dict() -> dict[str, str]:
         return {}
 
 
-def _wpm_to_rate_pct(wpm: float) -> int:
-    if not wpm or wpm <= 0:
-        return 0
-    delta = (wpm - config.WPM_BASELINE) * config.WPM_RATE_GAIN * 100
-    bound = config.WPM_RATE_BOUND_PCT
-    return max(-bound, min(bound, int(round(delta))))
-
-
-def _resolve_voice_settings(line: dict, screenplay: dict | None = None) -> dict:
-    """lineの emotion / acoustic / rate / voice_overrides を統合解決する。"""
-    settings = {
-        "voice_id": config.ELEVENLABS_VOICE_ID,
-        "stability": config.ELEVENLABS_VOICE_STABILITY,
-        "similarity_boost": config.ELEVENLABS_VOICE_SIMILARITY_BOOST,
-        "style": config.ELEVENLABS_VOICE_STYLE,
-        "rate_pct": 0,
-    }
-
-    emotion = line.get("emotion")
-    preset = config.EMOTION_VOICE_PRESETS.get(emotion or "")
-    if preset:
-        for k in ("stability", "similarity_boost", "style"):
-            if k in preset:
-                settings[k] = preset[k]
-        settings["rate_pct"] = preset.get("rate_pct", settings["rate_pct"])
-
-    intensity = line.get("emotion_intensity") or "normal"
-    intensity_mod = config.EMOTION_INTENSITY_MULTIPLIERS.get(intensity, {})
-    if "stability" in intensity_mod:
-        settings["stability"] = max(0.0, min(1.0,
-            settings["stability"] + intensity_mod["stability"]))
-    if "style" in intensity_mod:
-        settings["style"] = max(0.0, min(1.0,
-            settings["style"] + intensity_mod["style"]))
-    if "rate_pct" in intensity_mod:
-        settings["rate_pct"] = settings.get("rate_pct", 0) + intensity_mod["rate_pct"]
-
-    acoustic = line.get("acoustic") or {}
-    pitch_trend = acoustic.get("pitch_trend")
-    if pitch_trend in config.PITCH_TREND_STYLE_DELTA:
-        settings["style"] = max(0.0, min(1.0,
-            settings["style"] + config.PITCH_TREND_STYLE_DELTA[pitch_trend]))
-
-    rate_str = line.get("rate") or ""
-    m = re.match(r'([-+]?\d+)%', rate_str)
-    if m:
-        settings["rate_pct"] = int(m.group(1))
-    elif acoustic.get("wpm"):
-        derived = _wpm_to_rate_pct(float(acoustic["wpm"]))
-        if derived:
-            settings["rate_pct"] = derived
-
-    overrides = line.get("voice_overrides") or {}
-    for k in ("voice_id", "stability", "similarity_boost", "style"):
-        if k in overrides:
-            settings[k] = overrides[k]
-    if "rate_pct" in overrides:
-        settings["rate_pct"] = overrides["rate_pct"]
-
-    settings["speed"] = 1.0 + settings["rate_pct"] / 100.0
-    return settings
-
-
-def _collect_audio_tags(line: dict) -> list[str]:
-    """emotion → audio_tag のマッピング + line.audio_tags を統合した一覧を返す。"""
-    tags: list[str] = []
-    if getattr(config, "EMOTION_AUDIO_TAGS_ENABLED", True):
-        emotion = line.get("emotion") or ""
-        tags.extend(config.EMOTION_AUDIO_TAGS.get(emotion, []))
-    extra = line.get("audio_tags") or []
-    for t in extra:
-        t = str(t).strip()
-        if t and t not in tags:
-            tags.append(t)
-    return tags
-
-
-def _build_tts_text(line: dict, global_dict: dict | None = None) -> str:
-    """eleven_v3 audio tag + delivery + 本文 を組み立てた TTS送信用テキストを返す。
-
-    優先順位:
-      1. line.tts_text があればそれを完全上書き使用 (pronunciation_hintsスキップ)
-      2. それ以外は text + pronunciation_hints + clean_text
-    本文の先頭に audio tags ([surprised][happy] 等) と delivery タグを付与する。
-    """
-    override = (line.get("tts_text") or "").strip()
-    if override:
-        cleaned = override
-    else:
-        raw = _apply_pronunciation_hints(
-            line["text"], line.get("pronunciation_hints"), global_dict)
-        cleaned = _clean_text(raw)
-
-    prefix_parts: list[str] = []
-    for tag in _collect_audio_tags(line):
-        prefix_parts.append(f"[{tag}]")
-
-    if config.DELIVERY_TAG_ENABLED:
-        delivery = (line.get("delivery") or "").strip()
-        if delivery:
-            delivery = delivery.replace("[", "").replace("]", "")
-            prefix_parts.append(f"[{delivery}]")
-
-    if not prefix_parts:
-        return cleaned
-    return " ".join(prefix_parts) + " " + cleaned
-
-
-def _rms_to_volume_db(rms_peak: float) -> float | None:
-    if rms_peak is None or rms_peak <= 0:
-        return None
-    if rms_peak < config.RMS_VOLUME_QUIET_THRESHOLD:
-        return config.RMS_VOLUME_QUIET_DB
-    if rms_peak > config.RMS_VOLUME_LOUD_THRESHOLD:
-        return config.RMS_VOLUME_LOUD_DB
-    return None
-
-
 def _neighbor_line_text(screenplay: dict | None, scene_idx: int,
                          line_idx: int, direction: str) -> str | None:
     """指定lineの前/後のline.textを取得。シーン境界を跨いで隣接シーンも探索する。
@@ -604,13 +486,6 @@ def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
             logger.warning("bg_cache store failed: %s", e)
 
     return bg_key, path
-
-
-def _rate_to_speed(rate: str) -> float:
-    m = re.match(r'[+]?(\d+)%', rate)
-    if m:
-        return 1.0 + int(m.group(1)) / 100.0
-    return 1.0
 
 
 def _get_duration(path: str) -> float:

@@ -74,19 +74,6 @@ TTS_TRIM_LONG_SILENCES = True
 TTS_MAX_SILENCE_MS = 250                # この長さまでの無音は残し、超過分はカット
 TTS_SILENCE_THRESHOLD_DB = -40.0        # この音量以下を無音と判定
 
-EMOTION_VOICE_PRESETS: dict[str, dict] = {
-    # 驚き: style高め=陽キャ的になりがちなので低めに、stabilityも上げて短い"はっ!"を表現
-    "驚き":   {"stability": 0.45, "style": 0.35, "similarity_boost": 0.75, "rate_pct": 8},
-    "喜び":   {"stability": 0.35, "style": 0.5,  "similarity_boost": 0.75, "rate_pct": 5},
-    "焦り":   {"stability": 0.25, "style": 0.55, "similarity_boost": 0.75, "rate_pct": 15},
-    "落胆":   {"stability": 0.6,  "style": 0.2,  "similarity_boost": 0.8,  "rate_pct": -5},
-    "中立":   {"stability": 0.5,  "style": 0.3,  "similarity_boost": 0.75, "rate_pct": 0},
-    "満足":   {"stability": 0.45, "style": 0.4,  "similarity_boost": 0.75, "rate_pct": 0},
-    "困惑":   {"stability": 0.55, "style": 0.3,  "similarity_boost": 0.75, "rate_pct": -3},
-    "怒り":   {"stability": 0.3,  "style": 0.6,  "similarity_boost": 0.75, "rate_pct": 5},
-    "恥ずかしさ": {"stability": 0.55, "style": 0.3, "similarity_boost": 0.8, "rate_pct": -5},
-}
-
 EMOTION_MOTION_ADDONS: dict[str, str] = {
     "驚き": "sudden eye widening, quick startled motion",
     "喜び": "bright relaxed joyful movement",
@@ -594,14 +581,6 @@ EMOTION_AUDIO_TAGS: dict[str, list[str]] = {
     "恥ずかしさ": ["shyly"],
 }
 
-# Intensity 修飾子: emotion preset の値に加算/減算する補正
-# 軽め=控えめ表現、強め=演技がかった表現
-EMOTION_INTENSITY_MULTIPLIERS: dict[str, dict] = {
-    "soft":   {"stability": +0.15, "style": -0.15, "rate_pct": 0},
-    "normal": {"stability": 0.0,   "style": 0.0,   "rate_pct": 0},
-    "strong": {"stability": -0.15, "style": +0.20, "rate_pct": +3},
-}
-
 # UI ヘルパー: audio_tagsの候補一覧
 AVAILABLE_AUDIO_TAGS = [
     # 笑い・声色
@@ -618,21 +597,6 @@ AVAILABLE_AUDIO_TAGS = [
     # その他
     "crying", "sobbing", "mischievously", "sarcastically",
 ]
-
-WPM_BASELINE = 280
-WPM_RATE_GAIN = 0.0011
-WPM_RATE_BOUND_PCT = 25
-
-PITCH_TREND_STYLE_DELTA = {
-    "rising": 0.10,
-    "falling": -0.05,
-    "flat": 0.0,
-}
-
-RMS_VOLUME_QUIET_THRESHOLD = 0.30
-RMS_VOLUME_LOUD_THRESHOLD = 0.55
-RMS_VOLUME_QUIET_DB = -6.0
-RMS_VOLUME_LOUD_DB = 3.0
 
 DELIVERY_TAG_FORMAT = "[{delivery}] {text}"
 DELIVERY_TAG_ENABLED = True

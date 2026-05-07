@@ -162,37 +162,33 @@ SCHEMA: dict = {
                                     "exclusiveMinimum": 0,
                                     "description": "字幕が消える相対秒（TTS長には使わない、字幕表示のみ）",
                                 },
-                                "rate": {
-                                    "type": "string",
-                                    "description": "TTS速度（例 +10%）",
-                                },
                                 "emotion": {
                                     "type": "string",
-                                    "description": "感情ラベル（例 驚き/喜び/焦り）。config.EMOTION_VOICE_PRESETSのキーと対応",
+                                    "description": "感情ラベル（例 驚き/喜び/焦り）。config.EMOTION_AUDIO_TAGS のキーと対応 (eleven_v3 inline tag に変換)",
                                 },
                                 "emotion_intensity": {
                                     "type": "string",
                                     "enum": ["soft", "normal", "strong"],
-                                    "description": "感情の強度。emotion presetに加算/減算修飾",
+                                    "description": "感情の強度。analyzer / UI 編集用メタ (TTS パラメータには反映されない)",
                                 },
                                 "audio_tags": {
                                     "type": "array",
                                     "items": {"type": "string"},
-                                    "description": "eleven_v3 audio tags (例: [\"laughs\", \"whispers\"])",
+                                    "description": "eleven_v3 audio tags (例: [\"laughs\", \"whispers\"])。line.text の先頭に [tag] として挿入される",
                                 },
                                 "delivery": {
                                     "type": "string",
-                                    "description": "話し方の自然言語記述（人間・LLMが読む参考情報）",
+                                    "description": "話し方の自然言語記述。DELIVERY_TAG_ENABLED 時は eleven_v3 inline tag として送信",
                                 },
                                 "acoustic": {
                                     "type": "object",
                                     "additionalProperties": True,
+                                    "description": "analyze pipeline (librosa) 由来の音響メタ (pitch/rms/wpm)。表示・LLM 補助入力用で TTS には反映されない",
                                     "properties": {
                                         "pitch_trend": {"type": "string"},
                                         "rms_peak": {"type": "number"},
                                         "wpm": {"type": "number"},
                                     },
-                                    "description": "librosaから取得した音響特徴量",
                                 },
                                 "voice_overrides": {
                                     "type": "object",
@@ -203,7 +199,7 @@ SCHEMA: dict = {
                                         "similarity_boost": {"type": "number"},
                                         "voice_id": {"type": "string"},
                                     },
-                                    "description": "このlineに限定したElevenLabsパラメータ上書き",
+                                    "description": "compose / analyze pipeline が speaker_to_ref から書き込む voice メタの保管庫。one-shot TTS 経路では実際の生成には反映されない (= 互換目的の保持)",
                                 },
                                 "pronunciation_hints": {
                                     "type": "object",

@@ -31,8 +31,8 @@ def project(tmp_path, monkeypatch):
             {
                 "duration": 5,
                 "lines": [
-                    {"text": "line A", "start": 0, "end": 1.0, "rate": "+10%"},
-                    {"text": "line B", "start": 1, "end": 2.0, "rate": "+5%"},
+                    {"text": "line A", "start": 0, "end": 1.0},
+                    {"text": "line B", "start": 1, "end": 2.0},
                     {"text": "line C", "start": 2, "end": 3.0},
                 ],
             },
@@ -63,27 +63,32 @@ def client():
 # ─── line patch ──────────────────────────────────────────
 
 
-def test_patch_line_updates_rate(client, project):
+def test_patch_line_updates_emotion(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"rate": "+50%"}},
+        json={"patch": {"emotion": "焦り"}},
     )
     assert r.status_code == 200, r.get_json()
     sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["lines"][0]["rate"] == "+50%"
+    assert sp["scenes"][0]["lines"][0]["emotion"] == "焦り"
     # 他 line に影響なし
-    assert sp["scenes"][0]["lines"][1]["rate"] == "+5%"
-    assert "rate" not in sp["scenes"][0]["lines"][2]
+    assert "emotion" not in sp["scenes"][0]["lines"][1]
+    assert "emotion" not in sp["scenes"][0]["lines"][2]
 
 
 def test_patch_line_null_deletes_field(client, project):
+    # まず emotion を設定 → null で消す
+    client.patch(
+        f"/api/projects/{project['ts']}/lines/0/0",
+        json={"patch": {"emotion": "驚き"}},
+    )
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"rate": None}},
+        json={"patch": {"emotion": None}},
     )
     assert r.status_code == 200
     sp = json.load(open(project["sp_path"]))
-    assert "rate" not in sp["scenes"][0]["lines"][0]
+    assert "emotion" not in sp["scenes"][0]["lines"][0]
 
 
 def test_patch_line_rejects_start_end(client, project):
@@ -150,7 +155,7 @@ def test_patch_line_rejects_unknown_field(client, project):
 def test_patch_line_rejects_out_of_range(client, project):
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/99",
-        json={"patch": {"rate": "+10%"}},
+        json={"patch": {"emotion": "驚き"}},
     )
     assert r.status_code == 400
 
@@ -176,14 +181,14 @@ def test_patch_line_concurrent_updates_preserve_each_other(client, project):
         barrier.wait()
         r = client.patch(
             f"/api/projects/{project['ts']}/lines/0/{idx}",
-            json={"patch": {"rate": value}},
+            json={"patch": {"emotion": value}},
         )
         results[idx] = r.status_code
 
     threads = [
-        threading.Thread(target=patch_line, args=(0, "+10%")),
-        threading.Thread(target=patch_line, args=(1, "+15%")),
-        threading.Thread(target=patch_line, args=(2, "+5%")),
+        threading.Thread(target=patch_line, args=(0, "驚き")),
+        threading.Thread(target=patch_line, args=(1, "焦り")),
+        threading.Thread(target=patch_line, args=(2, "満足")),
     ]
     for t in threads:
         t.start()
@@ -192,9 +197,9 @@ def test_patch_line_concurrent_updates_preserve_each_other(client, project):
 
     assert all(s == 200 for s in results)
     sp = json.load(open(project["sp_path"]))
-    assert sp["scenes"][0]["lines"][0]["rate"] == "+10%"
-    assert sp["scenes"][0]["lines"][1]["rate"] == "+15%"
-    assert sp["scenes"][0]["lines"][2]["rate"] == "+5%"
+    assert sp["scenes"][0]["lines"][0]["emotion"] == "驚き"
+    assert sp["scenes"][0]["lines"][1]["emotion"] == "焦り"
+    assert sp["scenes"][0]["lines"][2]["emotion"] == "満足"
 
 
 def test_patch_line_does_not_bake_derived_fields(client, project):
@@ -205,7 +210,7 @@ def test_patch_line_does_not_bake_derived_fields(client, project):
     """
     r = client.patch(
         f"/api/projects/{project['ts']}/lines/0/0",
-        json={"patch": {"rate": "+20%"}},
+        json={"patch": {"emotion": "驚き"}},
     )
     assert r.status_code == 200
     sp = json.load(open(project["sp_path"]))

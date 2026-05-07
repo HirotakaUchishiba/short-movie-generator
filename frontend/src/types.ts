@@ -124,13 +124,6 @@ export interface VoiceLibraryEntry {
   language?: string;
 }
 
-export interface EmotionPreset {
-  stability?: number;
-  style?: number;
-  similarity_boost?: number;
-  rate_pct?: number;
-}
-
 export interface AvailableModel {
   id: string;
   credit_multiplier: number;
@@ -153,8 +146,6 @@ export interface TtsPricing {
 export interface ServerConfig {
   stages: StageName[];
   emotions: string[];
-  emotion_presets: Record<string, EmotionPreset>;
-  emotion_intensities: string[];
   available_audio_tags: string[];
   emotion_audio_tags: Record<string, string[]>;
   voice_library: VoiceLibraryEntry[];
