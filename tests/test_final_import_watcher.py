@@ -139,3 +139,71 @@ def test_start_stop_watcher_does_not_raise(tmp_path, monkeypatch):
     Path(config.TEMP_DIR).mkdir()
     assert w.start_watcher() is True
     w.stop_watcher()
+
+
+def test_is_ready_for_import_rejects_truncated_mp4(tmp_path):
+    """size 安定でも moov atom 不在のファイルは取込候補から除外される。"""
+    from final_import import watcher as w
+    truncated = tmp_path / "broken.mp4"
+    truncated.write_bytes(b"\x00" * 1024)  # ffprobe 不可な dummy
+    assert w._is_ready_for_import(truncated) is False
+
+
+def test_is_ready_for_import_accepts_valid_mp4(tmp_path):
+    """有効な mp4 は排他オープン + moov 検証を通過する。"""
+    from final_import import watcher as w
+    good = tmp_path / "good.mp4"
+    _make_dummy_mp4(good, duration=0.5)
+    assert w._is_ready_for_import(good) is True
+
+
+def test_can_open_exclusive_rejects_zero_byte(tmp_path):
+    from final_import import watcher as w
+    empty = tmp_path / "empty.mp4"
+    empty.write_bytes(b"")
+    assert w._can_open_exclusive(empty) is False
+
+
+def test_poll_skips_import_when_moov_not_ready(project, tmp_path, monkeypatch):
+    """size 安定でも moov 検証で reject されると import_final が呼ばれない。"""
+    from final_import import watcher as w
+    import progress_store
+
+    ts, ts_path = project
+    final_dir = Path(ts_path) / "final"
+    truncated = final_dir / "incomplete.mp4"
+    truncated.write_bytes(b"\x00" * 4096)  # 1 byte 以上だが mp4 として無効
+
+    monkeypatch.setattr(w, "STABLE_WINDOW_SEC", 0.05)
+
+    called = {"n": 0}
+
+    def fake_import(ts, path, source="watch"):
+        called["n"] += 1
+
+    monkeypatch.setattr(w, "import_final", fake_import)
+
+    w.handle_event(truncated)
+    w._poller_stop.clear()
+    poll_thread = __import__("threading").Thread(target=w._poll_pending, daemon=True)
+    poll_thread.start()
+    time.sleep(0.5)
+    w._poller_stop.set()
+    poll_thread.join(timeout=1)
+
+    assert called["n"] == 0, "壊れた mp4 が誤って取り込まれている"
+    # progress_store も触られていない
+    assert not progress_store.is_generated(ts_path, "final_import")
+
+
+def test_stable_window_env_override(monkeypatch):
+    """FINAL_WATCHER_STABLE_SEC 環境変数で window を変更できる。"""
+    monkeypatch.setenv("FINAL_WATCHER_STABLE_SEC", "12.5")
+    # _stable_window_sec は import 時に評価されるので、再 import で確認
+    import importlib
+    from final_import import watcher as w
+    importlib.reload(w)
+    assert w.STABLE_WINDOW_SEC == 12.5
+    monkeypatch.delenv("FINAL_WATCHER_STABLE_SEC", raising=False)
+    importlib.reload(w)
+    assert w.STABLE_WINDOW_SEC == 3.0
