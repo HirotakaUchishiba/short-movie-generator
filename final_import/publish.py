@@ -12,6 +12,7 @@ import os
 import re
 import subprocess
 import sys
+import time
 from datetime import datetime
 from pathlib import Path
 
@@ -22,6 +23,9 @@ import progress_store
 import staged_pipeline
 
 from .core import resolve_canonical_video
+
+ANALYTICS_RETRY_ATTEMPTS = 3
+ANALYTICS_RETRY_BACKOFF_SEC = (1.0, 2.0, 4.0)
 
 logger = logging.getLogger(__name__)
 
@@ -93,26 +97,21 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
                      tags: list[str], privacy: str = "private",
                      is_short: bool = True, **_opts) -> dict:
     from platform_clients import youtube
-    from analytics import db as analytics_db
 
     upload = youtube.upload_video(
         file_path=video, title=title, description=description,
         tags=tags, privacy=privacy, is_short=is_short,
     )
 
-    try:
-        analytics_db.init_db()
-        _ensure_video_in_analytics(ts, video)
-        analytics_db.register_post(
-            video_id=ts, platform="youtube",
-            platform_post_id=upload["video_id"],
-            url=upload["url"],
-            posted_at=datetime.now().isoformat(timespec="seconds"),
-            caption=description,
-            hashtags=tags,
-        )
-    except Exception as e:
-        logger.warning("analytics register_post 失敗 (公開自体は成功): %s", e)
+    posted_at = datetime.now().isoformat(timespec="seconds")
+    _record_analytics_with_retry(
+        ts=ts, video=video,
+        platform_post_id=upload["video_id"],
+        url=upload["url"],
+        posted_at=posted_at,
+        caption=description,
+        hashtags=tags,
+    )
 
     return {
         "platform": "youtube",
@@ -121,6 +120,55 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
         "privacy": privacy,
         "manual": False,
     }
+
+
+def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
+                                 url: str, posted_at: str, caption: str,
+                                 hashtags: list[str]) -> None:
+    from analytics import db as analytics_db
+    from analytics import pending_queue
+
+    last_err: Exception | None = None
+    for attempt in range(ANALYTICS_RETRY_ATTEMPTS):
+        try:
+            analytics_db.init_db()
+            _ensure_video_in_analytics(ts, video)
+            analytics_db.register_post(
+                video_id=ts, platform="youtube",
+                platform_post_id=platform_post_id,
+                url=url, posted_at=posted_at,
+                caption=caption, hashtags=hashtags,
+            )
+            return
+        except Exception as e:
+            last_err = e
+            logger.warning(
+                "analytics 登録失敗 (attempt %d/%d): %s",
+                attempt + 1, ANALYTICS_RETRY_ATTEMPTS, e,
+            )
+            if attempt < ANALYTICS_RETRY_ATTEMPTS - 1:
+                time.sleep(ANALYTICS_RETRY_BACKOFF_SEC[attempt])
+
+    try:
+        pending_queue.append({
+            "ts": ts,
+            "platform": "youtube",
+            "platform_post_id": platform_post_id,
+            "url": url,
+            "posted_at": posted_at,
+            "caption": caption,
+            "hashtags": list(hashtags or []),
+        })
+        logger.error(
+            "analytics 登録失敗 → analytics_pending.jsonl に queue。"
+            "`scripts/sync_pending_analytics.py` で後で同期してください "
+            "(last error: %s)", last_err,
+        )
+    except Exception as e:
+        logger.error(
+            "analytics_pending.jsonl への queue 書き込みも失敗: %s "
+            "(original analytics error: %s)", e, last_err,
+        )
 
 
 def _ensure_video_in_analytics(ts: str, video: Path) -> None:

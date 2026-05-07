@@ -372,6 +372,19 @@ def test_update_video_final_returns_false_for_missing_id(tmp_path, monkeypatch):
     ) is False
 
 
+def _setup_youtube_mocks(monkeypatch, video_id="yt_xyz"):
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": video_id})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+
 # ─── C1: published_posts の重複排除 ───────────────
 
 
@@ -537,3 +550,134 @@ def test_publish_youtube_raises_when_refresh_token_invalid(project, monkeypatch)
 
     with pytest.raises(RuntimeError, match="YOUTUBE_REFRESH_TOKEN"):
         publish(ts, "youtube")
+
+
+# ─── F: analytics resilience ───────────────
+
+
+def test_publish_queues_when_analytics_db_fails_3_times(
+    project, monkeypatch, tmp_path,
+):
+    """analytics DB が 3 回連続で失敗 → queue に 1 entry、publish 自体は成功."""
+    from final_import.publish import publish
+    from analytics import pending_queue
+
+    monkeypatch.setenv(
+        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
+    )
+    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+    ts, _ts_path = project
+    _setup_youtube_mocks(monkeypatch)
+
+    call_count = {"n": 0}
+
+    def boom(*_a, **_kw):
+        call_count["n"] += 1
+        raise RuntimeError("simulated DB outage")
+
+    from analytics import db as analytics_db
+    monkeypatch.setattr(analytics_db, "register_post", boom)
+
+    result = publish(ts, "youtube", privacy="unlisted")
+    assert result["video_id"] == "yt_xyz"
+    assert call_count["n"] == 3
+
+    entries = pending_queue.read_all()
+    assert len(entries) == 1
+    e = entries[0]
+    assert e["ts"] == ts
+    assert e["platform"] == "youtube"
+    assert e["platform_post_id"] == "yt_xyz"
+    assert e["url"].endswith("/shorts/yt_xyz")
+    assert e["caption"]
+    assert isinstance(e["hashtags"], list)
+    assert e["timestamp"]
+
+
+def test_publish_no_queue_when_db_succeeds_on_third_attempt(
+    project, monkeypatch, tmp_path,
+):
+    """2 回失敗 → 3 回目成功 → queue は空."""
+    from final_import.publish import publish
+    from analytics import pending_queue, db as analytics_db
+
+    monkeypatch.setenv(
+        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
+    )
+    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+    ts, _ts_path = project
+    _setup_youtube_mocks(monkeypatch)
+
+    state = {"n": 0}
+    real_register = analytics_db.register_post
+
+    def flaky(*args, **kwargs):
+        state["n"] += 1
+        if state["n"] < 3:
+            raise RuntimeError("flaky")
+        return real_register(*args, **kwargs)
+
+    monkeypatch.setattr(analytics_db, "register_post", flaky)
+
+    result = publish(ts, "youtube")
+    assert result["video_id"] == "yt_xyz"
+    assert state["n"] == 3
+
+    assert pending_queue.read_all() == []
+    posts = analytics_db.list_active_posts(platform="youtube")
+    assert any(p["platform_post_id"] == "yt_xyz" for p in posts)
+
+
+def test_publish_concurrent_queue_writes_are_complete_json(
+    project, monkeypatch, tmp_path,
+):
+    """連続 publish 2 回が両方 DB 失敗 → queue に 2 件、それぞれ完整な JSON."""
+    import json as _json
+    from final_import.publish import publish
+    from analytics import pending_queue, db as analytics_db
+
+    monkeypatch.setenv(
+        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
+    )
+    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+    ts, _ts_path = project
+
+    monkeypatch.setattr(
+        analytics_db, "register_post",
+        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("dead")),
+    )
+
+    upload_ids = ["yt_a", "yt_b"]
+    state = {"i": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/"})
+
+    def fake_put(url, **kw):
+        vid = upload_ids[state["i"]]
+        state["i"] += 1
+        return _MockResp(200, json_data={"id": vid})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    publish(ts, "youtube")
+    publish(ts, "youtube")
+
+    queue_path = tmp_path / "analytics_pending.jsonl"
+    raw_lines = queue_path.read_text(encoding="utf-8").splitlines()
+    assert len(raw_lines) == 2
+    parsed = [_json.loads(line) for line in raw_lines]
+    ids = {p["platform_post_id"] for p in parsed}
+    assert ids == {"yt_a", "yt_b"}
+    for p in parsed:
+        assert p["ts"] == ts
+        assert p["platform"] == "youtube"
+        assert p["url"].startswith("https://")
+        assert p["caption"]
+        assert "timestamp" in p
