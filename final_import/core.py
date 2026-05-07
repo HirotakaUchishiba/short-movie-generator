@@ -1,4 +1,4 @@
-"""Stage 8 (final_import) の中核ハンドラ。
+"""Stage 7 (final_import) の中核ハンドラ。
 
 3 経路 (watchdog / HTTP / CLI) から呼ばれる純関数 import_final を中心に、
 metadata.json の `final_versions` 配列で複数バージョンの取り込みを管理する。
@@ -190,8 +190,8 @@ def import_final(
 def set_canonical_final(ts_path: str, filename: str) -> FinalVersion:
     """指定 filename を canonical に切替える。他バージョンは非 canonical。
 
-    canonical が実際に変わったときは Stage 8 (final_import) の承認と
-    Stage 9 (publish) の進捗を取り直しさせる (= 旧 canonical の publish 承認が
+    canonical が実際に変わったときは Stage 7 (final_import) の承認と
+    Stage 8 (publish) の進捗を取り直しさせる (= 旧 canonical の publish 承認が
     新 canonical に流用されないように)。`metadata.json.published_posts` の
     投稿履歴は残る。
     """
@@ -245,8 +245,8 @@ def delete_final_version(ts_path: str, filename: str) -> None:
         file_path.unlink()
 
     if not versions:
-        # Stage 8 を完全リセット → reset_stage が STAGES[idx:] を全消去するので
-        # Stage 9 (publish) もまとめてクリアされる
+        # Stage 7 を完全リセット → reset_stage が STAGES[idx:] を全消去するので
+        # Stage 8 (publish) もまとめてクリアされる
         progress_store.reset_stage(ts_path, "final_import")
     elif was_canonical:
         _on_canonical_change(ts_path, ensure_generated=False)

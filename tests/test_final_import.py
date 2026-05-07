@@ -246,7 +246,7 @@ def test_dropping_same_filename_creates_distinct_versions(project, tmp_path):
 
 
 def test_set_canonical_resets_publish_progress(project, tmp_path):
-    """canonical を切替えると Stage 9 (publish) の generated/approved が消える."""
+    """canonical を切替えると Stage 8 (publish) の generated/approved が消える."""
     ts, ts_path = project
     src1 = tmp_path / "a.mp4"
     src2 = tmp_path / "b.mp4"

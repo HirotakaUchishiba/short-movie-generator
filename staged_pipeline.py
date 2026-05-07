@@ -349,7 +349,7 @@ def run_kling(screenplay: dict, ts_path: str) -> None:
 
 
 def run_scene(screenplay: dict, ts_path: str) -> None:
-    """Stage 5+6: 音声合成 + リップシンクで scene_<i>.mp4 を作成。"""
+    """Stage 5: 音声合成 + リップシンクで scene_<i>.mp4 を作成。"""
     _ensure_prev_approved("kling", ts_path)
     preflight.check_stage("scene")
     paths = scene_gen.assemble_scene_videos(screenplay, ts_path)
@@ -358,13 +358,13 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
 
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage 7: シーン連結 + 字幕焼き込み + 最終出力配置。
+    """Stage 6: シーン連結 + 字幕焼き込み + 最終出力配置。
 
     pipeline raw である ``output/reels_<TS>.mp4`` と SNS 投稿キャプション、
-    Stage 8 (final_import) 用の drop folder までこの stage で生成する。
+    Stage 7 (final_import) 用の drop folder までこの stage で生成する。
 
     古い snapshot を resume する経路では UI の保存時 validator を通過していない
-    ことがあるため、Stage 7 直前で composed 形式 + subtitle anchor 順序を
+    ことがあるため、Stage 6 直前で composed 形式 + subtitle anchor 順序を
     再検証して silent overwrite (= 字幕が消える) を防ぐ。
     途中で失敗した場合は merged.mp4 / overlaid.mp4 を削除し、再実行で
     古い中間ファイルが流用されないようにする。
@@ -405,7 +405,7 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
                             "[overlay-cleanup] %s 削除失敗: %s", p, e,
                         )
 
-    # Stage 8 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
+    # Stage 7 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
     os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
 
     # cache promote: pipeline raw まで生成完了 = 高信頼な素材として将来の hit

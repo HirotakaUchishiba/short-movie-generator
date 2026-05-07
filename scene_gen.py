@@ -2095,7 +2095,7 @@ def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str,
 
 def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
                             temp_dir: str) -> str:
-    """Stage 5+6 (one-shot方式): 既に audio_<S>.m4a が生成済み前提。
+    """Stage 5 (one-shot方式): 既に audio_<S>.m4a が生成済み前提。
     trim済みKling + audio をリップシンク or 単純合成して scene_<S>.mp4 を作る。
 
     trimmed の実尺が scene.duration / TTS audio に届かない場合は
@@ -2247,7 +2247,7 @@ def _maybe_extend_video(trimmed_path: str, target_duration: float,
 
 
 def assemble_scene_videos(screenplay: dict, temp_dir: str) -> list[str]:
-    """Stage 5+6: 各シーンのscene_xxx.mp4を作成する (one-shot生成済みaudioを使用)。"""
+    """Stage 5: 各シーンのscene_xxx.mp4を作成する (one-shot生成済みaudioを使用)。"""
     scene_videos: list[str] = []
     for i, scene in enumerate(screenplay["scenes"]):
         path = _scene_video_for_scene(i, scene, screenplay, temp_dir)
@@ -2273,7 +2273,7 @@ def collect_scene_videos(screenplay: dict, temp_dir: str) -> list[str]:
 
     存在チェックに加え ffprobe で moov atom + duration を直接検証する。
     `artifact_integrity.check_existing` は AUTO_DELETE off なら破損時も
-    True を返す (= 課金済み API 出力を温存) 設計だが、Stage 7 直前では
+    True を返す (= 課金済み API 出力を温存) 設計だが、Stage 6 直前では
     truncated mp4 を merge に流すと壊れた最終動画になるので、ここでは
     破損検出 = 即停止 + ユーザに再生成を促す方針を取る。
     """

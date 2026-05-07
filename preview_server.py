@@ -1205,7 +1205,7 @@ def api_get_project_abstract(ts):
 
 @app.route("/api/projects/<ts>/abstract", methods=["PUT"])
 def api_put_project_abstract(ts):
-    """project snapshot (= 抽象台本) を上書き保存し、Stage 1〜7 の承認を解除する。
+    """project snapshot (= 抽象台本) を上書き保存し、Stage 1〜6 の承認を解除する。
 
     snapshot は抽象台本のまま保存される。Stage 2 以降が読むときに compose を
     都度走らせて派生フィールドを生成する (= staged_pipeline.load_project_screenplay)。
@@ -1875,7 +1875,7 @@ def api_cost_report_overall():
     return jsonify(asdict(cost_report.report_overall(since=since)))
 
 
-# ───────────────── Stage 8 final import / Stage 9 publish ─────────────────
+# ───────────────── Stage 7 final import / Stage 8 publish ─────────────────
 
 @app.route("/api/projects/<ts>/final", methods=["GET"])
 def api_list_finals(ts):
@@ -2011,7 +2011,7 @@ def serve_frontend(path):
 
 def _start_final_watcher_if_enabled() -> None:
     if os.environ.get("DISABLE_FINAL_WATCHER", "").lower() in ("1", "true", "yes"):
-        logger.info("DISABLE_FINAL_WATCHER set — Stage 8 watcher を起動しません")
+        logger.info("DISABLE_FINAL_WATCHER set — Stage 7 watcher を起動しません")
         return
     try:
         from final_import.watcher import start_watcher
@@ -2088,7 +2088,7 @@ def _recover_lost_jobs() -> None:
 
 def _replay_pending_analytics() -> None:
     """analytics_pending.jsonl が残っていれば起動時に replay し、各 ts の
-    Stage 9 を ``mark_generated`` に昇格させる。
+    Stage 8 を ``mark_generated`` に昇格させる。
 
     publish 中に analytics DB が一時的に落ちて queue 落ちした entry を
     自動回収するため。失敗 entry は queue に残して次回 / 手動 sync を待つ。

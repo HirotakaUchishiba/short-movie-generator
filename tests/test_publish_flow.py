@@ -67,7 +67,7 @@ def project(tmp_path, monkeypatch):
     cap_md = Path(config.POST_CAPTIONS_DIR) / "demo.md"
     cap_md.write_text("# demo\n\n本文テスト\n#hello #world\n\n## 動画ファイル\n- `/x.mp4`\n")
 
-    # CapCut 出力相当のファイルを Stage 8 取込
+    # CapCut 出力相当のファイルを Stage 7 取込
     src = tmp_path / "capcut.mp4"
     _make_dummy_mp4(src, duration=2.0)
     from final_import import core as fi
@@ -132,7 +132,7 @@ def test_publish_blocked_when_stage8_unapproved(project, monkeypatch):
     from final_import.publish import publish
 
     ts, ts_path = project
-    # stage 8 を未承認に戻す
+    # stage 7 を未承認に戻す
     prog = progress_store.load(ts_path)
     prog["stages"]["final_import"]["approved_at"] = None
     progress_store.save(ts_path, prog)
@@ -587,7 +587,7 @@ def test_publish_queues_when_analytics_db_fails_3_times(
     project, monkeypatch, tmp_path,
 ):
     """analytics DB が 3 回連続で失敗 → queue に 1 entry、publish 自体は成功するが
-    Stage 9 は **未** generated (= sync 後に立つ)。"""
+    Stage 8 は **未** generated (= sync 後に立つ)。"""
     from final_import.publish import publish
     from analytics import pending_queue
     import progress_store
@@ -625,7 +625,7 @@ def test_publish_queues_when_analytics_db_fails_3_times(
     assert isinstance(e["hashtags"], list)
     assert e["timestamp"]
 
-    # Stage 9 は queue 同期完了まで保留 — 未 generated
+    # Stage 8 は queue 同期完了まで保留 — 未 generated
     assert not progress_store.is_generated(ts_path, "publish")
     # published_posts entry には analytics_pending=True が入っている
     meta = json.loads((Path(ts_path) / "metadata.json").read_text())

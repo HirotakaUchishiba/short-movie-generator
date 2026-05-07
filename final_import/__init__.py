@@ -1,4 +1,4 @@
-"""Stage 8 (final_import) と Stage 9 (publish) の中核ロジック。
+"""Stage 7 (final_import) と Stage 8 (publish) の中核ロジック。
 
 CapCut で手動編集した動画を `temp/<TS>/final/` に取り込み、analytics と
 ステージ承認を更新する。watchdog / HTTP / CLI の 3 経路から共通呼出。
