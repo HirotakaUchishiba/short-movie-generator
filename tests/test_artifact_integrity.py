@@ -68,6 +68,69 @@ def test_is_valid_mp4_false_on_garbage(tmp_path):
     assert artifact_integrity.is_valid_mp4(p) is False
 
 
+def _make_valid_mp3(path: str) -> None:
+    cmd = [
+        "ffmpeg", "-y", "-loglevel", "error",
+        "-f", "lavfi", "-i", "anullsrc=cl=mono:r=8000:d=0.5",
+        "-c:a", "libmp3lame", "-b:a", "32k", path,
+    ]
+    subprocess.run(cmd, check=True, capture_output=True)
+
+
+def test_is_valid_audio_true_for_real_mp3(tmp_path):
+    p = str(tmp_path / "ok.mp3")
+    _make_valid_mp3(p)
+    assert artifact_integrity.is_valid_audio(p) is True
+
+
+def test_is_valid_audio_false_on_garbage(tmp_path):
+    p = str(tmp_path / "bad.mp3")
+    with open(p, "wb") as f:
+        f.write(b"not actually an mp3")
+    assert artifact_integrity.is_valid_audio(p) is False
+
+
+def test_is_valid_audio_false_on_zero_byte(tmp_path):
+    p = str(tmp_path / "empty.mp3")
+    open(p, "wb").close()
+    assert artifact_integrity.is_valid_audio(p) is False
+
+
+def test_is_valid_audio_min_duration_threshold(tmp_path):
+    """min_duration を強気に設定すると、短い mp3 は reject される。"""
+    p = str(tmp_path / "short.mp3")
+    _make_valid_mp3(p)
+    assert artifact_integrity.is_valid_audio(p, min_duration=10.0) is False
+
+
+def test_build_audios_from_full_raises_on_corrupt_tts_full(tmp_path):
+    """tts_full.mp3 が破損していると _build_audios_from_full は cleanup + raise."""
+    import scene_gen
+    ts = str(tmp_path)
+    full_mp3 = os.path.join(ts, "tts_full.mp3")
+    full_json = os.path.join(ts, "tts_full.json")
+    text_meta = os.path.join(ts, "tts_full.text_meta.json")
+    with open(full_mp3, "wb") as f:
+        f.write(b"not really an mp3")
+    with open(full_json, "w") as f:
+        f.write("[]")
+    with open(text_meta, "w") as f:
+        f.write("{}")
+
+    sp = {
+        "scenes": [
+            {"duration": 1.0, "background_prompt": "x",
+             "lines": [{"text": "a", "start": 0}]},
+        ],
+    }
+    with pytest.raises(RuntimeError, match="tts_full.mp3"):
+        scene_gen._build_audios_from_full(sp, ts)
+    # cleanup された
+    assert not os.path.exists(full_mp3)
+    assert not os.path.exists(full_json)
+    assert not os.path.exists(text_meta)
+
+
 def test_check_existing_returns_true_for_valid_png(tmp_path):
     p = str(tmp_path / "ok.png")
     _make_valid_png(p)

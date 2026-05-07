@@ -1271,6 +1271,26 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
     if not os.path.exists(full_mp3) or not os.path.exists(timestamps_json):
         return
 
+    # truncated tts_full.mp3 を放置すると ffprobe / silenceremove がエラーで
+    # 死に、再 resume も同じ broken file を読んで詰む。事前に整合性を確認し、
+    # broken なら関連ファイルごと一掃して呼び出し元に Stage 2 再実行を促す。
+    if not artifact_integrity.is_valid_audio(full_mp3):
+        logger.warning(
+            "[整合性] tts_full.mp3 が壊れています — 削除して Stage 2 を再実行"
+            "してください: %s", full_mp3,
+        )
+        for p in (full_mp3, timestamps_json,
+                  os.path.join(ts_path, "tts_full.text_meta.json")):
+            try:
+                if os.path.exists(p):
+                    os.remove(p)
+            except OSError as e:
+                logger.warning("[整合性] cleanup 失敗 %s: %s", p, e)
+        raise RuntimeError(
+            "tts_full.mp3 が破損していたため削除しました。"
+            "Stage 2 (TTS) を再実行してください。"
+        )
+
     full_text, line_specs = _build_screenplay_text(screenplay)
     with open(timestamps_json) as f:
         char_ts = json.load(f)
@@ -1528,17 +1548,39 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
                 os.remove(f)
 
         vs = _full_screenplay_voice_settings()
-        elevenlabs_client.generate_speech_with_timestamps(
-            text=full_text,
-            voice_id=vs["voice_id"],
-            output_path=full_mp3,
-            stability=vs["stability"],
-            similarity_boost=vs["similarity_boost"],
-            style=vs["style"],
-            speed=vs["speed"],
-            language=config.LANGUAGE,
-            keep_whitespace=True,
-        )
+        # atomic write: 途中失敗で truncated tts_full.mp3 が残ると後段が詰まる
+        # ので、まず .tmp に書き出して完全性を確認してから本パスに rename する。
+        # generate_speech_with_timestamps は output_path から拡張子を切り捨てて
+        # `<base>.json` に timestamps を書くため、tmp 名は ``.tmp.mp3`` の
+        # 形にして tmp json が ``<...>.tmp.json`` に揃うようにする。
+        full_mp3_tmp = os.path.join(ts_path, "tts_full.tmp.mp3")
+        timestamps_tmp = os.path.join(ts_path, "tts_full.tmp.json")
+        try:
+            elevenlabs_client.generate_speech_with_timestamps(
+                text=full_text,
+                voice_id=vs["voice_id"],
+                output_path=full_mp3_tmp,
+                stability=vs["stability"],
+                similarity_boost=vs["similarity_boost"],
+                style=vs["style"],
+                speed=vs["speed"],
+                language=config.LANGUAGE,
+                keep_whitespace=True,
+            )
+            if not artifact_integrity.is_valid_audio(full_mp3_tmp):
+                raise RuntimeError(
+                    "TTS 出力が ffprobe 検証を通過しませんでした (truncated?)",
+                )
+            os.replace(timestamps_tmp, timestamps_json)
+            os.replace(full_mp3_tmp, full_mp3)
+        except Exception:
+            for p in (full_mp3_tmp, timestamps_tmp):
+                try:
+                    if os.path.exists(p):
+                        os.remove(p)
+                except OSError:
+                    pass
+            raise
         try:
             cost_recorder.record_tts(
                 project_ts=_project_ts(ts_path),
