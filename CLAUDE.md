@@ -85,7 +85,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 - analyze pipeline 二重実行で template が変わっても、進行中 project の screenplay は不変
 - UI の編集 (caption / lines / location_ref など) は project snapshot だけを更新。他 project に影響しない
-- 「素材編集」での再合成 (`POST /api/projects/<TS>/recompose`) も project snapshot を更新するだけ。template は触らない
+- 「素材編集」での再合成 (`PUT /api/projects/<ts>/abstract`) も project snapshot を更新するだけ。template は触らない
 
 #### 読み書きの API (`staged_pipeline`)
 
