@@ -1,6 +1,8 @@
 import { useOutletContext } from "react-router-dom";
+import { useState } from "react";
 import type { StageName } from "../types";
 import type { ReactNode } from "react";
+import RejectModal from "./RejectModal";
 
 interface ShellCtx {
   detail: {
@@ -56,6 +58,9 @@ export default function StageGate({
   const approved = !!st?.approved_at;
   const running = ctx.jobStatus?.status === "running";
 
+  const [showReject, setShowReject] = useState(false);
+  const [rejectFeedback, setRejectFeedback] = useState<string | null>(null);
+
   return (
     <div>
       <header className="flex justify-between items-start mb-6">
@@ -88,9 +93,24 @@ export default function StageGate({
                 再生成 ×{st.regen_count}
               </span>
             ) : null}
+            {rejectFeedback && (
+              <span className="badge bg-rose-800/60 text-rose-100">
+                {rejectFeedback}
+              </span>
+            )}
           </div>
         </div>
         <div className="flex gap-2">
+          {generated && (
+            <button
+              className="btn-ghost text-rose-300 hover:text-rose-100"
+              disabled={running}
+              onClick={() => setShowReject(true)}
+              title="QA failure として記録 (= 承認状態は変えません)"
+            >
+              ✗ NG 記録
+            </button>
+          )}
           {needsRunFirst && !generated && (
             <button
               className="btn-primary"
@@ -120,6 +140,15 @@ export default function StageGate({
       <div className={running ? "opacity-60 pointer-events-none" : ""}>
         {children}
       </div>
+
+      {showReject && (
+        <RejectModal
+          ts={ctx.detail.timestamp}
+          stage={stage}
+          onClose={() => setShowReject(false)}
+          onSubmitted={(id) => setRejectFeedback(`NG #${id} 記録済み`)}
+        />
+      )}
     </div>
   );
 }

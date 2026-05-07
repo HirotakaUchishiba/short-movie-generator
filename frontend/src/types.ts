@@ -8,6 +8,39 @@ export type StageName =
   | "final_import"
   | "publish";
 
+// QA failure category enums (Phase 0)。バックエンド qa/categories.py と同期。
+export type QaFailureTag =
+  | "character_drift"
+  | "storyboard_layout"
+  | "composition_off"
+  | "subtitle_zone_blocked"
+  | "audio_silence"
+  | "audio_clipping"
+  | "audio_mispronounce"
+  | "audio_wrong_emotion"
+  | "lipsync_mouth_off"
+  | "lipsync_no_movement"
+  | "lipsync_timing_off"
+  | "subtitle_overlap_subject"
+  | "subtitle_off_screen"
+  | "subtitle_too_long"
+  | "story_pacing_off"
+  | "story_hook_weak";
+
+export interface RejectBody {
+  stage: StageName;
+  scene_idx?: number | null;
+  line_idx?: number | null;
+  tags: QaFailureTag[];
+  note?: string;
+}
+
+export interface RejectResponse {
+  ok: true;
+  failure_id: number;
+  archive_dir: string;
+}
+
 // Stage 8 / 9 用の型
 export interface FinalVersion {
   filename: string;
