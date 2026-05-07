@@ -22,11 +22,10 @@ def test_notify_posts_when_webhook_set(monkeypatch):
     fake_resp = MagicMock(status_code=200)
     fake_resp.raise_for_status = MagicMock()
 
-    from notify import slack as _slack
-    with patch.object(_slack, "__name__", _slack.__name__):
-        with patch("requests.post", return_value=fake_resp) as p:
-            ok = _slack.notify_slack("info", "deploy ok",
-                                      context={"ts": "20260508_120000"})
+    with patch("requests.post", return_value=fake_resp) as p:
+        from notify.slack import notify_slack
+        ok = notify_slack("info", "deploy ok",
+                          context={"ts": "20260508_120000"})
     assert ok is True
     p.assert_called_once()
     payload = p.call_args.kwargs["json"]

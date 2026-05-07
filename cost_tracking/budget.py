@@ -93,12 +93,20 @@ def _sum_cost_since(since: datetime) -> float:
 
     cost_records.records.append() が UTC ISO 形式 ("2026-05-08T00:00:00+00:00")
     で書き込んでいる前提。同一形式同士なら文字列比較で時系列順を表現できる。
+
+    JSONL 障害は ``_count_videos_since`` と同様 warn + 0 で握りつぶし、
+    auto_loop を止めない (= cost guard が判定不能でも pipeline 自体には
+    別経路の上限管理がある)。
     """
     since_iso = since.isoformat(timespec="seconds")
     total = 0.0
-    for rec in records.iter_all():
-        if rec.timestamp >= since_iso:
-            total += float(rec.cost_usd)
+    try:
+        for rec in records.iter_all():
+            if rec.timestamp >= since_iso:
+                total += float(rec.cost_usd)
+    except Exception as e:
+        logger.warning("[budget] _sum_cost_since failed: %s", e)
+        return 0.0
     return total
 
 

@@ -252,6 +252,13 @@ def run_one_video(
     dry_run: bool = False,
 ) -> str:
     """1 動画分の全経路を実行し、ts を返す。"""
+    if license_status not in VALID_LICENSES:
+        # fetch_and_register でも reject されるが、orchestrator の責務として
+        # 先に gate しておく (= 失敗の場所をテストで stub せず固定できる)。
+        raise AutoLoopAborted(
+            f"invalid license: {license_status} "
+            f"(valid: {VALID_LICENSES})",
+        )
     _kill_switch_guard()
     _budget_guard()
 
