@@ -57,10 +57,12 @@ def publish(ts: str, platform: str, **opts) -> dict:
         preflight.check_publish_youtube()
         result = _publish_youtube(ts, video, title, description, tags, **opts)
     elif platform == "instagram":
+        preflight.check_publish_instagram()
         result = _publish_semi_auto(
             "instagram", ts, video, title, description, tags,
         )
     else:
+        preflight.check_publish_tiktok()
         result = _publish_semi_auto(
             "tiktok", ts, video, title, description, tags,
         )
