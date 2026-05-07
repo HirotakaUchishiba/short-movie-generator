@@ -1,0 +1,31 @@
+{
+  "jobs": {
+    "0579f809": {
+      "id": "0579f809",
+      "kind": "bg-generate-remaining",
+      "ts": "20260507_140000",
+      "status": "completed",
+      "started_at": 1778119408.95584,
+      "finished_at": 1778119408.95787,
+      "error": null
+    },
+    "f28b2b2a": {
+      "id": "f28b2b2a",
+      "kind": "publish-youtube",
+      "ts": "20260506_160000",
+      "status": "failed",
+      "started_at": 1778119409.2947211,
+      "finished_at": 1778119409.30034,
+      "error": "取込 が未承認のため公開できません — UI または `--canonical` で承認してください"
+    },
+    "2d43b9a3": {
+      "id": "2d43b9a3",
+      "kind": "kling-generate-remaining",
+      "ts": "20260507_120000",
+      "status": "completed",
+      "started_at": 1778119409.330483,
+      "finished_at": 1778119409.3322759,
+      "error": null
+    }
+  }
+}
