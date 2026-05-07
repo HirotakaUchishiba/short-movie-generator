@@ -1222,6 +1222,7 @@ def api_apply_scene_boundaries(ts):
         "ok": True,
         "scenes": result["scenes"],
         "lines": result["lines"],
+        "subtitles_reset_lines": result.get("subtitles_reset_lines", 0),
     })
 
 

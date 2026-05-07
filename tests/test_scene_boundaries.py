@@ -9,6 +9,7 @@
 作成だけ確認する。
 """
 import json
+import logging
 import os
 from unittest.mock import MagicMock
 
@@ -100,7 +101,7 @@ def test_apply_regroup_basic(project, monkeypatch) -> None:
     _stub_build_audios(monkeypatch, called)
     # 5 line 全体を [0, 1] = scene0 (1 line) + scene1 (4 line) に再分割
     res = staged_pipeline.apply_scene_boundaries(project, [0, 1])
-    assert res == {"scenes": 2, "lines": 5}
+    assert res == {"scenes": 2, "lines": 5, "subtitles_reset_lines": 0}
     # snapshot は抽象台本のまま (= background_prompt は焼かれない、
     # start / end / duration も含まれない = SSOT は tts_meta.json)
     abstract = staged_pipeline.load_project_abstract(project)
@@ -196,7 +197,7 @@ def test_apply_one_scene_with_all_lines(project, monkeypatch) -> None:
     """[0] だけ → 全 line が 1 scene にまとまる。"""
     _stub_build_audios(monkeypatch, [])
     res = staged_pipeline.apply_scene_boundaries(project, [0])
-    assert res == {"scenes": 1, "lines": 5}
+    assert res == {"scenes": 1, "lines": 5, "subtitles_reset_lines": 0}
     sp = staged_pipeline.load_project_screenplay(project)
     assert len(sp["scenes"]) == 1
     assert len(sp["scenes"][0]["lines"]) == 5
@@ -206,7 +207,7 @@ def test_apply_each_line_own_scene(project, monkeypatch) -> None:
     """全 line が独立 scene になるパターン。"""
     _stub_build_audios(monkeypatch, [])
     res = staged_pipeline.apply_scene_boundaries(project, [0, 1, 2, 3, 4])
-    assert res == {"scenes": 5, "lines": 5}
+    assert res == {"scenes": 5, "lines": 5, "subtitles_reset_lines": 0}
     sp = staged_pipeline.load_project_screenplay(project)
     assert all(len(s["lines"]) == 1 for s in sp["scenes"])
 
@@ -257,7 +258,9 @@ def test_api_apply_scene_boundaries(client, isolated_env, monkeypatch) -> None:
     )
     assert r.status_code == 200, r.get_data(as_text=True)
     body = r.get_json()
-    assert body == {"ok": True, "scenes": 2, "lines": 5}
+    assert body == {
+        "ok": True, "scenes": 2, "lines": 5, "subtitles_reset_lines": 0,
+    }
 
 
 def test_api_400_for_invalid_payload(client, isolated_env) -> None:
@@ -287,3 +290,140 @@ def test_api_404_for_unknown_project(client) -> None:
         json={"line_boundaries": [0]},
     )
     assert r.status_code == 404
+
+
+# ─── subtitles 同期 (auto に戻す) ─────────────────────────────
+
+_SP_WITH_SUBTITLES = {
+    "caption": "test",
+    "scenes": [
+        {
+            "duration": 6.0,
+            "background_prompt": "bg0",
+            "animation_prompt": "anim0",
+            "lines": [
+                {
+                    "text": "line A", "start": 0.0, "end": 2.0, "emotion": "中立",
+                    "subtitles": [
+                        {"text": "line", "start": 0.0, "end": 1.0},
+                        {"text": "A", "start": 1.0, "end": 2.0},
+                    ],
+                },
+                {
+                    "text": "line B", "start": 2.0, "end": 4.0, "emotion": "中立",
+                    "subtitles": [{"text": "line B"}],  # auto のみ
+                },
+                {"text": "line C", "start": 4.0, "end": 6.0, "emotion": "中立"},
+            ],
+        },
+        {
+            "duration": 4.0,
+            "background_prompt": "bg1",
+            "animation_prompt": "anim1",
+            "lines": [
+                {
+                    "text": "line D", "start": 0.0, "end": 2.0, "emotion": "中立",
+                    "subtitles": [
+                        {"text": "line", "start": 0.0, "end": 1.5},
+                        {"text": "D", "start": 1.5, "end": 2.0},
+                    ],
+                },
+                {"text": "line E", "start": 2.0, "end": 4.0, "emotion": "中立"},
+            ],
+        },
+    ],
+}
+
+
+@pytest.fixture
+def project_with_subtitles(tmp_path, monkeypatch) -> str:
+    sp_dir = tmp_path / "screenplays"
+    sp_dir.mkdir()
+    monkeypatch.setattr(staged_pipeline.config, "SCREENPLAYS_DIR", str(sp_dir))
+    ts_path = tmp_path / "ts2"
+    ts_path.mkdir()
+    staged_pipeline.run_script(_SP_WITH_SUBTITLES, "test_template", str(ts_path))
+    (ts_path / "tts_full.mp3").write_bytes(b"x")
+    progress_store.mark_generated(str(ts_path), "script")
+    progress_store.mark_approved(str(ts_path), "script")
+    progress_store.mark_generated(str(ts_path), "tts")
+    progress_store.mark_approved(str(ts_path), "tts")
+    return str(ts_path)
+
+
+def test_apply_resets_subtitle_timings_to_auto(
+    project_with_subtitles, monkeypatch,
+) -> None:
+    """手動 subtitle 時刻を持つ line は scene 再分割で auto に戻る (text のみ保持)。"""
+    _stub_build_audios(monkeypatch, [])
+    res = staged_pipeline.apply_scene_boundaries(project_with_subtitles, [0, 2])
+    # line A (2 chunk 手動), line D (2 chunk 手動) の 2 line が auto に戻る
+    assert res["subtitles_reset_lines"] == 2
+
+    sp = staged_pipeline.load_project_screenplay(project_with_subtitles)
+    flat: list[dict] = []
+    for s in sp["scenes"]:
+        for ln in s["lines"]:
+            flat.append(ln)
+    # line A (idx 0): subtitles は text のみ、start/end は剥がれている
+    assert flat[0]["text"] == "line A"
+    assert flat[0]["subtitles"] == [{"text": "line"}, {"text": "A"}]
+    # line B (idx 1): もとから auto なので変化なし
+    assert flat[1]["subtitles"] == [{"text": "line B"}]
+    # line C (idx 2): subtitles 自体無し
+    assert "subtitles" not in flat[2]
+    # line D (idx 3): subtitles は text のみ
+    assert flat[3]["subtitles"] == [{"text": "line"}, {"text": "D"}]
+    # line E (idx 4): subtitles 自体無し
+    assert "subtitles" not in flat[4]
+
+
+def test_apply_no_reset_when_all_subtitles_auto(
+    project_with_subtitles, monkeypatch,
+) -> None:
+    """auto only / subtitles 無しの line しか無ければ reset カウントは 0。"""
+    _stub_build_audios(monkeypatch, [])
+    # 一旦 line A / D の手動 subtitles を auto に剥がしてから apply する
+    abstract = staged_pipeline.load_project_abstract(project_with_subtitles)
+    for s in abstract["scenes"]:
+        for ln in s["lines"]:
+            if "subtitles" in ln:
+                ln["subtitles"] = [
+                    {"text": sub.get("text", "")} for sub in ln["subtitles"]
+                ]
+    staged_pipeline.save_project_screenplay(project_with_subtitles, abstract)
+
+    res = staged_pipeline.apply_scene_boundaries(project_with_subtitles, [0, 2])
+    assert res["subtitles_reset_lines"] == 0
+    # auto の subtitles 構造は保持される (regression check)
+    sp = staged_pipeline.load_project_screenplay(project_with_subtitles)
+    flat = [ln for s in sp["scenes"] for ln in s["lines"]]
+    assert flat[0]["subtitles"] == [{"text": "line"}, {"text": "A"}]
+
+
+def test_apply_no_subtitles_field_unchanged(project, monkeypatch) -> None:
+    """subtitles フィールド自体が無い line は触らない (regression check)。"""
+    _stub_build_audios(monkeypatch, [])
+    res = staged_pipeline.apply_scene_boundaries(project, [0, 2])
+    assert res["subtitles_reset_lines"] == 0
+    sp = staged_pipeline.load_project_screenplay(project)
+    for s in sp["scenes"]:
+        for ln in s["lines"]:
+            assert "subtitles" not in ln
+
+
+def test_apply_logs_reset_count(
+    project_with_subtitles, monkeypatch, caplog,
+) -> None:
+    """auto に戻した line / chunk 数が info ログに出る。"""
+    _stub_build_audios(monkeypatch, [])
+    with caplog.at_level(logging.INFO, logger="staged_pipeline"):
+        staged_pipeline.apply_scene_boundaries(project_with_subtitles, [0, 2])
+    msgs = [rec.getMessage() for rec in caplog.records]
+    # "subtitle 時刻を auto に戻しました: 2 line / 4 chunk" が出ているはず
+    assert any(
+        "subtitle 時刻を auto に戻しました" in m
+        and "2 line" in m
+        and "4 chunk" in m
+        for m in msgs
+    ), f"期待ログが見つからない: {msgs}"
