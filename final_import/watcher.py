@@ -2,16 +2,24 @@
 
 CapCut が逐次書き出すあいだは on_modified が連発するので、
 - パスごとに最終 size/event 時刻を記憶
-- size が `STABLE_WINDOW_SEC` 秒変動しなくなったら "stable" 判定
-- import_final を呼ぶ
+- size が `STABLE_WINDOW_SEC` 秒変動しなくなったら "stable" 候補
+- 候補に対して **排他オープン** と **ffprobe での moov atom 検証** を追加
+  (= ネットワーク drag stall や mid-copy の不完全 mp4 を排除する)
+- 全部通ったら import_final を呼ぶ
 
 preview_server 起動時に start_watcher() を呼んで Observer をバックグラウンド
 スレッドで動かす。停止は stop_watcher()。
+
+STABLE_WINDOW_SEC は環境変数 ``FINAL_WATCHER_STABLE_SEC`` で override 可能
+(= 遅いネットワーク drag では 10〜15 秒推奨)。
 """
 
+import json
 import logging
 import os
 import re
+import shutil
+import subprocess
 import threading
 import time
 from pathlib import Path
@@ -22,7 +30,20 @@ from .core import ALLOWED_EXTS, FINAL_DIR_NAME, import_final, list_final_version
 
 logger = logging.getLogger(__name__)
 
-STABLE_WINDOW_SEC = 3.0
+
+def _stable_window_sec() -> float:
+    raw = os.environ.get("FINAL_WATCHER_STABLE_SEC")
+    if raw:
+        try:
+            v = float(raw)
+            if v > 0:
+                return v
+        except ValueError:
+            pass
+    return 3.0
+
+
+STABLE_WINDOW_SEC = _stable_window_sec()
 POLL_INTERVAL_SEC = 1.0
 TS_PATTERN = re.compile(r"^\d{8}_\d{6}$")
 
@@ -89,6 +110,63 @@ def handle_event(path: Path) -> None:
         _pending[str(resolved)] = rec
 
 
+def _can_open_exclusive(path: Path) -> bool:
+    """ファイルを読み取り専用で開いて末尾 1 byte を読めるか確認。
+
+    mid-copy / open file handle で moov atom が未確定の状態を排除する。
+    macOS の fcntl では強い排他保証は無いが、サイズ取得 + 末尾 read が
+    EBUSY や IOError を返す状況で取込を防ぐには十分。
+    """
+    try:
+        with path.open("rb") as f:
+            f.seek(0, os.SEEK_END)
+            tail = f.tell()
+            if tail <= 0:
+                return False
+            f.seek(max(0, tail - 1))
+            f.read(1)
+        return True
+    except OSError as e:
+        logger.debug("[watcher] 排他チェック失敗 %s: %s", path, e)
+        return False
+
+
+def _has_valid_moov(path: Path) -> bool:
+    """ffprobe で format.duration が取れるか (= moov atom が完成しているか)。
+
+    mp4 の途中まで書かれただけのファイルは ffprobe が duration を返せない。
+    ffprobe が PATH に無い環境ではこのチェックを skip する (= 真を返す)。
+    """
+    if shutil.which("ffprobe") is None:
+        return True
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", str(path)],
+            capture_output=True, text=True, timeout=10,
+        )
+    except (subprocess.TimeoutExpired, OSError) as e:
+        logger.debug("[watcher] ffprobe 例外 %s: %s", path, e)
+        return False
+    if r.returncode != 0:
+        return False
+    try:
+        data = json.loads(r.stdout or "{}")
+        dur = float((data.get("format") or {}).get("duration") or 0.0)
+    except (json.JSONDecodeError, ValueError):
+        return False
+    return dur > 0.0
+
+
+def _is_ready_for_import(path: Path) -> bool:
+    """size 安定の後に追加で行う最終検証 (排他オープン + moov 完全性)。"""
+    if not _can_open_exclusive(path):
+        return False
+    if not _has_valid_moov(path):
+        return False
+    return True
+
+
 def _poll_pending() -> None:
     while not _poller_stop.is_set():
         time.sleep(POLL_INTERVAL_SEC)
@@ -106,6 +184,10 @@ def _poll_pending() -> None:
                     rec["last_seen"] = now
                     continue
                 if now - rec["last_seen"] >= STABLE_WINDOW_SEC:
+                    if not _is_ready_for_import(rec["path"]):
+                        # まだ書込中 / moov 未確定 — last_seen を更新して再待機
+                        rec["last_seen"] = now
+                        continue
                     ready.append(rec)
                     _pending.pop(key, None)
         for rec in ready:
