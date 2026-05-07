@@ -106,6 +106,21 @@
 
 ## 4. 推奨する commands / skill
 
+### 4.0 プロジェクト固有スキル / プラグイン
+
+trass 由来の skill / command / plugin を本プロジェクトに移植済み。発動条件は以下:
+
+| 発話例 / 入力                                      | 発動するスキル・コマンド   | 配置                                                                |
+| -------------------------------------------------- | -------------------------- | ------------------------------------------------------------------- |
+| 「設計書を書いて」                                 | design-document スキル     | `.claude/skills/design-document/`                                   |
+| 「リファクタしたい」「コード品質を改善したい」     | analyze-refactoring スキル | `.claude/skills/analyze-refactoring/`                               |
+| 「CLAUDE.md を更新して」「ドキュメントを整理して」 | update-docs スキル         | `.claude/skills/update-docs/`                                       |
+| 「issue を作って」「バグを報告して」               | create-issue スキル        | `.claude/skills/create-issue/`                                      |
+| `/commit-push`                                     | commit-push コマンド       | `.claude/commands/commit-push.md`                                   |
+| `/generate-testcases <feature>`                    | generate-testcases plugin  | `.claude/plugins/generate-testcases/commands/generate-testcases.md` |
+
+詳細は各 SKILL.md / コマンド md を参照。
+
 ### 4.1 PR / コードレビュー
 
 | コマンド            | 用途                                                                   |
