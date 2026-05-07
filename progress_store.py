@@ -134,6 +134,32 @@ def revoke_all_approvals(ts_path: str) -> None:
     save(ts_path, progress)
 
 
+# cascade reset 対象は内部 stage のみ (script〜overlay)。
+# final_import / publish は外部アクション起点なのでチェーンに含めない。
+_CASCADE_STAGES = ["script", "tts", "bg", "kling", "scene", "overlay"]
+
+
+def cascade_reset_after(ts_path: str, stage: str) -> list[str]:
+    """指定 stage の **後続** 内部 stage の approved_at だけを解除する。
+    artifact (= generated_at) は保持。個別シーン再生成で BG だけ作り直した時に
+    kling / scene / overlay が古い BG ベースのまま承認済みでスルーされるのを防ぐ。
+
+    Returns: reset した stage 名のリスト (= ログ / UI 表示用)。
+    """
+    if stage not in _CASCADE_STAGES:
+        raise ValueError(f"cascade 対象外の stage: {stage}")
+    progress = load(ts_path)
+    idx = _CASCADE_STAGES.index(stage)
+    reset: list[str] = []
+    for s in _CASCADE_STAGES[idx + 1:]:
+        if progress["stages"][s].get("approved_at"):
+            progress["stages"][s]["approved_at"] = None
+            reset.append(s)
+    if reset:
+        save(ts_path, progress)
+    return reset
+
+
 # ───────────── stage 共通: cache decisions ─────────────
 #
 # bg / kling は scan / commit / generate の 3 段階に分かれており、

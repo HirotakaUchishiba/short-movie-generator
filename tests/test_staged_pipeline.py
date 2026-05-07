@@ -192,7 +192,81 @@ def test_regen_increments_count(fake_screenplays_dir, tmp_path, monkeypatch) -> 
     progress_store.mark_generated(ts_path, "tts")
 
     monkeypatch.setattr(staged_pipeline.scene_gen, "regen_tts_line", MagicMock())
+    monkeypatch.setattr(staged_pipeline.scene_gen, "regen_tts_full", MagicMock())
     staged_pipeline.regen("tts", sp, ts_path, scene_idx=0, line_idx=0)
     p = progress_store.load(ts_path)
     assert p["stages"]["tts"]["regen_count"] == 1
     assert not progress_store.is_approved(ts_path, "tts")
+
+
+def _approve_all_internal(ts_path: str) -> None:
+    for s in ["script", "tts", "bg", "kling", "scene", "overlay"]:
+        progress_store.mark_generated(ts_path, s)
+        progress_store.mark_approved(ts_path, s)
+
+
+def test_regen_bg_cascades_kling_scene_overlay(
+    fake_screenplays_dir, tmp_path, monkeypatch,
+) -> None:
+    _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
+    sp = staged_pipeline.load_template("demo")
+    ts_path = str(tmp_path / "ts_bg")
+    os.makedirs(ts_path)
+    _approve_all_internal(ts_path)
+
+    monkeypatch.setattr(
+        staged_pipeline.scene_gen, "regen_background_scene", MagicMock())
+    staged_pipeline.regen("bg", sp, ts_path, scene_idx=0)
+
+    # 自身は increment_regen で approved_at None
+    assert not progress_store.is_approved(ts_path, "bg")
+    # 後続 (kling / scene / overlay) も承認解除
+    assert not progress_store.is_approved(ts_path, "kling")
+    assert not progress_store.is_approved(ts_path, "scene")
+    assert not progress_store.is_approved(ts_path, "overlay")
+    # 上流 (script / tts) は維持
+    assert progress_store.is_approved(ts_path, "script")
+    assert progress_store.is_approved(ts_path, "tts")
+    # artifact (= generated_at) は保持
+    p = progress_store.load(ts_path)
+    for s in ("kling", "scene", "overlay"):
+        assert p["stages"][s]["generated_at"] is not None
+
+
+def test_regen_kling_cascades_scene_overlay(
+    fake_screenplays_dir, tmp_path, monkeypatch,
+) -> None:
+    _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
+    sp = staged_pipeline.load_template("demo")
+    ts_path = str(tmp_path / "ts_kling")
+    os.makedirs(ts_path)
+    _approve_all_internal(ts_path)
+
+    monkeypatch.setattr(
+        staged_pipeline.scene_gen, "regen_kling_scene", MagicMock())
+    staged_pipeline.regen("kling", sp, ts_path, scene_idx=0)
+
+    assert not progress_store.is_approved(ts_path, "kling")
+    assert not progress_store.is_approved(ts_path, "scene")
+    assert not progress_store.is_approved(ts_path, "overlay")
+    # bg は維持
+    assert progress_store.is_approved(ts_path, "bg")
+
+
+def test_regen_overlay_no_cascade(
+    fake_screenplays_dir, tmp_path, monkeypatch,
+) -> None:
+    _write_sp(fake_screenplays_dir, "demo.json", _minimal_sp())
+    sp = staged_pipeline.load_template("demo")
+    ts_path = str(tmp_path / "ts_ov")
+    os.makedirs(ts_path)
+    _approve_all_internal(ts_path)
+
+    monkeypatch.setattr(staged_pipeline, "run_overlay", MagicMock())
+    staged_pipeline.regen("overlay", sp, ts_path, screenplay_name="demo")
+
+    # overlay 自身は increment_regen で承認解除
+    assert not progress_store.is_approved(ts_path, "overlay")
+    # 上流は全部維持 (cascade なし = 最終 stage)
+    for s in ("script", "tts", "bg", "kling", "scene"):
+        assert progress_store.is_approved(ts_path, s)

@@ -611,3 +611,10 @@ def regen(stage: str, screenplay: dict, ts_path: str,
     else:
         raise ValueError(f"このstageは個別再生成に対応していません: {stage}")
     progress_store.increment_regen(ts_path, stage)
+    # 古い素材ベースで承認済みになった後続 stage を連鎖 reset (artifact は保持)。
+    reset_stages = progress_store.cascade_reset_after(ts_path, stage)
+    if reset_stages:
+        logger.info(
+            "stage %s 再生成 → 後続 stage %s の承認をリセットしました (再確認が必要)",
+            stage, reset_stages,
+        )
