@@ -25,7 +25,7 @@
 
 | Track \ Phase                | **0. 計測基盤** (1〜2 週)                                        | **1. Open-loop 量産** (1〜2 週) | **2. 自動 QA** (~1 ヶ月)       | **3. Closed-loop 改善** (1〜2 ヶ月)           | **4. 本番展開** (任意) |
 | ---------------------------- | ---------------------------------------------------------------- | ------------------------------- | ------------------------------ | --------------------------------------------- | ---------------------- |
-| **A. 量産経路** (Stage 1〜9) | 現状維持                                                         | **新設**: cron + auto-approve   | retry 強化                     | 改善 logic 接続                               | 本番アカウント切替     |
+| **A. 量産経路** (Stage 1〜8) | 現状維持                                                         | **新設**: cron + auto-approve   | retry 強化                     | 改善 logic 接続                               | 本番アカウント切替     |
 | **B. 計測・データ基盤**      | **新設**: generation_records, qa_failures, reference_videos 拡張 | 拡張: cron run logs             | 拡張: validator scores         | 拡張: experiment_assignments                  | 監査ログ               |
 | **C. 品質保証 (QA)**         | 暫定ヒューリスティック (silence のみ)                            | 暫定継続                        | **本実装**: validator スイート | 改善 (= 失敗例で再訓練)                       | exploration 制御       |
 | **D. 改善ロジック**          | —                                                                | —                               | —                              | **新設**: 多腕バンディット + prompt injection | A/B 監視               |
@@ -118,7 +118,7 @@ QA_FAILURE_TAGS = [
 
 #### B-0.3 既存 cost_records.jsonl の拡張
 
-各 stage 完了時に `generation_records.stage_runs` に append。現状の `data/cost_records.jsonl` は **analyze pipeline のみ** なので、Stage 2-9 でも記録するようにフックを足す。
+各 stage 完了時に `generation_records.stage_runs` に append。現状の `data/cost_records.jsonl` は **analyze pipeline のみ** なので、Stage 2-8 でも記録するようにフックを足す。
 
 #### A-0.4 regenerate 時の自動アーカイブ
 
