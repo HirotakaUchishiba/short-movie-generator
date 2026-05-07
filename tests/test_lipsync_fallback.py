@@ -148,3 +148,33 @@ def test_apply_unknown_provider_raises(monkeypatch):
     with pytest.raises(lipsync_client.LipsyncClientError) as exc:
         lipsync_client.apply("/v.mp4", "/a.mp3", "/out.mp4")
     assert "未知" in str(exc.value)
+
+
+def test_is_recoverable_error_for_domoai_duration_overflow():
+    exc = lipsync_client.LipsyncClientError(
+        "DomoAI: 音声 65.0s が上限 60s を超過。fallback または分割が必要です。"
+    )
+    assert lipsync_client._is_recoverable_error("domoai", exc) is True
+
+
+def test_apply_falls_back_when_domoai_audio_exceeds_limit(monkeypatch):
+    """domoai が primary で 60s 超 audio が来たら次の provider に fallback する。"""
+    _enable_keys(monkeypatch)
+    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_PROVIDER", "domoai")
+
+    def domoai_too_long(*_a, **_kw):
+        raise lipsync_client.LipsyncClientError(
+            "DomoAI: 音声 75.0s が上限 60s を超過。"
+            "fallback または分割が必要です。"
+        )
+
+    syncso_mock = MagicMock()
+    fal_mock = MagicMock()
+    monkeypatch.setitem(lipsync_client._PROVIDERS, "domoai", domoai_too_long)
+    monkeypatch.setitem(lipsync_client._PROVIDERS, "syncso", syncso_mock)
+    monkeypatch.setitem(lipsync_client._PROVIDERS, "fal-sync", fal_mock)
+
+    lipsync_client.apply("/v.mp4", "/a.mp3", "/out.mp4")
+    # chain は [domoai, syncso, fal-sync] なので syncso が次に呼ばれる
+    syncso_mock.assert_called_once()
+    fal_mock.assert_not_called()

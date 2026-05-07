@@ -451,10 +451,46 @@ def test_apply_syncso_sync_4xx_creates_clear_error(tmp_path, monkeypatch) -> Non
     assert "401" in str(exc.value)
 
 
-def test_apply_domoai_sync_clamps_long_audio(tmp_path, monkeypatch) -> None:
-    """音声が 60s を超える場合は 60s に clamp して送信する (warning ログ付き)。"""
+def test_apply_domoai_sync_raises_on_long_audio(tmp_path, monkeypatch) -> None:
+    """音声が 60s を超える場合は clamp せず LipsyncClientError を raise (= API 呼ばない)。"""
     _stub_domoai_env(monkeypatch)
-    monkeypatch.setattr(lipsync_client, "_ffprobe_duration", lambda p: 75.3)
+    monkeypatch.setattr(lipsync_client, "_ffprobe_duration", lambda p: 65.0)
+
+    post_calls: list[str] = []
+    put_calls: list[str] = []
+
+    def fake_post(url, **_):
+        post_calls.append(url)
+        r = MagicMock(); r.status_code = 200
+        return r
+
+    def fake_put(url, **_):
+        put_calls.append(url)
+        r = MagicMock(); r.status_code = 200
+        return r
+
+    monkeypatch.setattr(lipsync_client.requests, "post", fake_post)
+    monkeypatch.setattr(lipsync_client.requests, "put", fake_put)
+
+    video = tmp_path / "v.mp4"
+    audio = tmp_path / "a.m4a"
+    video.write_bytes(b"V"); audio.write_bytes(b"A")
+
+    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
+        lipsync_client._apply_domoai_sync(
+            str(video), str(audio), str(tmp_path / "o.mp4"))
+    msg = str(exc.value)
+    assert "上限" in msg
+    assert "超過" in msg
+    assert "65.0" in msg
+    assert post_calls == []
+    assert put_calls == []
+
+
+def test_apply_domoai_sync_processes_short_audio(tmp_path, monkeypatch) -> None:
+    """30s 程度の音声は通常通り seconds=30 で送信される。"""
+    _stub_domoai_env(monkeypatch)
+    monkeypatch.setattr(lipsync_client, "_ffprobe_duration", lambda p: 30.0)
 
     create_payload: dict = {}
 
@@ -501,4 +537,4 @@ def test_apply_domoai_sync_clamps_long_audio(tmp_path, monkeypatch) -> None:
     lipsync_client._apply_domoai_sync(
         str(video), str(audio), str(tmp_path / "o.mp4"))
 
-    assert create_payload["seconds"] == 60
+    assert create_payload["seconds"] == 30
