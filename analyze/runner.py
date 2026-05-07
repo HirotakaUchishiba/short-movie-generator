@@ -68,6 +68,107 @@ def _wait_for_confirm(job_id: str, timeout_sec: float = CONFIRM_TIMEOUT_SEC,
     raise CostGateTimeout(err)
 
 
+class _PhaseTracker:
+    """analyze pipeline 各フェーズの開始 / 完了 / skip を SQLite に記録する helper。"""
+
+    def __init__(self, job_id: str) -> None:
+        self.job_id = job_id
+        self.phase_start_times: dict[str, float] = {}
+
+    def handle(self, event: str, data: dict) -> None:
+        phase = data.get("phase")
+        if event == "phase_start" and phase:
+            self.phase_start_times[phase] = time.time()
+            try:
+                job.start_phase(self.job_id, phase)
+            except Exception:
+                logger.exception(
+                    "start_phase failed: %s/%s", self.job_id, phase,
+                )
+        elif event == "phase_complete" and phase:
+            started = self.phase_start_times.get(phase)
+            duration_ms = (
+                int((time.time() - started) * 1000) if started else None
+            )
+            try:
+                job.complete_phase(
+                    self.job_id, phase, duration_ms=duration_ms,
+                )
+            except Exception:
+                logger.exception(
+                    "complete_phase failed: %s/%s", self.job_id, phase,
+                )
+        elif event == "phase_skipped" and phase:
+            try:
+                job.skip_phase(self.job_id, phase)
+            except Exception:
+                logger.exception(
+                    "skip_phase failed: %s/%s", self.job_id, phase,
+                )
+        elif event == "claude_usage":
+            self._record_claude_cost(data)
+
+    def _record_claude_cost(self, data: dict) -> None:
+        input_tokens = data.get("input_tokens")
+        output_tokens = data.get("output_tokens")
+        if input_tokens is None or output_tokens is None:
+            return
+        try:
+            rec = cost_recorder.record_analyze(
+                project_ts=self.job_id,
+                model=video_analyzer.ANALYZER_MODEL,
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+            )
+            job.update_job(self.job_id, actual_cost_usd=rec.cost_usd)
+        except Exception:
+            logger.exception(
+                "cost recording failed (analyze): %s", self.job_id,
+            )
+
+
+def _build_cost_gate(job_id: str):
+    """Claude 呼び出し直前の cost gate callback を返す。awaiting_confirm に
+    遷移して confirm を polling で待つ。
+
+    token 数は ``analyze.cost.estimate_tokens`` で概算し、USD 換算は
+    実コスト履歴から ``cost_tracking.estimator.estimate_analyze`` で算定する
+    (= 履歴不足なら ``cost_usd`` は ``None``)。
+    """
+
+    def cost_gate(
+        frame_count: int,
+        transcript: dict,
+        shot_count: int,
+        known_furigana_count: int,
+    ) -> bool:
+        tokens = cost.estimate_tokens(
+            frame_count=frame_count,
+            transcript=transcript,
+            shot_count=shot_count,
+            known_furigana_count=known_furigana_count,
+        )
+        estimate = cost_estimator.estimate_analyze(
+            input_tokens=tokens["input_tokens"],
+            output_tokens=tokens["output_tokens"],
+            model=video_analyzer.ANALYZER_MODEL,
+        )
+        job.transition_status(
+            job_id, "awaiting_confirm",
+            estimated_cost_usd=estimate.cost_usd,
+        )
+        progress.publish(job_id, "dryrun_complete", {
+            "frame_count": frame_count,
+            "input_tokens": tokens["input_tokens"],
+            "output_tokens": tokens["output_tokens"],
+            "token_breakdown": tokens["breakdown"],
+            **asdict(estimate),
+        })
+        return _wait_for_confirm(job_id)
+
+    return cost_gate
+
+
 def start(job_id: str) -> threading.Thread:
     """ジョブを daemon thread で起動する。"""
     t = threading.Thread(
@@ -106,78 +207,14 @@ def _run_job_impl(job_id: str) -> None:
     progress.publish(job_id, "started",
                       {"job_id": job_id, "video_sha256": j.video_sha256})
 
-    phase_start_times: dict[str, float] = {}
+    tracker = _PhaseTracker(job_id)
 
     def on_progress(event: str, data: dict) -> None:
-        phase = data.get("phase")
-        if event == "phase_start" and phase:
-            phase_start_times[phase] = time.time()
-            try:
-                job.start_phase(job_id, phase)
-            except Exception:
-                logger.exception("start_phase failed: %s/%s", job_id, phase)
-        elif event == "phase_complete" and phase:
-            started = phase_start_times.get(phase)
-            duration_ms = int((time.time() - started) * 1000) if started else None
-            try:
-                job.complete_phase(job_id, phase, duration_ms=duration_ms)
-            except Exception:
-                logger.exception("complete_phase failed: %s/%s", job_id, phase)
-        elif event == "phase_skipped" and phase:
-            try:
-                job.skip_phase(job_id, phase)
-            except Exception:
-                logger.exception("skip_phase failed: %s/%s", job_id, phase)
-        elif event == "claude_usage":
-            input_tokens = data.get("input_tokens")
-            output_tokens = data.get("output_tokens")
-            if input_tokens is not None and output_tokens is not None:
-                try:
-                    rec = cost_recorder.record_analyze(
-                        project_ts=job_id,
-                        model=video_analyzer.ANALYZER_MODEL,
-                        input_tokens=int(input_tokens),
-                        output_tokens=int(output_tokens),
-                    )
-                    job.update_job(job_id, actual_cost_usd=rec.cost_usd)
-                except Exception:
-                    logger.exception("cost recording failed (analyze): %s", job_id)
+        tracker.handle(event, data)
         progress.publish(job_id, event, data)
 
     def cancel_token() -> bool:
         return job.is_cancellation_requested(job_id)
-
-    def cost_gate(frame_count: int, transcript: dict,
-                   shot_count: int, known_furigana_count: int) -> bool:
-        """Claude 呼び出し直前。awaiting_confirm に遷移して confirm を待つ。
-
-        token 数は ``analyze.cost.estimate_tokens`` で概算し、USD 換算は
-        実コスト履歴から ``cost_tracking.estimator.estimate_analyze`` で算定する
-        (= 履歴不足なら ``cost_usd`` は ``None``)。
-        """
-        tokens = cost.estimate_tokens(
-            frame_count=frame_count,
-            transcript=transcript,
-            shot_count=shot_count,
-            known_furigana_count=known_furigana_count,
-        )
-        estimate = cost_estimator.estimate_analyze(
-            input_tokens=tokens["input_tokens"],
-            output_tokens=tokens["output_tokens"],
-            model=video_analyzer.ANALYZER_MODEL,
-        )
-        job.transition_status(
-            job_id, "awaiting_confirm",
-            estimated_cost_usd=estimate.cost_usd,
-        )
-        progress.publish(job_id, "dryrun_complete", {
-            "frame_count": frame_count,
-            "input_tokens": tokens["input_tokens"],
-            "output_tokens": tokens["output_tokens"],
-            "token_breakdown": tokens["breakdown"],
-            **asdict(estimate),
-        })
-        return _wait_for_confirm(job_id)
 
     try:
         screenplay = pipeline.run(
@@ -185,7 +222,7 @@ def _run_job_impl(job_id: str) -> None:
             options=options,
             on_progress=on_progress,
             cancel_token=cancel_token,
-            on_cost_gate=cost_gate,
+            on_cost_gate=_build_cost_gate(job_id),
         )
         job.touch_reference_video(j.video_sha256)
 
