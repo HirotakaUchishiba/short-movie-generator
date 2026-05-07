@@ -188,6 +188,48 @@ CREATE INDEX IF NOT EXISTS idx_qaf_ts ON qa_failures(ts);
 CREATE INDEX IF NOT EXISTS idx_qaf_stage ON qa_failures(stage);
 CREATE INDEX IF NOT EXISTS idx_qaf_source ON qa_failures(source);
 
+-- ─────────────────────────────────────────────────────────────────
+-- Phase 3: closed-loop 改善 (= experiment_assignments + 軸別 view)
+-- ─────────────────────────────────────────────────────────────────
+
+-- 1 video の各軸で「今回どの値を試したか」と「strategy (= baseline / shadow_explore /
+-- shadow_exploit / active_explore / active_exploit)」を記録する。
+-- video_id は generation_records と同じく ts ベース (= ingest_video 後に
+-- canonical な videos.id にもひも付ける運用)。
+CREATE TABLE IF NOT EXISTS experiment_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    axis TEXT NOT NULL,
+    selected_value TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_exp_video ON experiment_assignments(video_id);
+CREATE INDEX IF NOT EXISTS idx_exp_axis ON experiment_assignments(axis);
+CREATE INDEX IF NOT EXISTS idx_exp_strategy ON experiment_assignments(strategy);
+
+-- 軸別パフォーマンス view (= bandit の reward source)。
+-- post 投稿後 24h 経過したメトリクスのみ採用 (= まだ伸びていない動画のノイズを排除)。
+CREATE VIEW IF NOT EXISTS v_axis_performance AS
+SELECT
+    s.hook_type,
+    s.tone,
+    s.dominant_emotion,
+    s.theme,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+GROUP BY s.hook_type, s.tone, s.dominant_emotion, s.theme;
+
 -- Performance summary (screenplay × platform latest metrics)
 CREATE VIEW IF NOT EXISTS v_performance AS
 SELECT

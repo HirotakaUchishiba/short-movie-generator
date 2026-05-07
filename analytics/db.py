@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 5
+CURRENT_SCHEMA_VERSION = 6
 
 
 def _now() -> str:
@@ -490,3 +490,79 @@ def count_qa_failures(
     with get_connection() as conn:
         row = conn.execute(sql, params).fetchone()
     return int(row["c"]) if row else 0
+
+
+# ───────────── experiment_assignments (Phase 3: Closed-loop) ─────────────
+
+def insert_experiment_assignment(
+    *,
+    video_id: str,
+    axis: str,
+    selected_value: str,
+    strategy: str,
+) -> int:
+    """``experiment_assignments`` に 1 行追加して新 id を返す。"""
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO experiment_assignments
+               (video_id, axis, selected_value, strategy, created_at)
+               VALUES (?, ?, ?, ?, ?)""",
+            (video_id, axis, selected_value, strategy, _now()),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_experiment_assignments(
+    *, video_id: str | None = None, axis: str | None = None,
+    strategy: str | None = None, limit: int | None = None,
+) -> list[dict]:
+    where: list[str] = []
+    params: list[Any] = []
+    if video_id is not None:
+        where.append("video_id = ?")
+        params.append(video_id)
+    if axis is not None:
+        where.append("axis = ?")
+        params.append(axis)
+    if strategy is not None:
+        where.append("strategy = ?")
+        params.append(strategy)
+    sql = "SELECT * FROM experiment_assignments"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_axis_performance(
+    axis: str, *, metric: str = "avg_completion", limit: int = 200,
+) -> list[dict]:
+    """``v_axis_performance`` を読み、(value, metric, n) の行を返す。
+
+    Args:
+        axis: ``hook_type`` / ``tone`` / ``dominant_emotion`` / ``theme``
+        metric: ``avg_views`` / ``avg_completion`` / ``avg_save``
+    """
+    if axis not in ("hook_type", "tone", "dominant_emotion", "theme"):
+        raise ValueError(f"unknown axis: {axis}")
+    if metric not in ("avg_views", "avg_completion", "avg_save"):
+        raise ValueError(f"unknown metric: {metric}")
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT {axis} AS axis_value, {metric} AS metric, n "
+            "FROM v_axis_performance "
+            f"WHERE {axis} IS NOT NULL "
+            "ORDER BY n DESC LIMIT ?",
+            (int(limit),),
+        ).fetchall()
+    return [
+        {"axis_value": r["axis_value"],
+         "metric": float(r["metric"] or 0.0),
+         "n": int(r["n"] or 0)}
+        for r in rows
+    ]

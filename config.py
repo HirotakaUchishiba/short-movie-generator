@@ -764,3 +764,20 @@ QA_RETRY_LIMITS: dict[str, int] = {
     "scene": 2,
     "overlay": 1,
 }
+
+# ───────────── Phase 3: Closed-loop 改善 ─────────────
+# baseline: バンディット完全無効。Phase 2 までの挙動。
+# shadow:   バンディットの選択を experiment_assignments に記録するだけ
+#           (= prompt 注入はしない、効果評価期間)。
+# active:   バンディットの選択を analyze の instructions に注入する
+#           (= 本番実験)。
+IMPROVEMENT_STRATEGY = os.getenv("IMPROVEMENT_STRATEGY", "baseline")
+
+# ε-greedy の exploration 確率。0.2 = 20% random、80% historical best。
+BANDIT_EPSILON = float(os.getenv("BANDIT_EPSILON", "0.2"))
+
+# 各軸ごとの reward 履歴を独立に管理する対象。
+# 順序の変更 / 追加は v_axis_performance の SELECT 列とも整合させること。
+BANDIT_AXES: tuple[str, ...] = (
+    "hook_type", "tone", "dominant_emotion", "theme",
+)

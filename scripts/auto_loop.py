@@ -47,6 +47,8 @@ from qa.registry import (  # noqa: E402
     run_validators_for_stage,
 )
 from qa.validators.base import ValidationResult  # noqa: E402
+from improvement import strategy as improvement_strategy  # noqa: E402
+from improvement.prompt_injector import compose_instructions  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
@@ -90,16 +92,26 @@ def _fetch_reference(reference_url: str, license_status: str,
         raise AutoLoopAborted(str(e)) from e
 
 
-def _run_analyze(ref_path: str, ref_sha: str) -> str:
-    """analyze.run() を呼んで screenplay 名 (= "auto_<sha12>") を返す。"""
-    from analyze import run as analyze_run
+def _run_analyze(ref_path: str, ref_sha: str,
+                 *, instructions: str | None = None) -> str:
+    """analyze.run() を呼んで screenplay 名 (= "auto_<sha12>") を返す。
+
+    Phase 3: ``instructions`` で improvement.prompt_injector の組み立て結果を
+    Claude system prompt に注入する経路。``IMPROVEMENT_STRATEGY=baseline``
+    なら呼び出し側で ``None`` を渡してくる。
+    """
+    from analyze import AnalyzeOptions, run as analyze_run
 
     output_path = os.path.join(
         config.SCREENPLAYS_DIR, f"auto_{ref_sha[:12]}.json",
     )
     os.makedirs(config.SCREENPLAYS_DIR, exist_ok=True)
+    options = AnalyzeOptions(instructions=instructions) if instructions else None
     try:
-        analyze_run(video_path=ref_path, output_path=output_path)
+        analyze_run(
+            video_path=ref_path, output_path=output_path,
+            options=options,
+        )
     except Exception as e:
         notify_slack("error", f"analyze failed: {e}",
                      context={"ref_path": ref_path})
@@ -306,13 +318,24 @@ def run_one_video(
     _budget_guard()
 
     ref = _fetch_reference(reference_url, license_status, max_duration)
-    sp_name = _run_analyze(ref["path"], ref["sha256"])
+
+    # Phase 3: bandit で各軸の値を選択し、analyze の instructions に注入する。
+    # baseline は空 dict + None を返すので Phase 2 と同等の挙動になる。
+    assignments = improvement_strategy.select_assignments_for_video()
+    instructions = compose_instructions(assignments)
+
+    sp_name = _run_analyze(
+        ref["path"], ref["sha256"], instructions=instructions,
+    )
     ts = _create_project(sp_name)
     _adb.update_generation_record(
         ts,
         reference_video_id=ref["sha256"],
         screenplay_sha=ref["sha256"][:12],
     )
+    # shadow / active なら experiment_assignments に永続化 (= 後で
+    # post_metrics と join して reward を更新する)。
+    improvement_strategy.record_assignments(ts, assignments)
     # Stage 1 (script) は run_script で mark_generated 済み → approve のみ
     _approve(ts, "script")
 
