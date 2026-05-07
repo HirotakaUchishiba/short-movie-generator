@@ -20,26 +20,26 @@ flowchart LR
 
   subgraph 段階的ゲート方式
     direction TB
-    S1[1.台本] --> S2[2.TTS] --> S3[3.背景] --> S4[4.Kling] --> S56[5+6.scene] --> S7[7.字幕]
+    S1[1.台本] --> S2[2.TTS] --> S3[3.背景] --> S4[4.Kling] --> S5[5.scene] --> S6[6.字幕]
   end
 
   SNAP --> S1
-  S7 --> RAW[output/reels_&lt;TS&gt;.mp4<br/>= pipeline raw]
+  S6 --> RAW[output/reels_&lt;TS&gt;.mp4<br/>= pipeline raw]
   RAW --> EXT[CapCut 等で外部編集]
-  EXT --> S8[8.final import]
-  RAW -.直接 canonical 化.-> S8
-  S8 --> S9[9.publish]
+  EXT --> S7[7.final import]
+  RAW -.直接 canonical 化.-> S7
+  S7 --> S8[8.publish]
 
-  S9 --> YT[YouTube]
-  S9 --> IG[Instagram]
-  S9 --> TT[TikTok]
+  S8 --> YT[YouTube]
+  S8 --> IG[Instagram]
+  S8 --> TT[TikTok]
 
   YT --> METRIC[(analytics.db<br/>post_metrics)]
   IG --> METRIC
   TT --> METRIC
 ```
 
-各 stage は **承認 (approve) を経るまで次 stage に進まない**。Stage 8 / 9 はユーザの外部アクション (= ファイル drop / publish コマンド) が起点で、`run-next` では自動起動しない。
+各 stage は **承認 (approve) を経るまで次 stage に進まない**。Stage 7 / 8 はユーザの外部アクション (= ファイル drop / publish コマンド) が起点で、`run-next` では自動起動しない。
 
 ---
 
@@ -96,18 +96,18 @@ flowchart LR
 
 ## 3. 技術スタック (Stage × 外部 API)
 
-| Stage          | 役割                   | 主要 API / ライブラリ                                  | 認証 env                                         |
-| -------------- | ---------------------- | ------------------------------------------------------ | ------------------------------------------------ |
-| Stage 1 (台本) | 検証 + メタ書き出し    | `screenplay_validator` (純ローカル)                    | —                                                |
-| Stage 2 (TTS)  | 1-shot 全体合成        | ElevenLabs eleven_v3 (`with-timestamps`)               | `ELEVENLABS_API_KEY`                             |
-| Stage 3 (BG)   | scene 別背景画像       | Google Imagen `gemini-3-pro-image-preview`             | `GOOGLE_API_KEY`                                 |
-| Stage 4 (動画) | I2V アニメーション     | fal.ai Kling V3 Standard                               | `FAL_KEY`                                        |
-| Stage 5+6      | 音声重ね + lipsync     | FFmpeg + Sync.so (既定) / DomoAI / fal-sync            | `SYNC_API_KEY` / `DOMOAI_API_KEY` / `FAL_KEY`    |
-| Stage 7 (字幕) | ASS 焼き込み + caption | FFmpeg + libass + Claude Haiku (caption 生成)          | `ANTHROPIC_API_KEY`                              |
-| Stage 8 (取込) | watchdog + 指紋検証    | `librosa` (MFCC 相関)                                  | —                                                |
-| Stage 9 (公開) | YouTube / IG / TikTok  | YouTube Data API v3 / Graph API (stub) / Display API   | `YOUTUBE_OAUTH_*` / `INSTAGRAM_*` / `TIKTOK_*`   |
-| analyze        | 参考動画逆算           | Claude Opus 4.7 + OpenAI Whisper (or `faster-whisper`) | `ANTHROPIC_API_KEY` 必須 / `OPENAI_API_KEY` 任意 |
-| auto-tag       | hook_type 等の付与     | Claude Haiku                                           | `ANTHROPIC_API_KEY`                              |
+| Stage           | 役割                   | 主要 API / ライブラリ                                  | 認証 env                                         |
+| --------------- | ---------------------- | ------------------------------------------------------ | ------------------------------------------------ |
+| Stage 1 (台本)  | 検証 + メタ書き出し    | `screenplay_validator` (純ローカル)                    | —                                                |
+| Stage 2 (TTS)   | 1-shot 全体合成        | ElevenLabs eleven_v3 (`with-timestamps`)               | `ELEVENLABS_API_KEY`                             |
+| Stage 3 (BG)    | scene 別背景画像       | Google Imagen `gemini-3-pro-image-preview`             | `GOOGLE_API_KEY`                                 |
+| Stage 4 (動画)  | I2V アニメーション     | fal.ai Kling V3 Standard                               | `FAL_KEY`                                        |
+| Stage 5 (scene) | 音声重ね + lipsync     | FFmpeg + Sync.so (既定) / DomoAI / fal-sync            | `SYNC_API_KEY` / `DOMOAI_API_KEY` / `FAL_KEY`    |
+| Stage 6 (字幕)  | ASS 焼き込み + caption | FFmpeg + libass + Claude Haiku (caption 生成)          | `ANTHROPIC_API_KEY`                              |
+| Stage 7 (取込)  | watchdog + 指紋検証    | `librosa` (MFCC 相関)                                  | —                                                |
+| Stage 8 (公開)  | YouTube / IG / TikTok  | YouTube Data API v3 / Graph API (stub) / Display API   | `YOUTUBE_OAUTH_*` / `INSTAGRAM_*` / `TIKTOK_*`   |
+| analyze         | 参考動画逆算           | Claude Opus 4.7 + OpenAI Whisper (or `faster-whisper`) | `ANTHROPIC_API_KEY` 必須 / `OPENAI_API_KEY` 任意 |
+| auto-tag        | hook_type 等の付与     | Claude Haiku                                           | `ANTHROPIC_API_KEY`                              |
 
 詳細な単価とコスト構造は `docs/architecture-decisions.md` を参照。
 
@@ -166,7 +166,7 @@ screenplay の `character_refs` / `location_ref` はこの 2 SSOT を**参照す
 | 種別             | パス                        | 用途                                                                 |
 | ---------------- | --------------------------- | -------------------------------------------------------------------- |
 | template         | `screenplays/<name>.json`   | 新規 project 作成時の素材 (git 追跡)                                 |
-| project snapshot | `temp/<TS>/screenplay.json` | template から copy された immutable な作業コピー (Stage 1〜7 はここ) |
+| project snapshot | `temp/<TS>/screenplay.json` | template から copy された immutable な作業コピー (Stage 1〜6 はここ) |
 
 project 作成後に template が外部で書き換わっても、進行中 project は影響を受けない。
 
@@ -187,8 +187,8 @@ project 作成後に template が外部で書き換わっても、進行中 proj
     metadata.json               ← sha / final_versions[] / published_posts[]
     tmp-progress.json           ← stage gate 状態
     tmp/*                       ← 中間アーティファクト
-    final/*                     ← Stage 8 取込済み (複数バージョン)
-  output/reels_<TS>.mp4         ← Stage 7 で書き出される pipeline raw
+    final/*                     ← Stage 7 取込済み (複数バージョン)
+  output/reels_<TS>.mp4         ← Stage 6 で書き出される pipeline raw
   post_captions/<title>.md      ← SNS キャプション
   data/analytics.db             ← SQLite (screenplays / videos / posts / post_metrics)
   data/cost_records.jsonl       ← analyze pipeline のコスト履歴
@@ -204,7 +204,7 @@ project 作成後に template が外部で書き換わっても、進行中 proj
 | 生成パイプライン | `ANTHROPIC_API_KEY`                                                 | 必須              | analyze / auto-tag / caption 生成                                                                    |
 |                  | `ELEVENLABS_API_KEY`                                                | 必須              | TTS (Stage 2)                                                                                        |
 |                  | `GOOGLE_API_KEY`                                                    | 必須              | Imagen 背景生成 (Stage 3)                                                                            |
-|                  | `FAL_KEY`                                                           | 必須              | Kling V3 (Stage 4) / fal-sync (Stage 5+6)                                                            |
+|                  | `FAL_KEY`                                                           | 必須              | Kling V3 (Stage 4) / fal-sync (Stage 5)                                                              |
 |                  | `OPENAI_API_KEY`                                                    | 任意              | Whisper (analyze)。無ければ `faster-whisper` ローカル                                                |
 | lipsync 切替     | `LIPSYNC_PROVIDER` (`syncso` 既定)                                  | 任意              | provider 選択                                                                                        |
 |                  | `SYNC_API_KEY`                                                      | 既定で必須        | Sync.so                                                                                              |
@@ -238,9 +238,9 @@ tensyoku_movie_generator/
 
   analyze/                      ← 参考動画 → 抽象台本
     pipeline.py / runner.py / compose.py / cost.py / job.py
-  final_import/                 ← Stage 8
+  final_import/                 ← Stage 7
     core.py / fingerprint.py / publish.py / watcher.py
-  platform_clients/             ← Stage 9
+  platform_clients/             ← Stage 8
     youtube.py / instagram.py / tiktok.py
   analytics/                    ← SQLite + auto-tag
     db.py / schema.sql / auto_tag.py / pending_queue.py

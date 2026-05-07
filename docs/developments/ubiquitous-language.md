@@ -34,11 +34,11 @@
 
 | 用語                         | コード/パス                   | 説明                                                                                |
 | ---------------------------- | ----------------------------- | ----------------------------------------------------------------------------------- |
-| ステージ (stage)             | 1〜9                          | 生成 → 編集 → 公開を 9 段階に分割した単位                                           |
+| ステージ (stage)             | 1〜8                          | 生成 → 編集 → 公開を 8 段階に分割した単位                                           |
 | プロジェクト (project)       | `temp/<TS>/`                  | 1 本の動画分の作業ディレクトリ。`TS` は `YYYYMMDD_HHMMSS`                           |
 | TS                           | `<TS>`                        | プロジェクト識別子                                                                  |
 | テンプレート                 | `screenplays/<name>.json`     | 新規 project 作成時の素材 (git 追跡)                                                |
-| プロジェクトスナップショット | `temp/<TS>/screenplay.json`   | template から copy された immutable な作業コピー。Stage 1〜7 の読み書きはここだけ   |
+| プロジェクトスナップショット | `temp/<TS>/screenplay.json`   | template から copy された immutable な作業コピー。Stage 1〜6 の読み書きはここだけ   |
 | 進捗                         | `temp/<TS>/tmp-progress.json` | 各 stage の `generated_at` / `approved_at` / `regen_count`                          |
 | 中間アーティファクト         | `temp/<TS>/tmp/*`             | 各 stage の中間成果物 (`tts_*.mp3` / `bg_*.png` / `kling_*.mp4` / `scene_*.mp4` 等) |
 | pipeline raw                 | `output/reels_<TS>.mp4`       | Stage 7 で書き出される字幕焼き込み済み動画 (= 編集前の最終形)                       |
@@ -54,10 +54,10 @@
 | TTS          | Stage 2                    | ElevenLabs eleven_v3 で screenplay 全体を **1-shot** 生成        |
 | 背景生成     | Stage 3 / Imagen           | scene ごとの `bg_<S>.png`                                        |
 | Kling        | Stage 4 / fal.ai Kling V3  | I2V でシーン動画を生成                                           |
-| シーン合成   | Stage 5+6                  | 音声重ねと lipsync で `scene_<S>.mp4` を仕上げる                 |
+| シーン合成   | Stage 5                    | 音声重ねと lipsync で `scene_<S>.mp4` を仕上げる                 |
 | オーバーレイ | Stage 7                    | 字幕の焼き込み (`overlaid.mp4` → `output/reels_<TS>.mp4`)        |
 
-## 5. 品質保証 (Stage 1〜7 の承認サイクル)
+## 5. 品質保証 (Stage 1〜6 の承認サイクル)
 
 | 用語            | コード                                                               | 説明                                                                      |
 | --------------- | -------------------------------------------------------------------- | ------------------------------------------------------------------------- |
@@ -95,7 +95,7 @@
 | canonical     | `final_versions[].is_canonical`                | analytics と publish が指す正本 (= 1 プロジェクトに 1 本)                      |
 | 音声指紋      | `final_import.fingerprint.compute_match_score` | TTS 音声が final にも残っているかを `[0, 1]` で判定。閾値 `0.6` 未満は warning |
 
-## 9. 配信 (Stage 9 / SNS)
+## 9. 配信 (Stage 8 / SNS)
 
 | 用語            | コード                          | 説明                                                                 |
 | --------------- | ------------------------------- | -------------------------------------------------------------------- |
@@ -122,14 +122,14 @@ Stage 1 (台本)
   → Stage 2 (TTS)
   → Stage 3 (背景)
   → Stage 4 (Kling)
-  → Stage 5+6 (音声/リップシンク合成)
-  → Stage 7 (字幕 / pipeline raw 書き出し)
+  → Stage 5 (音声/リップシンク合成)
+  → Stage 6 (字幕 / pipeline raw 書き出し)
   → [CapCut 等で外部編集]
-  → Stage 8 (final import / canonical 確定)
-  → Stage 9 (publish)
+  → Stage 7 (final import / canonical 確定)
+  → Stage 8 (publish)
 ```
 
-各 stage は **承認 (approve) を経るまで次 stage は実行できない**。Stage 8 / 9 はユーザの外部アクション (= ファイル drop / publish コマンド) が起点。
+各 stage は **承認 (approve) を経るまで次 stage は実行できない**。Stage 7 / 8 はユーザの外部アクション (= ファイル drop / publish コマンド) が起点。
 
 ## 12. ステータス語彙
 
