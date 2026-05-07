@@ -7,6 +7,7 @@ import threading
 from datetime import datetime
 
 import config
+import io_utils
 import progress_store
 import scene_gen
 from compositor import compose_video, _apply_overlays, _merge_scenes
@@ -213,8 +214,9 @@ def save_project_screenplay(ts_path: str, screenplay: dict) -> None:
 def _refresh_metadata_sha(ts_path: str, sha256: str) -> None:
     meta = read_metadata(ts_path) or {}
     meta["screenplay_sha256"] = sha256
-    with open(os.path.join(ts_path, "metadata.json"), "w") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+    io_utils.atomic_write_json(
+        os.path.join(ts_path, "metadata.json"), meta,
+    )
 
 
 # ───────────────── metadata ─────────────────
@@ -244,8 +246,9 @@ def write_metadata(temp_dir: str, screenplay_name: str,
         # セクションで抽象台本 + VideoStyle を編集して再合成するためのキー。
         meta["analyze_job_id"] = analyze_job_id
     os.makedirs(temp_dir, exist_ok=True)
-    with open(os.path.join(temp_dir, "metadata.json"), "w") as f:
-        json.dump(meta, f, ensure_ascii=False, indent=2)
+    io_utils.atomic_write_json(
+        os.path.join(temp_dir, "metadata.json"), meta,
+    )
 
 
 def read_metadata(temp_dir: str) -> dict | None:

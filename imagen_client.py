@@ -5,6 +5,7 @@ from google import genai
 from google.genai import types
 
 import config
+import io_utils
 
 logger = logging.getLogger(__name__)
 
@@ -76,8 +77,7 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
 
     for part in candidates[0].content.parts:
         if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
-            with open(output_path, "wb") as f:
-                f.write(part.inline_data.data)
+            io_utils.atomic_write_bytes(output_path, part.inline_data.data)
 
             if _is_portrait(output_path):
                 return
@@ -86,7 +86,11 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
             w, h = img.size
             crop_w = int(h * 9 / 16)
             left = (w - crop_w) // 2
-            img.crop((left, 0, left + crop_w, h)).save(output_path)
+            cropped = img.crop((left, 0, left + crop_w, h))
+            tmp = output_path + ".crop.tmp"
+            cropped.save(tmp)
+            import os as _os
+            _os.replace(tmp, output_path)
             return
 
     raise RuntimeError("画像が生成されませんでした")
