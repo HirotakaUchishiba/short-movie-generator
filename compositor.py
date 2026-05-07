@@ -614,15 +614,15 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("[overlay] tmp %s 削除失敗: %s", tmp_path, e)
         raise
     if r.returncode != 0:
         if os.path.exists(tmp_path):
             try:
                 os.remove(tmp_path)
-            except OSError:
-                pass
+            except OSError as e:
+                logger.warning("[overlay] tmp %s 削除失敗: %s", tmp_path, e)
         logger.error("Overlay error: %s", r.stderr[-1500:])
         raise RuntimeError("Overlay application failed")
     os.replace(tmp_path, output_path)

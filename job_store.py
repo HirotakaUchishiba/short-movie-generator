@@ -12,10 +12,13 @@ in-flight だったジョブのステータスが消える (= UI からは「消
 """
 
 import json
+import logging
 import os
 import threading
 import time
 from typing import Any
+
+logger = logging.getLogger(__name__)
 
 JOBS_FILENAME = "jobs.json"
 DEFAULT_DATA_DIR = os.path.join(
@@ -64,8 +67,8 @@ def _save(data: dict) -> None:
         try:
             if os.path.exists(tmp):
                 os.remove(tmp)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("[job-store] tmp %s 削除失敗: %s", tmp, e)
         raise
 
 

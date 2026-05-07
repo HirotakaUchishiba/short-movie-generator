@@ -460,8 +460,10 @@ def api_bg_cache_info(ts, scene_idx):
             info["hit_count"] = int(meta.get("hit_count", 0))
             info["created_at"] = meta.get("created_at")
             info["last_used_at"] = meta.get("last_used_at")
-        except Exception:
-            pass
+        except (OSError, ValueError) as e:
+            logger.warning(
+                "[bg-cache-info] meta load 失敗 cache=%s: %s", cached, e,
+            )
     return jsonify(info)
 
 
@@ -1533,8 +1535,11 @@ def _stage_decisions_bulk(ts: str, stage: str):
         else:  # all-fresh
             try:
                 handler.clear_downstream_fn(i, _ts_path(ts))
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning(
+                    "[stage-decisions] downstream clear 失敗 ts=%s scene=%d: %s",
+                    ts, i, e,
+                )
             rec["decision"] = "fresh"
             rec["decided_key"] = None
             rec["decided_at"] = _now_iso()
@@ -1919,8 +1924,8 @@ def api_upload_final(ts):
         try:
             if os.path.exists(tmp):
                 os.unlink(tmp)
-        except OSError:
-            pass
+        except OSError as e:
+            logger.warning("[final-upload] tmp %s unlink 失敗: %s", tmp, e)
 
 
 @app.route("/api/projects/<ts>/final/<filename>/canonical", methods=["POST"])
