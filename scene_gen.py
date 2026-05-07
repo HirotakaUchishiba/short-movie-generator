@@ -53,6 +53,29 @@ class PartialBackgroundFailure(RuntimeError):
         super().__init__(msg)
 
 
+class PartialKlingFailure(RuntimeError):
+    """Stage 4 で一部のシーンが失敗したことを示す。
+
+    成功シーンの ``tmp/kling_<S>.mp4`` / ``tmp/scene_<S>.trim.mp4`` は保持
+    されるので、UI / CLI で失敗シーンのみ個別再生成で復旧できる。
+    ``failed_scene_indices`` は 0-origin。
+    """
+
+    def __init__(self, failed: list[int], total: int,
+                 errors: dict[int, str] | None = None) -> None:
+        self.failed_scene_indices = sorted(failed)
+        self.total_scenes = total
+        self.errors = errors or {}
+        succeeded = total - len(self.failed_scene_indices)
+        msg = (
+            f"Stage 4 (Kling) 部分失敗: {succeeded}/{total} シーン成功、"
+            f"失敗シーン (0-origin): {self.failed_scene_indices}。"
+            "成功した kling_<S>.mp4 / scene_<S>.trim.mp4 は temp/ に保持されている"
+            "ので、UI から失敗シーンのみ個別再生成で復旧してください。"
+        )
+        super().__init__(msg)
+
+
 def _run_bg_pool_collecting(
     submit_args: list[tuple[int, dict]],
     temp_dir: str,
@@ -1971,8 +1994,13 @@ def generate_kling_for_screenplay(screenplay: dict, temp_dir: str,
       - decision="cache" のシーンは cache から copy
       - decision="fresh" / "pending" のシーンは FAL で新規生成 (cache lookup あり)
     渡されなければ全シーン自動 (= cache lookup あり、CLI / 旧 UI 互換)。
+
+    1 シーンの失敗で stage 全体を諦めず、最後にまとめて
+    :class:`PartialKlingFailure` を raise する。成功シーンの kling/trim
+    ファイルは disk に残るので、UI から失敗シーンのみ regen 可能。
     """
     scenes = screenplay.get("scenes") or []
+    errors: dict[int, BaseException] = {}
     for i, scene in enumerate(scenes):
         decision = None
         decided_key = None
@@ -1980,10 +2008,25 @@ def generate_kling_for_screenplay(screenplay: dict, temp_dir: str,
             rec = scene_decisions.get(str(i)) or {}
             decision = rec.get("decision")
             decided_key = rec.get("decided_key")
-        if decision == "cache" and decided_key:
-            kling_commit_cache(i, scene, screenplay, temp_dir, decided_key)
-        else:
-            _kling_for_scene(i, scene, screenplay, temp_dir, force_fresh=False)
+        try:
+            if decision == "cache" and decided_key:
+                kling_commit_cache(i, scene, screenplay, temp_dir, decided_key)
+            else:
+                _kling_for_scene(i, scene, screenplay, temp_dir, force_fresh=False)
+        except BaseException as e:
+            errors[i] = e
+            logger.exception("シーン%d Kling生成失敗: %s", i + 1, e)
+    if errors:
+        failed = list(errors.keys())
+        succeeded = len(scenes) - len(failed)
+        logger.info(
+            "[Kling] %d/%d シーン成功、失敗シーン: %s",
+            succeeded, len(scenes), sorted(i + 1 for i in failed),
+        )
+        raise PartialKlingFailure(
+            failed, len(scenes),
+            errors={i: repr(e) for i, e in errors.items()},
+        )
 
 
 def regen_kling_scene(scene_idx: int, screenplay: dict, temp_dir: str,
