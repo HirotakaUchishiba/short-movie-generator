@@ -9,6 +9,7 @@ import type {
   BgDecisionsResponse,
   BgSceneDecision,
   CharacterMeta,
+  QaTagsConfig,
   RejectBody,
   RejectResponse,
   CostEstimate,
@@ -69,6 +70,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  qaTags: () => http<QaTagsConfig>("/api/config/qa-tags"),
   projects: () =>
     http<{ projects: ProjectListItem[]; screenplays: string[] }>(
       "/api/projects",

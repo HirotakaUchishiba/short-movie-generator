@@ -30,17 +30,32 @@ def qa_failures_root() -> str:
     return os.path.join(config.BASE_DIR, "data", "qa_failures")
 
 
-def _next_seq(ts: str, stage: str) -> int:
-    """同 ts/stage の中で連番を返す (= 衝突回避)。"""
+# 並列に同 ts/stage の record_failure が来てもディレクトリ衝突しない最大試行数。
+# 1 project の 1 stage がここまで失敗を生むことは事実上ない (= 想定上限は数十)。
+_MAX_SEQ_ATTEMPTS = 10000
+
+
+def _allocate_archive_dir(ts: str, stage: str) -> str:
+    """同 ts/stage で衝突しないアーカイブディレクトリを atomic に確保する。
+
+    Why: 並列に reject / regenerate_implicit / auto_flagged が同じ (ts, stage) に
+    対して走った場合、`os.listdir` ベースの seq 算出だと両者が同じ番号を取りうる
+    (TOCTOU race)。``os.makedirs(exist_ok=False)`` は POSIX レベルで atomic なので、
+    衝突した側だけが ``FileExistsError`` を受け取り、seq を進めてリトライできる。
+    """
     root = qa_failures_root()
-    if not os.path.isdir(root):
-        return 0
-    prefix = f"{ts}_{stage}_"
-    existing = [
-        n for n in os.listdir(root)
-        if n.startswith(prefix) and os.path.isdir(os.path.join(root, n))
-    ]
-    return len(existing)
+    os.makedirs(root, exist_ok=True)
+    for seq in range(_MAX_SEQ_ATTEMPTS):
+        archive_dir = os.path.join(root, f"{ts}_{stage}_{seq}")
+        try:
+            os.makedirs(archive_dir, exist_ok=False)
+            return archive_dir
+        except FileExistsError:
+            continue
+    raise RuntimeError(
+        f"qa_failures: failed to allocate archive dir for {ts}/{stage} "
+        f"after {_MAX_SEQ_ATTEMPTS} attempts",
+    )
 
 
 def record_failure(
@@ -78,9 +93,7 @@ def record_failure(
     tag_list = list(tags or [])
     validate_tags(tag_list)
 
-    seq = _next_seq(ts, stage)
-    archive_dir = os.path.join(qa_failures_root(), f"{ts}_{stage}_{seq}")
-    os.makedirs(archive_dir, exist_ok=True)
+    archive_dir = _allocate_archive_dir(ts, stage)
 
     copied_artifact: str | None = None
     for p in artifact_paths or ():

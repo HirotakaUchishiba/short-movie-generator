@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -219,6 +220,63 @@ def test_update_generation_record_rejects_unknown_field(isolated_db) -> None:
         isolated_db.update_generation_record(
             "20260507_160000", _no_such_field="x",
         )
+
+
+def test_update_generation_record_concurrent_upsert(isolated_db) -> None:
+    """並列に同 ts へ update_generation_record を投げても、UPSERT で衝突せずに
+    最後の write が反映されることを契約として固定する (= INSERT-then-UPDATE
+    パターンと違い PRIMARY KEY 違反で例外を投げない)。"""
+    n = 8
+    errors: list[Exception] = []
+    barrier = threading.Barrier(n)
+
+    def _worker(idx: int):
+        try:
+            barrier.wait(timeout=5)
+            isolated_db.update_generation_record(
+                "ts_concurrent_upsert", screenplay_sha=f"sha{idx:02d}",
+            )
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert errors == [], f"並列実行でエラー: {errors}"
+    rec = isolated_db.get_generation_record("ts_concurrent_upsert")
+    assert rec is not None
+    # screenplay_sha は最後に勝った write のもの (= sha00..sha07 のいずれか)。
+    assert rec["screenplay_sha"] in {f"sha{i:02d}" for i in range(n)}
+
+
+def test_append_stage_run_extra_rejects_reserved_keys(isolated_db) -> None:
+    """append_stage_run の extra で reserved key (stage/status/...) を上書き
+    しようとすると ValueError を投げる (= entry スキーマを壊さないガード)。"""
+    with pytest.raises(ValueError, match="reserved"):
+        isolated_db.append_stage_run(
+            ts="ts_reserved_key", stage="script",
+            started_at="x", ended_at="y", status="completed",
+            extra={"stage": "spoofed"},
+        )
+    with pytest.raises(ValueError, match="reserved"):
+        isolated_db.append_stage_run(
+            ts="ts_reserved_key", stage="script",
+            started_at="x", ended_at="y", status="completed",
+            extra={"status": "spoofed", "error": "ok"},
+        )
+    # 非 reserved key は通る
+    isolated_db.append_stage_run(
+        ts="ts_reserved_key", stage="script",
+        started_at="x", ended_at="y", status="completed",
+        extra={"error": "x", "trace_id": "abc"},
+    )
+    rec = isolated_db.get_generation_record("ts_reserved_key")
+    runs = json.loads(rec["stage_runs"])
+    assert runs[0]["error"] == "x"
+    assert runs[0]["trace_id"] == "abc"
 
 
 def test_insert_and_list_qa_failures(isolated_db) -> None:

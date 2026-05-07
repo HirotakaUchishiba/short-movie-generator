@@ -272,6 +272,13 @@ def query_performance() -> list[dict]:
 
 # ───────────── generation_records (Phase 0: 計測基盤) ─────────────
 
+# stage_runs entry のトップレベルキー。``extra`` でこれらを上書きされると
+# stage / status などのコア・フィールドが breakage するので明示的に reject する。
+_RESERVED_STAGE_RUN_KEYS: frozenset[str] = frozenset({
+    "stage", "started_at", "ended_at", "status", "retry_count", "cost_usd",
+})
+
+
 def append_stage_run(
     *,
     ts: str,
@@ -286,7 +293,17 @@ def append_stage_run(
     """generation_records.stage_runs に 1 stage 実行を追記する。
 
     ``ts`` 行が無ければ作成する (= 各 stage の最初の append が自動で init)。
-    ``total_cost_usd`` は付随する ``cost_usd`` を合算する。"""
+    ``total_cost_usd`` は付随する ``cost_usd`` を合算する。
+    ``extra`` で reserved key (stage / status 等) を上書きしようとすると
+    ``ValueError`` を投げる (= stage_runs のスキーマを壊さないガード)。"""
+    if extra:
+        invalid = set(extra) & _RESERVED_STAGE_RUN_KEYS
+        if invalid:
+            raise ValueError(
+                f"append_stage_run: extra cannot override reserved keys "
+                f"{sorted(invalid)} (reserved: {sorted(_RESERVED_STAGE_RUN_KEYS)})",
+            )
+
     entry: dict[str, Any] = {
         "stage": stage,
         "started_at": started_at,
@@ -300,6 +317,10 @@ def append_stage_run(
 
     delta_cost = float(cost_usd or 0.0)
     with get_connection() as conn:
+        # 並列 append (= 別プロセスの auto_loop など) との read-modify-write 競合を
+        # 防ぐため writer lock を即取得する。BEGIN IMMEDIATE は他 writer をブロック
+        # するので、SELECT → JSON append → UPDATE がアトミックに完了する。
+        conn.execute("BEGIN IMMEDIATE")
         row = conn.execute(
             "SELECT stage_runs, total_cost_usd FROM generation_records WHERE ts = ?",
             (ts,),
@@ -347,33 +368,35 @@ def update_generation_record(ts: str, **fields: Any) -> None:
     """generation_records の付随フィールドを部分更新する。
 
     指定された field だけを SET する。``prompts`` 等の dict は JSON 文字列化、
-    ``video_id`` 等の plain 型はそのまま使う。行が無ければ INSERT してから UPDATE。
+    ``video_id`` 等の plain 型はそのまま使う。行が無ければ作成し、既存なら指定
+    フィールドのみ上書きする (= 単一 UPSERT で atomic、並列 writer 衝突なし)。
     None を渡したフィールドは無視 (= 削除ではなく未指定として扱う)。"""
-    sets: list[str] = []
-    values: list[Any] = []
+    insert_cols: list[str] = ["ts", "created_at"]
+    insert_vals: list[Any] = [ts, _now()]
+    update_sets: list[str] = []
     for key, value in fields.items():
         if value is None:
             continue
         if key in _GEN_REC_JSON_FIELDS:
-            sets.append(f"{key} = ?")
-            values.append(json.dumps(value, ensure_ascii=False))
+            v: Any = json.dumps(value, ensure_ascii=False)
         elif key in _GEN_REC_PLAIN_FIELDS:
-            sets.append(f"{key} = ?")
-            values.append(value)
+            v = value
         else:
             raise ValueError(f"unknown generation_records field: {key}")
-    if not sets:
+        insert_cols.append(key)
+        insert_vals.append(v)
+        update_sets.append(f"{key} = excluded.{key}")
+    if not update_sets:
         return
-    values.append(ts)
-    sql = f"UPDATE generation_records SET {', '.join(sets)} WHERE ts = ?"
+    cols_sql = ", ".join(insert_cols)
+    placeholders = ", ".join("?" for _ in insert_cols)
+    sets_sql = ", ".join(update_sets)
+    sql = (
+        f"INSERT INTO generation_records ({cols_sql}) VALUES ({placeholders}) "
+        f"ON CONFLICT(ts) DO UPDATE SET {sets_sql}"
+    )
     with get_connection() as conn:
-        cur = conn.execute(sql, values)
-        if cur.rowcount == 0:
-            conn.execute(
-                "INSERT INTO generation_records (ts, created_at) VALUES (?, ?)",
-                (ts, _now()),
-            )
-            conn.execute(sql, values)
+        conn.execute(sql, insert_vals)
 
 
 # ───────────── qa_failures (Phase 0: 計測基盤) ─────────────

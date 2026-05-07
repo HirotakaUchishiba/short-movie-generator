@@ -8,30 +8,27 @@ export type StageName =
   | "final_import"
   | "publish";
 
-// QA failure category enums (Phase 0)。バックエンド qa/categories.py と同期。
-export type QaFailureTag =
-  | "character_drift"
-  | "storyboard_layout"
-  | "composition_off"
-  | "subtitle_zone_blocked"
-  | "audio_silence"
-  | "audio_clipping"
-  | "audio_mispronounce"
-  | "audio_wrong_emotion"
-  | "lipsync_mouth_off"
-  | "lipsync_no_movement"
-  | "lipsync_timing_off"
-  | "subtitle_overlap_subject"
-  | "subtitle_off_screen"
-  | "subtitle_too_long"
-  | "story_pacing_off"
-  | "story_hook_weak";
+// QA failure tag は backend (qa/categories.py) を SSOT とし、
+// /api/config/qa-tags 経由で取得する。型は string に緩めて runtime validate に
+// 任せる (= 列挙の追加を frontend と同期する手間をなくす)。
+export type QaFailureTag = string;
+
+export interface QaFailureTagDef {
+  tag: string;
+  label: string;
+  axis: string;
+}
+
+export interface QaTagsConfig {
+  tags: QaFailureTagDef[];
+  axis_labels: Record<string, string>;
+}
 
 export interface RejectBody {
   stage: StageName;
   scene_idx?: number | null;
   line_idx?: number | null;
-  tags: QaFailureTag[];
+  tags: string[];
   note?: string;
 }
 

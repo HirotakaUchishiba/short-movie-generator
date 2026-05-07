@@ -1,5 +1,6 @@
 import json
 import os
+import threading
 
 import pytest
 
@@ -126,3 +127,47 @@ def test_record_failure_validates_tag_in_recorder(isolated_qa, tmp_path) -> None
             tags=["character_drift", "non_existent_tag"],
             artifact_paths=[art],
         )
+
+
+def test_record_failure_concurrent_no_directory_collision(isolated_qa) -> None:
+    """並列に同じ (ts, stage) で record_failure を走らせても、衝突なしに別
+    archive_dir / 別 failure_id が割り当てられることを契約として固定する。
+
+    `_allocate_archive_dir` の os.makedirs(exist_ok=False) が atomic に
+    seq を確保するので、N 並列でも N 個の異なるディレクトリが返る。
+    """
+    recorder, db, _ = isolated_qa
+
+    n = 8
+    results: list[tuple[int, str]] = []
+    errors: list[Exception] = []
+    barrier = threading.Barrier(n)
+
+    def _worker():
+        try:
+            barrier.wait(timeout=5)
+            r = recorder.record_failure(
+                ts="ts_concurrent", stage="bg",
+                source="human_reject", tags=[],
+            )
+            results.append(r)
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=_worker) for _ in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert errors == [], f"並列実行でエラー: {errors}"
+    assert len(results) == n
+    # 全 archive_dir が distinct (= ディレクトリ衝突なし)
+    dirs = {d for _, d in results}
+    assert len(dirs) == n, f"重複した archive_dir: {results}"
+    # 全 failure_id が distinct
+    ids = {fid for fid, _ in results}
+    assert len(ids) == n
+    # DB にも n 件記録されている
+    rows = db.list_qa_failures(ts="ts_concurrent")
+    assert len(rows) == n

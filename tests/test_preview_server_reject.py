@@ -177,6 +177,61 @@ def test_reject_works_without_artifact(client, project, isolated_env):
     assert rows[0]["artifact_path"] is None
 
 
+def test_reject_invalid_note_type(client, project):
+    """note は string 以外 (例: dict) を 400 で reject する。"""
+    r = client.post(
+        f"/api/projects/{project['ts']}/reject",
+        json={"stage": "bg", "tags": [], "note": {"x": 1}},
+    )
+    assert r.status_code == 400
+
+
+def test_reject_note_too_long(client, project):
+    """note が _REJECT_NOTE_MAX_LENGTH (2000) を超えると 400。"""
+    r = client.post(
+        f"/api/projects/{project['ts']}/reject",
+        json={"stage": "bg", "tags": [], "note": "あ" * 2001},
+    )
+    assert r.status_code == 400
+    body = r.get_json()
+    assert "2000" in body["error"]
+
+
+def test_reject_note_at_limit_accepted(client, project):
+    """ちょうど上限ぴったりの note は通る (= boundary の inclusivity)。"""
+    r = client.post(
+        f"/api/projects/{project['ts']}/reject",
+        json={"stage": "bg", "tags": ["character_drift"],
+              "note": "x" * 2000},
+    )
+    assert r.status_code == 200
+
+
+# ─── /api/config/qa-tags (SSOT 配信) ──────────────────────────────────
+
+
+def test_qa_tags_endpoint_returns_backend_ssot(client):
+    """frontend がここから取得することで `qa/categories.py` を SSOT にできる。
+    形式: tags=[{tag,label,axis}], axis_labels={axis: 表示名}。"""
+    r = client.get("/api/config/qa-tags")
+    assert r.status_code == 200
+    body = r.get_json()
+    assert "tags" in body and "axis_labels" in body
+    # 既知タグが含まれている (= drift 検査の代わり)
+    tags_set = {d["tag"] for d in body["tags"]}
+    assert "character_drift" in tags_set
+    assert "audio_silence" in tags_set
+    assert "lipsync_mouth_off" in tags_set
+    # 各タグが tag/label/axis を持つ
+    for d in body["tags"]:
+        assert set(d.keys()) >= {"tag", "label", "axis"}
+        assert isinstance(d["label"], str) and d["label"]
+    # axis_labels に 5 軸が揃っている
+    assert {"visual", "audio", "lipsync", "subtitle", "story"} <= set(
+        body["axis_labels"].keys(),
+    )
+
+
 # ─── _archive_before_regen ──────────────────────────────────────────
 
 
