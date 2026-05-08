@@ -101,3 +101,23 @@ def test_assignments_skipped_when_no_history(monkeypatch, isolated_strategy):
     from improvement.strategy import select_assignments_for_video
     # データ無し → 空 dict
     assert select_assignments_for_video() == {}
+
+
+def test_assignments_deterministic_with_seed(monkeypatch, isolated_strategy):
+    """同じ seed + 同じ DB state なら何度呼んでも同じ assignment が返る。"""
+    monkeypatch.setattr("config.IMPROVEMENT_STRATEGY", "shadow")
+    monkeypatch.setattr("config.BANDIT_AXES", ("hook_type",))
+    monkeypatch.setattr("config.BANDIT_EPSILON", 0.5)  # explore も発生する設定
+    db = isolated_strategy
+    _seed_axis_performance(db, "共感型", n=3, completion=0.4)
+    _seed_axis_performance(db, "結論先出し", n=3, completion=0.6)
+    _seed_axis_performance(db, "問題提起", n=3, completion=0.5)
+
+    from improvement.strategy import select_assignments_for_video
+    a = select_assignments_for_video(seed="abc123")
+    b = select_assignments_for_video(seed="abc123")
+    c = select_assignments_for_video(seed="different")
+    assert a == b
+    # seed が変わると explore のサイコロが変わるので結果が変わりうる
+    # (= ここでは厳密には等価判定せず、seed が変わると分岐しうることだけ確認)
+    assert isinstance(c, dict)

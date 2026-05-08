@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 6
+CURRENT_SCHEMA_VERSION = 7
 
 
 def _now() -> str:
@@ -44,6 +44,10 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with get_connection() as conn:
+        # schema v7: 旧 v_axis_performance (= 4 軸同時 GROUP BY で重複行を吐く) を
+        # drop。schema.sql の CREATE VIEW IF NOT EXISTS は drop 後の空の状態に
+        # 軸別 4 view を新規作成する。新 DB は drop 対象が無いので no-op。
+        conn.execute("DROP VIEW IF EXISTS v_axis_performance")
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
         # 既存 DB の videos に final_* カラムが無い場合に追加 (additive migration)
@@ -58,6 +62,9 @@ def init_db() -> None:
         _ensure_column(conn, "reference_videos", "fetched_at", "fetched_at TEXT")
         _ensure_column(conn, "reference_videos", "license_status",
                        "license_status TEXT DEFAULT 'unconfirmed'")
+        # schema v7: experiment_assignments.observed_value (= Haiku 事後 tag) を追加。
+        _ensure_column(conn, "experiment_assignments", "observed_value",
+                       "observed_value TEXT")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -539,24 +546,32 @@ def list_experiment_assignments(
     return [dict(r) for r in rows]
 
 
+_AXIS_VIEW = {
+    "hook_type": "v_hook_type_performance",
+    "tone": "v_tone_performance",
+    "dominant_emotion": "v_dominant_emotion_performance",
+    "theme": "v_theme_performance",
+}
+
+
 def query_axis_performance(
     axis: str, *, metric: str = "avg_completion", limit: int = 200,
 ) -> list[dict]:
-    """``v_axis_performance`` を読み、(value, metric, n) の行を返す。
+    """軸別 view (= ``v_<axis>_performance``) を読み、(value, metric, n) を返す。
 
     Args:
         axis: ``hook_type`` / ``tone`` / ``dominant_emotion`` / ``theme``
         metric: ``avg_views`` / ``avg_completion`` / ``avg_save``
     """
-    if axis not in ("hook_type", "tone", "dominant_emotion", "theme"):
+    view = _AXIS_VIEW.get(axis)
+    if view is None:
         raise ValueError(f"unknown axis: {axis}")
     if metric not in ("avg_views", "avg_completion", "avg_save"):
         raise ValueError(f"unknown metric: {metric}")
     with get_connection() as conn:
         rows = conn.execute(
-            f"SELECT {axis} AS axis_value, {metric} AS metric, n "
-            "FROM v_axis_performance "
-            f"WHERE {axis} IS NOT NULL "
+            f"SELECT axis_value, {metric} AS metric, n "
+            f"FROM {view} "
             "ORDER BY n DESC LIMIT ?",
             (int(limit),),
         ).fetchall()

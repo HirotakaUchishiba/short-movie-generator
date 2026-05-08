@@ -320,8 +320,21 @@ def run_one_video(
     ref = _fetch_reference(reference_url, license_status, max_duration)
 
     # Phase 3: bandit で各軸の値を選択し、analyze の instructions に注入する。
-    # baseline は空 dict + None を返すので Phase 2 と同等の挙動になる。
-    assignments = improvement_strategy.select_assignments_for_video()
+    # baseline は空 dict + None を返すので Phase 2 と同等の挙動になる。seed には
+    # 参考動画の sha256 を渡し、同じ参考動画 + 同じ DB state なら同じ選択が再現
+    # できる経路を確保する (= 監査 / デバッグ向け)。
+    assignments = improvement_strategy.select_assignments_for_video(
+        seed=ref["sha256"],
+    )
+    if assignments:
+        logger.info(
+            "[auto-loop] strategy=%s assignments=%s",
+            config.IMPROVEMENT_STRATEGY,
+            ", ".join(
+                f"{ax}={v}({sub})"
+                for ax, (v, sub) in sorted(assignments.items())
+            ),
+        )
     instructions = compose_instructions(assignments)
 
     sp_name = _run_analyze(

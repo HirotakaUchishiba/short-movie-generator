@@ -17,6 +17,7 @@ sys.path.insert(0, str(ROOT))
 
 import log_setup  # noqa: E402
 from analytics import db, auto_tag  # noqa: E402
+from improvement import observed as _observed  # noqa: E402
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
@@ -43,6 +44,18 @@ def main() -> int:
             logger.info("%s → tags: hook=%s tone=%s emotion=%s theme=%s",
                         sp_id, tags.get("hook_type"), tags.get("tone"),
                         tags.get("dominant_emotion"), tags.get("theme"))
+            # auto_tag で screenplays.<axis> が確定したので、この台本を参照する
+            # 全 video の experiment_assignments.observed_value を書く。
+            try:
+                n = _observed.back_fill_observed_for_screenplay(sp_id)
+                if n:
+                    logger.info(
+                        "observed_value back-filled: sp=%s rows=%d", sp_id, n,
+                    )
+            except Exception as e:
+                logger.warning(
+                    "observed_value back-fill failed: sp=%s err=%s", sp_id, e,
+                )
         except Exception as e:
             logger.warning("%s タグ付け失敗: %s", sp_id, e)
 

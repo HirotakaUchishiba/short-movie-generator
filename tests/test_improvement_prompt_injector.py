@@ -76,3 +76,37 @@ def test_active_directive_marks_explore_and_exploit(monkeypatch):
     })
     assert "historical best" in out
     assert "意図的 exploration" in out
+
+
+def test_summary_format_uses_percent_for_completion(monkeypatch):
+    monkeypatch.setattr("config.IMPROVEMENT_STRATEGY", "shadow")
+    monkeypatch.setattr("config.BANDIT_AXES", ("hook_type",))
+
+    def fake_history(axis, **_):
+        return [("結論先出し", 0.65)] if axis == "hook_type" else []
+    monkeypatch.setattr(
+        "improvement.prompt_injector.axis_performance",
+        type("M", (), {"reward_history_for_axis": staticmethod(fake_history)}),
+    )
+    from improvement.prompt_injector import build_performance_summary
+    out = build_performance_summary(metric="avg_completion")
+    assert "65.0%" in out
+    assert "avg completion rate" in out
+
+
+def test_summary_format_uses_count_for_views(monkeypatch):
+    """avg_views は raw count なので "%" 表示は誤り。整数表示にする。"""
+    monkeypatch.setattr("config.IMPROVEMENT_STRATEGY", "shadow")
+    monkeypatch.setattr("config.BANDIT_AXES", ("hook_type",))
+
+    def fake_history(axis, **_):
+        return [("結論先出し", 12345.0)] if axis == "hook_type" else []
+    monkeypatch.setattr(
+        "improvement.prompt_injector.axis_performance",
+        type("M", (), {"reward_history_for_axis": staticmethod(fake_history)}),
+    )
+    from improvement.prompt_injector import build_performance_summary
+    out = build_performance_summary(metric="avg_views")
+    assert "12,345" in out
+    assert "%" not in out
+    assert "avg views" in out
