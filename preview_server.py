@@ -35,6 +35,7 @@ from analytics import db as _analytics_db
 from cost_tracking import estimator as cost_estimator
 from cost_tracking import pricebook as cost_pricebook
 from cost_tracking import report as cost_report
+from qa import artifact_paths as qa_artifact_paths
 from qa import recorder as qa_recorder
 
 log_setup.setup()
@@ -378,35 +379,9 @@ def api_approve(ts):
 def _stage_artifact_paths(ts_path: str, stage: str,
                           scene_idx: int | None,
                           line_idx: int | None) -> list[str]:
-    """指定 stage の reject / regenerate 対象の artifact パスを返す。
-
-    存在しないファイルは ``recorder.record_failure`` 側で skip されるので、
-    ここでは ``os.path.exists`` チェックを省く。
-
-    ``script`` stage は screenplay.json 自体が artifact だが、recorder が
-    snapshot として別途コピーするので空 list を返す (= 二重保存を避ける)。
-    """
-    paths: list[str] = []
-    if stage == "tts":
-        if scene_idx is not None and line_idx is not None:
-            paths.append(os.path.join(ts_path, f"tts_{scene_idx}_{line_idx}.mp3"))
-        elif scene_idx is not None:
-            paths.extend(sorted(glob.glob(
-                os.path.join(ts_path, f"tts_{scene_idx}_*.mp3"))))
-        else:
-            paths.append(os.path.join(ts_path, "tts_full.mp3"))
-            paths.extend(sorted(glob.glob(
-                os.path.join(ts_path, "tts_*_*.mp3"))))
-    elif stage == "bg" and scene_idx is not None:
-        paths.append(os.path.join(ts_path, f"bg_{scene_idx}.png"))
-    elif stage == "kling" and scene_idx is not None:
-        paths.append(os.path.join(ts_path, f"kling_{scene_idx}.mp4"))
-        paths.append(os.path.join(ts_path, f"scene_{scene_idx}.trim.mp4"))
-    elif stage == "scene" and scene_idx is not None:
-        paths.append(os.path.join(ts_path, f"scene_{scene_idx}.mp4"))
-    elif stage == "overlay":
-        paths.append(os.path.join(ts_path, "overlaid.mp4"))
-    return paths
+    """qa.artifact_paths.stage_artifact_paths への薄いラッパ。後方互換のため残す。"""
+    return qa_artifact_paths.stage_artifact_paths(
+        ts_path, stage, scene_idx, line_idx)
 
 
 def _archive_before_regen(ts: str, stage: str,
