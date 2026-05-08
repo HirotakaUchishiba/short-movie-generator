@@ -47,8 +47,12 @@ def fetch_with_ytdlp(url: str, dest_dir: Path,
                      timeout_sec: int = 600) -> Path:
     """yt-dlp 経由で 1 動画を DL し、ローカル mp4 のパスを返す。
 
+    `--merge-output-format mp4` で container を強制 mp4 化する
+    (= ffmpeg 経由で remux されるので、best fallback (webm 等) でも .mp4 中身に
+    なる)。失敗時は tmp ファイルを必ず unlink する (= leak 防止)。
+
     Raises:
-        RuntimeError: yt-dlp が見つからない / 失敗 / timeout。
+        RuntimeError: yt-dlp が見つからない / 失敗 / timeout / 空ファイル。
     """
     dest_dir.mkdir(parents=True, exist_ok=True)
     tmp_handle = tempfile.NamedTemporaryFile(
@@ -60,6 +64,7 @@ def fetch_with_ytdlp(url: str, dest_dir: Path,
     args = [
         "yt-dlp",
         "-f", "best[ext=mp4]/best",
+        "--merge-output-format", "mp4",
         "-o", str(tmp_path),
         "--no-progress", "--quiet",
         "--no-mtime",
@@ -68,21 +73,25 @@ def fetch_with_ytdlp(url: str, dest_dir: Path,
         args.extend(["--match-filter", f"duration <= {int(max_duration)}"])
     args.append(url)
 
+    success = False
     try:
-        subprocess.run(args, check=True, timeout=timeout_sec)
-    except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
-            FileNotFoundError) as e:
-        if tmp_path.exists():
+        try:
+            subprocess.run(args, check=True, timeout=timeout_sec)
+        except (subprocess.CalledProcessError, subprocess.TimeoutExpired,
+                FileNotFoundError) as e:
+            raise RuntimeError(f"yt-dlp failed for {url!r}: {e}") from e
+        if not tmp_path.exists() or tmp_path.stat().st_size == 0:
+            raise RuntimeError(
+                f"yt-dlp が空ファイルを返しました (URL skipped かも): {url}",
+            )
+        success = True
+        return tmp_path
+    finally:
+        if not success and tmp_path.exists():
             try:
                 tmp_path.unlink()
             except OSError:
                 pass
-        raise RuntimeError(f"yt-dlp failed for {url!r}: {e}") from e
-    if not tmp_path.exists() or tmp_path.stat().st_size == 0:
-        raise RuntimeError(
-            f"yt-dlp が空ファイルを返しました (URL skipped かも): {url}",
-        )
-    return tmp_path
 
 
 def _sha256_file(p: Path) -> str:
@@ -114,16 +123,26 @@ def fetch_and_register(url: str, license_status: str,
     REFERENCE_DIR.mkdir(parents=True, exist_ok=True)
 
     tmp_path = fetch_with_ytdlp(url, REFERENCE_DIR, max_duration)
-    sha = _sha256_file(tmp_path)
-    final_path = REFERENCE_DIR / f"{sha}.mp4"
-    if final_path.exists():
-        # 同じ sha が既に居る (= 同 URL の再 fetch / 別 URL でも同内容) → tmp 破棄
-        try:
-            tmp_path.unlink()
-        except OSError:
-            pass
-    else:
-        tmp_path.replace(final_path)
+    try:
+        sha = _sha256_file(tmp_path)
+        final_path = REFERENCE_DIR / f"{sha}.mp4"
+        if final_path.exists():
+            # 同じ sha が既に居る (= 同 URL の再 fetch / 別 URL でも同内容) → tmp 破棄
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        else:
+            tmp_path.replace(final_path)
+    except Exception:
+        # sha256 計算失敗 / replace 失敗時は tmp が孤立するので必ず掃除する
+        # (= disk full 等で leak しない保険)。
+        if tmp_path.exists():
+            try:
+                tmp_path.unlink()
+            except OSError:
+                pass
+        raise
 
     size = final_path.stat().st_size
     now_iso = datetime.now(timezone.utc).isoformat(timespec="seconds")

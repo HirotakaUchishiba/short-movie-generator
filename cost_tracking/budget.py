@@ -113,9 +113,13 @@ def _sum_cost_since(since: datetime) -> float:
 def _count_videos_since(since: datetime) -> int:
     """``generation_records.created_at >= since`` の行数を返す。
 
-    SQLite の CURRENT_TIMESTAMP は UTC で "YYYY-MM-DD HH:MM:SS" 形式。
+    ``analytics.db._now()`` が UTC ISO ("2026-05-08T00:00:00+00:00") で
+    書き込んでおり、append_stage_run / update_generation_record が
+    INSERT 時に必ず明示的に渡すので、スキーマ default の
+    CURRENT_TIMESTAMP ("YYYY-MM-DD HH:MM:SS") は実質発火しない。
+    したがって query 側も ISO 形式で揃える (= 文字列比較が壊れない)。
     """
-    since_sql = since.strftime("%Y-%m-%d %H:%M:%S")
+    since_sql = since.isoformat(timespec="seconds")
     try:
         with _adb.get_connection() as conn:
             row = conn.execute(

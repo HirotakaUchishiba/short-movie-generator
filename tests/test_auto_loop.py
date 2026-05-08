@@ -111,14 +111,21 @@ def stub_pipeline(auto_loop_env, monkeypatch):
             mark_generated(ts_path, stage_name)
         return _r
 
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "tts",
-                        _make_runner("tts", write_artifacts=["tts_0_0.mp3"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "bg",
-                        _make_runner("bg", write_artifacts=["bg_0.png"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "kling",
-                        _make_runner("kling", write_artifacts=["kling_0.mp4"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "scene",
-                        _make_runner("scene", write_artifacts=["scene_0.mp4"]))
+    # production の命名は f"<stage>_{scene_idx:03d}.<ext>" (3 桁ゼロ詰め)。
+    # auto_loop の glob (`tts_*_*.mp3` 等) と stage_artifact_paths が
+    # マッチさせる対象。
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "tts",
+        _make_runner("tts", write_artifacts=["tts_000_000.mp3"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "bg",
+        _make_runner("bg", write_artifacts=["bg_000.png"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "kling",
+        _make_runner("kling", write_artifacts=["kling_000.mp4"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "scene",
+        _make_runner("scene", write_artifacts=["scene_000.mp4"]))
 
     # overlay は mark_generated + output/reels_<ts>.mp4 を作る
     def _overlay_runner(screenplay, screenplay_name, ts_path):
@@ -262,6 +269,45 @@ def test_invalid_license_aborts_before_fetch(stub_pipeline, auto_loop_env):
             "https://example.com/x",
             license_status="not_a_license",
         )
+
+
+def test_archive_before_retry_archives_per_scene_artifacts(
+    stub_pipeline, auto_loop_env, tmp_path,
+):
+    """bg / kling / scene stage の retry で、scene_idx=None でも
+    実 production 命名 (= bg_000.png 等) の per-scene artifact が
+    qa_failures に regenerate_implicit で残ることを確認する。
+
+    Phase 2 の validator しきい値学習は
+    `qa_failures (auto_flagged) + (regenerate_implicit)` の両方を訓練データに
+    使う前提なので、このアーカイブ抜けは Phase 0 の契約違反になる。"""
+    al, tp = stub_pipeline
+    _, db = auto_loop_env
+
+    # 仮の TS ディレクトリを用意して production 命名で artifact を撒く
+    ts = "20260507_990000"
+    ts_dir = tp / "temp" / ts
+    ts_dir.mkdir(parents=True)
+    (ts_dir / "screenplay.json").write_text("{}")
+    (ts_dir / "bg_000.png").write_bytes(b"old_bg_0")
+    (ts_dir / "bg_001.png").write_bytes(b"old_bg_1")
+    (ts_dir / "kling_000.mp4").write_bytes(b"old_kling")
+    (ts_dir / "scene_000.mp4").write_bytes(b"old_scene")
+
+    al._archive_before_retry(ts, "bg")
+    al._archive_before_retry(ts, "kling")
+    al._archive_before_retry(ts, "scene")
+
+    rows = db.list_qa_failures(ts=ts, source="regenerate_implicit")
+    by_stage = {r["stage"]: r for r in rows}
+    assert {"bg", "kling", "scene"} <= set(by_stage.keys()), (
+        f"per-scene artifact が archive されていない: {by_stage}"
+    )
+    # bg は 2 シーン分、archive_dir に両方コピー済みである
+    bg_arc = by_stage["bg"]["artifact_path"]
+    assert bg_arc and os.path.exists(bg_arc)
+    bg_dir = os.path.dirname(bg_arc)
+    assert {"bg_000.png", "bg_001.png"} <= set(os.listdir(bg_dir))
 
 
 # ─── _retry_failed_scenes の per-scene / full-regen 切替 ──────────
