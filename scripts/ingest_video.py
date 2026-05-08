@@ -86,8 +86,10 @@ def main() -> int:
     cost = args.cost
     duration = _ffprobe_duration(str(output_path))
 
+    video_id = ts  # 現状は video_id == ts。将来 sha256[:12] へ移行した時は
+                   # ここで派生させる。
     db.insert_video(
-        video_id=ts,
+        video_id=video_id,
         screenplay_id=sp_id,
         output_path=str(output_path),
         duration_sec=duration,
@@ -98,9 +100,20 @@ def main() -> int:
             final_meta.get("audio_match_score") if final_meta else None
         ),
     )
+    # Phase 3 で auto_loop が experiment_assignments に書き込んだ ts ベースの
+    # 行を canonical な videos.id に揃える。video_id == ts の間は no-op。
+    migrated = db.backfill_experiment_assignments_video_id(
+        ts=ts, video_id=video_id,
+    )
+    if migrated and video_id != ts:
+        logger.info(
+            "experiment_assignments backfill: %d rows ts=%s → video_id=%s",
+            migrated, ts, video_id,
+        )
     logger.info(
         "video %s 登録完了 (screenplay=%s, source=%s, duration=%.1fs, cost=$%.2f)",
-        ts, sp_id, "final" if final_meta else "raw", duration or 0, cost or 0,
+        video_id, sp_id, "final" if final_meta else "raw",
+        duration or 0, cost or 0,
     )
     # video が DB に乗ったので、Phase 3 の experiment_assignments に observed_value
     # を書ける (= screenplay が事前に auto_tag されていなければ何も入らないが、

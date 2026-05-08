@@ -546,6 +546,23 @@ def list_experiment_assignments(
     return [dict(r) for r in rows]
 
 
+def backfill_experiment_assignments_video_id(
+    *, ts: str, video_id: str,
+) -> int:
+    """``experiment_assignments.video_id`` の ts を canonical な ``videos.id`` に置換。
+
+    Phase 3 では auto_loop が ts ベースで書き込み、Phase 4 (= ingest_video 後)
+    で本物の video_id (= sha256[:12]) に backfill する経路。
+    Returns: 更新した行数。
+    """
+    with get_connection() as conn:
+        cur = conn.execute(
+            "UPDATE experiment_assignments SET video_id = ? WHERE video_id = ?",
+            (video_id, ts),
+        )
+        return int(cur.rowcount)
+
+
 _AXIS_VIEW = {
     "hook_type": "v_hook_type_performance",
     "tone": "v_tone_performance",
