@@ -123,7 +123,7 @@
 - [ ] 略語の多用
 - [ ] ドメイン用語のドリフト (= `docs/developments/ubiquitous-language.md` から逸脱: `cap` vs `caption` 等)
 
-## tensyoku 固有の観点
+## short_movie_generator 固有の観点
 
 ### 8-stage パイプライン
 

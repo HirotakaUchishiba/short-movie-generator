@@ -71,7 +71,7 @@ allowed-tools: Read, Write, Glob, Grep, WebSearch, WebFetch
 - [テンプレート](references/template.md): 設計書の構成テンプレート
 - [具体例](references/examples.md): 良い例・悪い例の比較
 
-## tensyoku 固有の補足
+## short_movie_generator 固有の補足
 
 - フロー文書は **`docs/plannings/YYYY-MM-DD_*.md`**、静的設計は **`docs/developments/*.md`** という分離を尊重する (= `docs/developments/coding-rules.md` §11)
 - 8-stage パイプライン (= script / TTS / bg / kling / scene / overlay / final_import / publish) に関わる設計は、`docs/developments/architecture.md` のレイヤと依存方向に整合させる

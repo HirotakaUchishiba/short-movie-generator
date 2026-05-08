@@ -157,7 +157,7 @@ export default function ProjectList() {
     <div className="mx-auto max-w-7xl p-8">
       <header className="mb-8 flex items-start justify-between">
         <div>
-          <h1 className="mb-2 text-3xl font-bold">tensyoku movie generator</h1>
+          <h1 className="mb-2 text-3xl font-bold">short movie generator</h1>
           <p className="text-sm text-slate-400">
             段階的ゲート方式で動画を生成。各stageで人間が確認・承認してから次に進めます。
           </p>
