@@ -1,0 +1,15 @@
+{
+  "id": "confused_search",
+  "label": "困惑して何かを探す",
+  "subject_state": "tilted head, brow furrowed in confusion, gaze drifting as if searching for something",
+  "animation_motion": "subject tilts head, glances around uncertainly, brow furrowing in confusion",
+  "recommended_emotion": "困惑",
+  "recommended_camera_distance": "medium-close",
+  "compatible_locations": [
+    "home_office",
+    "cozy_living",
+    "warm_cafe",
+    "soft_gradient"
+  ],
+  "duration_bucket_sec": 5
+}

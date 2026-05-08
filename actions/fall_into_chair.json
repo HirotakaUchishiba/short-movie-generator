@@ -1,0 +1,10 @@
+{
+  "id": "fall_into_chair",
+  "label": "椅子に崩れ落ちる",
+  "subject_state": "slumped back in the chair, shoulders fallen, blank gaze toward the floor",
+  "animation_motion": "subject slumps backward into the chair, head lowering, shoulders dropping in defeat",
+  "recommended_emotion": "落胆",
+  "recommended_camera_distance": "medium",
+  "compatible_locations": ["home_office", "warm_cafe"],
+  "duration_bucket_sec": 5
+}

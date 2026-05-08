@@ -1,0 +1,7 @@
+{
+  "id": "confusion_to_resolve",
+  "label": "困惑から解決",
+  "description": "課題への困惑を起点に、調査/学び/気づきを経て解決に到達するアーク",
+  "emotion_sequence": ["困惑", "焦り", "中立", "満足"],
+  "scene_count_range": [4, 6]
+}

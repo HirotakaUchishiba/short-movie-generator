@@ -1,0 +1,14 @@
+{
+  "id": "shock_number",
+  "label": "衝撃数値型",
+  "description": "具体的で衝撃的な数値を 1〜3 秒で提示し、その理由を後段で展開する",
+  "first_scene_template": {
+    "action_id": "surprise_pc",
+    "line_pattern": "{衝撃的な数値 + 短い文脈}",
+    "emotion": "驚き"
+  },
+  "follow_arc_id_candidates": [
+    "confusion_to_resolve",
+    "problem_solution_celebration"
+  ]
+}

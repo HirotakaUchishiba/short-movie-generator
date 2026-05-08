@@ -1,0 +1,10 @@
+{
+  "id": "surprise_pc",
+  "label": "PCを覗き込み驚愕",
+  "subject_state": "leaning forward toward the laptop screen, eyes wide open in shock, one hand brought to mouth",
+  "animation_motion": "subject leans forward sharply, eyes widen, hand quickly moves to mouth in surprise",
+  "recommended_emotion": "驚き",
+  "recommended_camera_distance": "medium-close",
+  "compatible_locations": ["home_office", "warm_cafe"],
+  "duration_bucket_sec": 5
+}

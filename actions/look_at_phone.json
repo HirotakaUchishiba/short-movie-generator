@@ -1,0 +1,15 @@
+{
+  "id": "look_at_phone",
+  "label": "スマホを見て表情変化",
+  "subject_state": "holding a smartphone in front of the chest, gaze focused on the screen, expression shifting subtly",
+  "animation_motion": "subject looks down at the phone, expression changes as something on the screen registers",
+  "recommended_emotion": "中立",
+  "recommended_camera_distance": "medium-close",
+  "compatible_locations": [
+    "cozy_living",
+    "warm_cafe",
+    "city_park",
+    "soft_gradient"
+  ],
+  "duration_bucket_sec": 5
+}

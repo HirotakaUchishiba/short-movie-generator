@@ -1,0 +1,7 @@
+{
+  "id": "low_to_high",
+  "label": "落胆から高揚",
+  "description": "落ち込んだ状態から希望/達成へ抜けるアーク。失敗体験 → 試行錯誤 → 成功の構造",
+  "emotion_sequence": ["落胆", "困惑", "中立", "満足"],
+  "scene_count_range": [4, 7]
+}

@@ -1,0 +1,10 @@
+{
+  "id": "decisive_stand",
+  "label": "決意を込めて立ち上がる",
+  "subject_state": "standing upright with shoulders back, jaw set, gaze fixed forward with determination",
+  "animation_motion": "subject rises from a seated position, straightens posture, locks gaze ahead with resolve",
+  "recommended_emotion": "中立",
+  "recommended_camera_distance": "medium",
+  "compatible_locations": ["home_office", "cozy_living", "warm_cafe"],
+  "duration_bucket_sec": 5
+}

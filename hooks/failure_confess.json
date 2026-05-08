@@ -1,0 +1,11 @@
+{
+  "id": "failure_confess",
+  "label": "失敗告白型",
+  "description": "自身の失敗体験を率直に開示し、共感ベースで視聴者を巻き込む",
+  "first_scene_template": {
+    "action_id": "fall_into_chair",
+    "line_pattern": "{過去の失敗の告白}",
+    "emotion": "落胆"
+  },
+  "follow_arc_id_candidates": ["failure_to_pivot", "low_to_high"]
+}

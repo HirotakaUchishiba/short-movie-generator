@@ -1,0 +1,7 @@
+{
+  "id": "failure_to_pivot",
+  "label": "失敗から方向転換",
+  "description": "失敗体験から学び、別の道に切り替えて再起するアーク。決断の場面が中盤に来る",
+  "emotion_sequence": ["落胆", "焦り", "困惑", "中立"],
+  "scene_count_range": [4, 6]
+}

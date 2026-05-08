@@ -1,0 +1,10 @@
+{
+  "id": "triumph_pose",
+  "label": "達成感のガッツポーズ",
+  "subject_state": "fist raised with bright smile, eyes shining, body radiating accomplishment",
+  "animation_motion": "subject raises a triumphant fist, smile widening, eyes lighting up in joy",
+  "recommended_emotion": "喜び",
+  "recommended_camera_distance": "medium",
+  "compatible_locations": ["home_office", "city_park", "cozy_living"],
+  "duration_bucket_sec": 5
+}

@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 
 import artifact_integrity
+import atomic_assets
 import composition_id as composition_id_module
 import config
 import elevenlabs_client
@@ -174,13 +175,26 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
 
     優先順位:
       1. scene.animation_prompt (compose 由来 = subject speaks naturally ...)
-      2. 無い場合は background_prompt をベースにフォールバック
+      2. scene.action_id があれば actions/<id>.json の animation_motion (Phase X-2a)
+      3. 無い場合は background_prompt をベースにフォールバック
 
     base に emotion arc (英訳) / Stage 4 用 dom_cues / audio_dynamics を注入。
     """
     explicit = scene.get("animation_prompt")
-    bg_prompt = scene.get("background_prompt", "")
-    base = explicit if explicit else f"gentle cinematic motion, {bg_prompt}"
+    base: str = ""
+    if explicit:
+        base = explicit
+    else:
+        action_id = scene.get("action_id")
+        if action_id:
+            try:
+                action = atomic_assets.load_action(action_id)
+                base = action.get("animation_motion") or ""
+            except atomic_assets.AtomicAssetNotFound as e:
+                logger.warning("atomic action load failed: %s", e)
+    if not base:
+        bg_prompt = scene.get("background_prompt", "")
+        base = f"gentle cinematic motion, {bg_prompt}"
 
     extras: list[str] = []
 
@@ -397,7 +411,17 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
             if v:
                 loc_parts.append(f"{label}: {v}")
 
-    parts: list[str] = loc_parts + [scene.get("background_prompt", "")]
+    bg_prompt = scene.get("background_prompt", "")
+    if not bg_prompt:
+        # Phase X-2a: action_id があれば atomic SSOT の subject_state を採用
+        action_id = scene.get("action_id")
+        if action_id:
+            try:
+                action = atomic_assets.load_action(action_id)
+                bg_prompt = action.get("subject_state") or ""
+            except atomic_assets.AtomicAssetNotFound as e:
+                logger.warning("atomic action load failed: %s", e)
+    parts: list[str] = loc_parts + [bg_prompt]
 
     # Stage 3 用 cue カテゴリのみに絞る (= hair / body_posture 等は Stage 4 担当、
     # Imagen が再解釈してキャラ崩壊するのを抑制)
@@ -803,6 +827,10 @@ def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
     location_ref = scene.get("location_ref")
     character_refs = list(scene.get("character_refs") or [])
+    action_id = scene.get("action_id")
+    composition_version = composition_id_module.resolve_version(
+        action_id=action_id,
+    )
     return {
         "scene_idx": scene_idx,
         "model": inputs["model_id"],
@@ -812,11 +840,14 @@ def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
         "character_refs": character_refs,
         "camera_distance": scene.get("camera_distance"),
         "cache_version": getattr(config, "BG_CACHE_VERSION", "v1"),
+        "action_id": action_id,
         "composition_id": composition_id_module.compute_composition_id(
             location_ref=location_ref,
             character_refs=character_refs,
+            action_id=action_id,
+            version=composition_version,
         ),
-        "composition_version": composition_id_module.COMPOSITION_VERSION_V1,
+        "composition_version": composition_version,
     }
 
 
@@ -1805,6 +1836,10 @@ def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
     location_ref = scene.get("location_ref")
     character_refs = list(scene.get("character_refs") or [])
+    action_id = scene.get("action_id")
+    composition_version = composition_id_module.resolve_version(
+        action_id=action_id,
+    )
     return {
         "augmented_animation_prompt": inputs["augmented_prompt"],
         "kling_duration": int(inputs["kling_duration"]),
@@ -1817,11 +1852,14 @@ def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
         "camera_distance": scene.get("camera_distance"),
         "location_ref": location_ref,
         "character_refs": character_refs,
+        "action_id": action_id,
         "composition_id": composition_id_module.compute_composition_id(
             location_ref=location_ref,
             character_refs=character_refs,
+            action_id=action_id,
+            version=composition_version,
         ),
-        "composition_version": composition_id_module.COMPOSITION_VERSION_V1,
+        "composition_version": composition_version,
     }
 
 
