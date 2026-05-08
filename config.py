@@ -739,5 +739,9 @@ AUTO_LOOP_ALLOW_PUBLIC = os.getenv("AUTO_LOOP_ALLOW_PUBLIC", "0") in ("1", "true
 # Slack Incoming Webhook (= 失敗 / cap 抵触時の通知先)。空ならスキップ。
 SLACK_WEBHOOK_URL = os.getenv("SLACK_WEBHOOK_URL", "").strip()
 
-# 1 ステージあたりの最長許容秒数 (= auto_loop が実行を打ち切る目安)。
-AUTO_LOOP_STAGE_TIMEOUT_SEC = int(os.getenv("AUTO_LOOP_STAGE_TIMEOUT_SEC", "1800"))
+# auto_loop の各 stage が「これ以上かかったら遅すぎ」と判定する soft limit。
+# stage runner 自体は中断せず、超過時に Slack に warning を流すだけの観測用。
+# 旧名 AUTO_LOOP_STAGE_TIMEOUT_SEC は env / コードから廃止 (= 名前が "timeout" だ
+# と hard 中断を期待されるため、実体に合わせて SOFT_LIMIT に統一)。
+AUTO_LOOP_STAGE_SOFT_LIMIT_SEC = int(
+    os.getenv("AUTO_LOOP_STAGE_SOFT_LIMIT_SEC", "1800"))

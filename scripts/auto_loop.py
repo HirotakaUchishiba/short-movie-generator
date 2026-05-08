@@ -139,11 +139,14 @@ def _run_one_stage(sp_name: str, ts: str, expected_stage: str) -> None:
     started = time.time()
     staged_pipeline.run_next_stage(sp, sp_name, ts_path)
     elapsed = time.time() - started
-    if elapsed > config.AUTO_LOOP_STAGE_TIMEOUT_SEC:
+    # AUTO_LOOP_STAGE_SOFT_LIMIT_SEC は観測用の警告閾値で、超過しても stage は
+    # 完走させる (= ハード中断はしない)。名前を "TIMEOUT" にしないのは、本物の
+    # timeout (= signal.alarm 等での強制中断) と区別するため。
+    if elapsed > config.AUTO_LOOP_STAGE_SOFT_LIMIT_SEC:
         notify_slack(
             "warning",
             f"stage {expected_stage} took {elapsed:.0f}s "
-            f"(soft limit {config.AUTO_LOOP_STAGE_TIMEOUT_SEC}s)",
+            f"(soft limit {config.AUTO_LOOP_STAGE_SOFT_LIMIT_SEC}s)",
             context={"ts": ts},
         )
 
@@ -227,7 +230,19 @@ def _approve(ts: str, stage: str) -> None:
 
 
 def _import_raw_as_final(ts: str) -> None:
-    """Stage 6 で書き出された pipeline raw を Stage 7 取込として canonical 化。"""
+    """Stage 6 で書き出された pipeline raw を Stage 7 取込として canonical 化する。
+
+    auto_loop は CapCut 編集を **意図的にスキップ** し、raw (`output/reels_<TS>.mp4`)
+    をそのまま canonical な final として登録する設計。raw は pipeline の TTS
+    そのものを内包しているので、`compute_match_score` (= raw 音声 vs. final 音声
+    の指紋照合) は定義上 1.0 になり、`FINGERPRINT_THRESHOLD` (既定 0.6) を必ず
+    通過する。
+
+    したがって `skip_fingerprint=True` の最適化は **意図的に避けて** いる
+    (= 将来「fingerprint < threshold で hard fail にする」変更が入っても、
+    auto_loop の挙動は raw === raw のため誤爆しない)。fingerprint を hard
+    block 化するときは、ここのコメントが invariants の根拠になる。
+    """
     raw_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     if not os.path.exists(raw_path):
         raise AutoLoopAborted(f"pipeline raw が見つかりません: {raw_path}")

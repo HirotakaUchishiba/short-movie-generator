@@ -35,16 +35,22 @@ def _resolve_privacy(requested: str) -> str:
     Phase 4 まで本番アカウント公開は人間 gate を通すための保険。
     意図的に public を出したい場合は env を ``1`` にするか直接 YouTube Studio で
     切り替える運用。
+
+    比較は case-insensitive。YouTube API 自体は lowercase を要求するので、
+    入力が "Public" / "PUBLIC" 等の場合も降格判定をくぐらせ、戻り値は
+    必ず lowercase に正規化する (= caller が誤った casing を渡しても
+    API レイヤで弾かれる前にここで吸収)。
     """
     import config
-    if requested == "public" and not config.AUTO_LOOP_ALLOW_PUBLIC:
+    normalized = (requested or "").strip().lower()
+    if normalized == "public" and not config.AUTO_LOOP_ALLOW_PUBLIC:
         logger.warning(
             "[youtube] privacy=public が指定されましたが AUTO_LOOP_ALLOW_PUBLIC=0 の "
             "ため unlisted に強制します。意図的に public 公開したい場合は "
             "AUTO_LOOP_ALLOW_PUBLIC=1 を設定してください。",
         )
         return "unlisted"
-    return requested
+    return normalized or requested
 
 
 def _iso_duration_to_seconds(dur: str) -> float:

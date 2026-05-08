@@ -85,7 +85,8 @@ def _make_artifact(ts_dir: str, name: str) -> str:
 
 def test_reject_human_records_failure(client, project, isolated_env):
     db, archive_root = isolated_env
-    art_path = _make_artifact(project["ts_dir"], "bg_0.png")
+    # production の bg は f"bg_{scene_idx:03d}.png" 形式 (= bg_000.png)。
+    art_path = _make_artifact(project["ts_dir"], "bg_000.png")
 
     r = client.post(
         f"/api/projects/{project['ts']}/reject",
@@ -102,7 +103,7 @@ def test_reject_human_records_failure(client, project, isolated_env):
     assert body["failure_id"] > 0
     assert body["archive_dir"].startswith(archive_root)
     # artifact がコピーされている
-    assert os.path.exists(os.path.join(body["archive_dir"], "bg_0.png"))
+    assert os.path.exists(os.path.join(body["archive_dir"], "bg_000.png"))
     # snapshot もコピーされる
     assert os.path.exists(os.path.join(body["archive_dir"], "screenplay.json"))
 
@@ -237,7 +238,8 @@ def test_qa_tags_endpoint_returns_backend_ssot(client):
 
 def test_archive_before_regen_records_when_artifact_exists(project, isolated_env):
     db, _ = isolated_env
-    _make_artifact(project["ts_dir"], "kling_0.mp4")
+    # production の kling は f"kling_{scene_idx:03d}.mp4" 形式 (= kling_000.mp4)。
+    _make_artifact(project["ts_dir"], "kling_000.mp4")
 
     preview_server._archive_before_regen(
         project["ts"], "kling", scene_idx=0, line_idx=None,
@@ -249,6 +251,33 @@ def test_archive_before_regen_records_when_artifact_exists(project, isolated_env
     assert rows[0]["scene_idx"] == 0
     # tags は空のはず
     assert rows[0]["tags"] == []
+
+
+def test_archive_before_regen_globs_all_scenes_when_scene_idx_none(
+    project, isolated_env,
+):
+    """stage 全体の regen (= scene_idx=None) では、当該 stage の全シーン artifact
+    を 1 件の qa_failures 行にまとめて archive する。
+    Phase 1 の auto_loop._archive_before_retry が依存する経路。"""
+    db, _ = isolated_env
+    _make_artifact(project["ts_dir"], "bg_000.png")
+    _make_artifact(project["ts_dir"], "bg_001.png")
+    _make_artifact(project["ts_dir"], "bg_002.png")
+
+    preview_server._archive_before_regen(
+        project["ts"], "bg", scene_idx=None, line_idx=None,
+    )
+    rows = db.list_qa_failures(ts=project["ts"])
+    assert len(rows) == 1
+    assert rows[0]["source"] == "regenerate_implicit"
+    # archive_dir に 3 シーン全部コピーされている
+    failure_id = rows[0]["id"]
+    arc = rows[0]["artifact_path"]
+    assert arc and os.path.exists(arc)
+    arc_dir = os.path.dirname(arc)
+    files = os.listdir(arc_dir)
+    assert {"bg_000.png", "bg_001.png", "bg_002.png"} <= set(files)
+    assert failure_id > 0
 
 
 def test_archive_before_regen_skips_when_no_artifact(project, isolated_env):
@@ -268,27 +297,67 @@ def test_artifact_paths_tts_full_includes_full_and_per_line(project):
     """tts 全体 reject (scene_idx / line_idx 共に None) では tts_full.mp3 と
     全 per-line を archive 対象に含める (= 全 audio を残す)。"""
     _make_artifact(project["ts_dir"], "tts_full.mp3")
-    _make_artifact(project["ts_dir"], "tts_0_0.mp3")
-    _make_artifact(project["ts_dir"], "tts_0_1.mp3")
+    _make_artifact(project["ts_dir"], "tts_000_000.mp3")
+    _make_artifact(project["ts_dir"], "tts_000_001.mp3")
     paths = preview_server._stage_artifact_paths(
         project["ts_dir"], "tts", scene_idx=None, line_idx=None,
     )
     basenames = {os.path.basename(p) for p in paths}
     assert "tts_full.mp3" in basenames
-    assert "tts_0_0.mp3" in basenames
-    assert "tts_0_1.mp3" in basenames
+    assert "tts_000_000.mp3" in basenames
+    assert "tts_000_001.mp3" in basenames
 
 
 def test_artifact_paths_tts_scene_only(project):
     """tts で scene_idx だけ指定すると、その scene の全 line を返す。"""
-    _make_artifact(project["ts_dir"], "tts_2_0.mp3")
-    _make_artifact(project["ts_dir"], "tts_2_1.mp3")
-    _make_artifact(project["ts_dir"], "tts_3_0.mp3")  # 別 scene
+    _make_artifact(project["ts_dir"], "tts_002_000.mp3")
+    _make_artifact(project["ts_dir"], "tts_002_001.mp3")
+    _make_artifact(project["ts_dir"], "tts_003_000.mp3")  # 別 scene
     paths = preview_server._stage_artifact_paths(
         project["ts_dir"], "tts", scene_idx=2, line_idx=None,
     )
     basenames = {os.path.basename(p) for p in paths}
-    assert basenames == {"tts_2_0.mp3", "tts_2_1.mp3"}
+    assert basenames == {"tts_002_000.mp3", "tts_002_001.mp3"}
+
+
+def test_artifact_paths_bg_globs_all_scenes_when_none(project):
+    """bg で scene_idx=None なら全シーンの bg_<S>.png を返す
+    (= production の f"bg_{scene_idx:03d}.png" にマッチ)。"""
+    _make_artifact(project["ts_dir"], "bg_000.png")
+    _make_artifact(project["ts_dir"], "bg_001.png")
+    _make_artifact(project["ts_dir"], "bg_007.png")
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "bg", scene_idx=None, line_idx=None,
+    )
+    basenames = {os.path.basename(p) for p in paths}
+    assert basenames == {"bg_000.png", "bg_001.png", "bg_007.png"}
+
+
+def test_artifact_paths_kling_globs_kling_and_trim(project):
+    """kling で scene_idx=None なら kling_<S>.mp4 + scene_<S>.trim.mp4 を返す。"""
+    _make_artifact(project["ts_dir"], "kling_000.mp4")
+    _make_artifact(project["ts_dir"], "kling_001.mp4")
+    _make_artifact(project["ts_dir"], "scene_000.trim.mp4")
+    _make_artifact(project["ts_dir"], "scene_000.mp4")  # 含まれない
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "kling", scene_idx=None, line_idx=None,
+    )
+    basenames = {os.path.basename(p) for p in paths}
+    assert basenames == {
+        "kling_000.mp4", "kling_001.mp4", "scene_000.trim.mp4"}
+
+
+def test_artifact_paths_scene_excludes_trim_and_extended(project):
+    """scene で scene_idx=None なら scene_<S>.mp4 のみ返す
+    (= .trim.mp4 / .extended.mp4 は kling stage の派生物なので除外)。"""
+    _make_artifact(project["ts_dir"], "scene_000.mp4")
+    _make_artifact(project["ts_dir"], "scene_001.mp4")
+    _make_artifact(project["ts_dir"], "scene_000.trim.mp4")
+    paths = preview_server._stage_artifact_paths(
+        project["ts_dir"], "scene", scene_idx=None, line_idx=None,
+    )
+    basenames = {os.path.basename(p) for p in paths}
+    assert basenames == {"scene_000.mp4", "scene_001.mp4"}
 
 
 def test_artifact_paths_script_returns_empty(project):

@@ -364,3 +364,16 @@ def test_cache_delete_removes_entry(client, project, stub_pipeline):
     r = client.delete(f"/api/kling-cache/{inputs['cache_key']}")
     assert r.status_code == 200
     assert kling_cache.lookup(inputs["cache_key"]) is None
+
+
+def test_cache_delete_returns_404_when_entry_missing(client, project,
+                                                     stub_pipeline):
+    """有効な hash16 形式 + cache に存在しない key は 404 を返す
+    (= `_stage_cache_delete` の `if not is_deleted` 経路への regression test)。"""
+    # 有効形式 (16 hex chars) だが store されていない key
+    nonexistent = "0" * 16
+    assert kling_cache.lookup(nonexistent) is None
+    r = client.delete(f"/api/kling-cache/{nonexistent}")
+    assert r.status_code == 404
+    body = r.get_json()
+    assert "not found" in (body.get("error") or "").lower()
