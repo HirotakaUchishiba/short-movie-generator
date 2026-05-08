@@ -22,6 +22,8 @@ data/*.db-shm
 data/cost_records.jsonl
 # バックグラウンドジョブ永続化 (preview_server runtime state)
 data/jobs.json
+# analytics 登録待ちキュー (preview_server が起動時に replay するローカル state)
+data/analytics_pending.jsonl
 assets/bgm/*.wav
 assets/bgm/*.mp3
 assets/reference_videos/
