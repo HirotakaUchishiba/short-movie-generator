@@ -10,6 +10,7 @@ from concurrent.futures import ThreadPoolExecutor, as_completed
 from PIL import Image
 
 import artifact_integrity
+import composition_id as composition_id_module
 import config
 import elevenlabs_client
 import fal_video_client
@@ -800,15 +801,22 @@ def _scene_bg_inputs(scene_idx: int, scene: dict, screenplay: dict,
 
 def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
+    location_ref = scene.get("location_ref")
+    character_refs = list(scene.get("character_refs") or [])
     return {
         "scene_idx": scene_idx,
         "model": inputs["model_id"],
         "model_id": inputs["model_id"],
         "background_prompt_resolved": inputs["background_prompt_resolved"],
-        "location_ref": scene.get("location_ref"),
-        "character_refs": list(scene.get("character_refs") or []),
+        "location_ref": location_ref,
+        "character_refs": character_refs,
         "camera_distance": scene.get("camera_distance"),
         "cache_version": getattr(config, "BG_CACHE_VERSION", "v1"),
+        "composition_id": composition_id_module.compute_composition_id(
+            location_ref=location_ref,
+            character_refs=character_refs,
+        ),
+        "composition_version": composition_id_module.COMPOSITION_VERSION_V1,
     }
 
 
@@ -1795,6 +1803,8 @@ def _scene_kling_inputs(
 
 def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
+    location_ref = scene.get("location_ref")
+    character_refs = list(scene.get("character_refs") or [])
     return {
         "augmented_animation_prompt": inputs["augmented_prompt"],
         "kling_duration": int(inputs["kling_duration"]),
@@ -1805,7 +1815,13 @@ def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
         "frontload_ratio": float(config.ACTION_FRONTLOAD_RATIO),
         "original_audio_duration": float(inputs["final_duration"]),
         "camera_distance": scene.get("camera_distance"),
-        "location_ref": scene.get("location_ref"),
+        "location_ref": location_ref,
+        "character_refs": character_refs,
+        "composition_id": composition_id_module.compute_composition_id(
+            location_ref=location_ref,
+            character_refs=character_refs,
+        ),
+        "composition_version": composition_id_module.COMPOSITION_VERSION_V1,
     }
 
 

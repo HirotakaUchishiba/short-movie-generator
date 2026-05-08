@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 7
+CURRENT_SCHEMA_VERSION = 8
 
 
 def _now() -> str:
@@ -65,6 +65,15 @@ def init_db() -> None:
         # schema v7: experiment_assignments.observed_value (= Haiku 事後 tag) を追加。
         _ensure_column(conn, "experiment_assignments", "observed_value",
                        "observed_value TEXT")
+        # schema v8 (Phase X-1): experiment_assignments に scene 粒度 +
+        # composition identity を追加。Phase 3 の動画粒度書き込みは
+        # scene_idx=NULL で続行可能 (= back-compat)。
+        _ensure_column(conn, "experiment_assignments", "scene_idx",
+                       "scene_idx INTEGER")
+        _ensure_column(conn, "experiment_assignments", "composition_id",
+                       "composition_id TEXT")
+        _ensure_column(conn, "experiment_assignments", "composition_version",
+                       "composition_version TEXT")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -507,14 +516,24 @@ def insert_experiment_assignment(
     axis: str,
     selected_value: str,
     strategy: str,
+    scene_idx: int | None = None,
+    composition_id: str | None = None,
+    composition_version: str | None = None,
 ) -> int:
-    """``experiment_assignments`` に 1 行追加して新 id を返す。"""
+    """``experiment_assignments`` に 1 行追加して新 id を返す。
+
+    ``scene_idx`` / ``composition_id`` / ``composition_version`` は schema v8
+    (Phase X-1) で追加された scene 粒度 + 組み合わせ identity 用の optional 列。
+    Phase 3 の動画粒度書き込みは引数を省略すれば NULL で記録される。
+    """
     with get_connection() as conn:
         cur = conn.execute(
             """INSERT INTO experiment_assignments
-               (video_id, axis, selected_value, strategy, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (video_id, axis, selected_value, strategy, _now()),
+               (video_id, axis, selected_value, strategy, created_at,
+                scene_idx, composition_id, composition_version)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?)""",
+            (video_id, axis, selected_value, strategy, _now(),
+             scene_idx, composition_id, composition_version),
         )
         return int(cur.lastrowid or 0)
 
