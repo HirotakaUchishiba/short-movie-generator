@@ -1,6 +1,6 @@
 # Short Movie Generator
 
-転職系ショート動画を自動生成する日本語特化ツール。
+ショート動画を自動生成する日本語特化ツール。
 
 ## 最重要ルール
 
@@ -31,7 +31,7 @@
 
 ## プロジェクトの前提
 
-- コンテンツテーマは **career-change（転職）** に限定。他テーマ・他言語は扱わない。
+- 言語は **日本語のみ** に限定。テーマは特定領域に固定しない。
 - 台本は `screenplays/<名前>.json` に配置する。人間が手で書くか、`scripts/analyze_video.py` で参考動画から自動生成する。
 - 動画生成は **段階的ゲート方式**。台本作成後、`python main.py <台本名>` を起動するたびに **1ステージだけ** 実行して停止する。プレビューUIで成果物を確認・承認するまで次stageに進まない。一括生成モードは存在しない。
 
@@ -191,7 +191,7 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 
 ```json
 {
-  "caption": "会社選びが何より大切です\n\n#未経験 #it業界 #転職",
+  "caption": "知らないと損する3つのコツ\n\n#tips #ライフハック",
   "scenes": [
     {
       "location_ref": "home_office",

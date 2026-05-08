@@ -6,7 +6,7 @@
 
 ## 1. コンテンツ領域
 
-- テーマ: career-change（転職）に限定
+- テーマ: 特定領域に固定しない
 - 言語: 日本語のみ
 - フォーマット: 9:16 ショート動画（Instagram Reels / TikTok / YouTube Shorts）
 
