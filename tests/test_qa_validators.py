@@ -201,3 +201,60 @@ def test_lipsync_quality_skipped_without_dependencies(tmp_path):
     assert len(results) == 1
     assert results[0].passed
     assert "missing" in results[0].reason or "skipped" in results[0].reason
+
+
+# ─── character_drift の cache + 代表フレーム経路 ──────────
+
+
+def test_character_drift_clip_load_is_memoized(monkeypatch):
+    """_load_clip_model の中で sentence_transformers import を 1 度だけ実行する。"""
+    from qa.validators import character_drift
+    # cache を毎回テスト用に reset
+    monkeypatch.setattr(character_drift, "_CLIP_MODEL", None)
+    monkeypatch.setattr(character_drift, "_CLIP_LOAD_ATTEMPTED", False)
+
+    call_count = {"n": 0}
+
+    def _fake_import():
+        call_count["n"] += 1
+        raise ImportError("no sentence_transformers")
+
+    # 内部 import の代わりに、sentence_transformers が無い状態を再現する。
+    # _load_clip_model は ImportError を catch して None を cache + 返す想定。
+    import sys
+    monkeypatch.setitem(sys.modules, "sentence_transformers", None)
+
+    m1 = character_drift._load_clip_model()
+    m2 = character_drift._load_clip_model()
+    assert m1 is None
+    assert m2 is None
+    # 2 回目以降は cache hit (= _CLIP_LOAD_ATTEMPTED=True で短絡)
+    assert character_drift._CLIP_LOAD_ATTEMPTED is True
+
+
+def test_character_drift_extract_representative_frame_seeks_one_second(tmp_path,
+                                                                       monkeypatch):
+    """_extract_representative_frame は 1.0s 地点を試みる。"""
+    from qa.validators import character_drift
+    seek_args: list[str] = []
+
+    def _fake_run(args, **kwargs):
+        # ffmpeg コマンド列の -ss 引数を記録
+        if "-ss" in args:
+            ss = args[args.index("-ss") + 1]
+            seek_args.append(ss)
+        # 出力ファイルを実際に作って成功扱いにする
+        out_path = args[-1]
+        with open(out_path, "wb") as f:
+            f.write(b"\x89PNG")
+        class _Proc:
+            returncode = 0
+        return _Proc()
+
+    monkeypatch.setattr("subprocess.run", _fake_run)
+    out = tmp_path / "frame.png"
+    ok = character_drift._extract_representative_frame(
+        str(tmp_path / "kling_0.mp4"), str(out),
+    )
+    assert ok is True
+    assert seek_args[0].startswith("00:00:01")  # 1s 地点を最初に試行

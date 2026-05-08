@@ -61,11 +61,23 @@ class AutoLoopAborted(RuntimeError):
 # ───────────── kill-switch / cap ─────────────
 
 
+def _is_truthy_env(value: str | None) -> bool:
+    """env の値を寛容に真偽判定する (= "1"/"true"/"True"/"yes" を真)。
+
+    config 層 (``AUTO_LOOP_ALLOW_PUBLIC`` 等) と同じ受け入れ集合を使うことで、
+    運用者の env 設定時の食い違いを避ける。``main.py._is_truthy`` と同じ実装。
+    """
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes")
+
+
 def _kill_switch_guard() -> None:
-    if os.environ.get("DISABLE_AUTO_LOOP") == "1":
+    raw = os.environ.get("DISABLE_AUTO_LOOP")
+    if _is_truthy_env(raw):
         notify_slack("warning",
-                     "auto_loop kill-switch active (DISABLE_AUTO_LOOP=1)")
-        raise SystemExit("auto_loop disabled by env DISABLE_AUTO_LOOP=1")
+                     f"auto_loop kill-switch active (DISABLE_AUTO_LOOP={raw})")
+        raise SystemExit(f"auto_loop disabled by env DISABLE_AUTO_LOOP={raw}")
 
 
 def _budget_guard() -> None:
@@ -251,14 +263,26 @@ def _retry_stage(sp_name: str, ts: str, stage: str,
 
 def _retry_failed_scenes(sp_name: str, ts: str, stage: str,
                          fails: list[ValidationResult]) -> None:
-    """fail のあったシーンだけを regen する。stage 全体 fail なら full regen。"""
+    """fail のあったシーンだけを regen する。
+
+    優先順位:
+      1. ``scene_idx=None`` の fail が **1 つでも混ざっていれば** 局所修正では
+         直らない可能性が高いと見なし full-stage regen にフォールバックする
+         (= planning doc 既定の挙動)。
+      2. すべて ``scene_idx=N`` の fail だけなら、該当 scene 群だけを per-scene
+         regen する (= Kling 1 シーン $0.6 vs 全シーン $3.4 の差を吸収)。
+      3. fails が空の場合は no-op (= 呼出側で fails の有無は事前チェック前提)。
+    """
+    if not fails:
+        return
+    has_global_fail = any(r.scene_idx is None for r in fails)
+    if has_global_fail:
+        _retry_stage(sp_name, ts, stage, scene_idx=None)
+        return
     fail_scenes = sorted({r.scene_idx for r in fails
                           if r.scene_idx is not None})
-    if fail_scenes:
-        for s_idx in fail_scenes:
-            _retry_stage(sp_name, ts, stage, scene_idx=s_idx)
-    else:
-        _retry_stage(sp_name, ts, stage, scene_idx=None)
+    for s_idx in fail_scenes:
+        _retry_stage(sp_name, ts, stage, scene_idx=s_idx)
 
 
 def _approve(ts: str, stage: str) -> None:
