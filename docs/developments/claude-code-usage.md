@@ -1,6 +1,6 @@
 # Claude Code 運用
 
-本ドキュメントは tensyoku_movie_generator 内で Claude Code を使う際の **設定 (`.claude/`) / hooks / commands / skill / plugins** の現状と推奨を集約する。
+本ドキュメントは short_movie_generator 内で Claude Code を使う際の **設定 (`.claude/`) / hooks / commands / skill / plugins** の現状と推奨を集約する。
 
 ---
 
@@ -189,13 +189,13 @@ trass 由来の skill / command / plugin を本プロジェクトに移植済み
 
 ## 7. plugins 選定方針
 
-| plugin              | 採用方針                                                                           |
-| ------------------- | ---------------------------------------------------------------------------------- |
-| `code-review`       | 推奨 (= `/review` で常用)                                                          |
-| `pr-review-toolkit` | 推奨 (= `/ultrareview` 等)                                                         |
-| `feature-dev`       | 中規模機能の段階分割に有用。Phase 0-3 のいずれかで導入検討                         |
-| `claude-code-guide` | 任意 (= Claude Code 自体の使い方相談時のみ)                                        |
-| 業務固有 plugin     | tensyoku 用カスタム plugin は **必要が出てから** 追加。今は標準 + 追加 1〜2 で十分 |
+| plugin              | 採用方針                                                                                        |
+| ------------------- | ----------------------------------------------------------------------------------------------- |
+| `code-review`       | 推奨 (= `/review` で常用)                                                                       |
+| `pr-review-toolkit` | 推奨 (= `/ultrareview` 等)                                                                      |
+| `feature-dev`       | 中規模機能の段階分割に有用。Phase 0-3 のいずれかで導入検討                                      |
+| `claude-code-guide` | 任意 (= Claude Code 自体の使い方相談時のみ)                                                     |
+| 業務固有 plugin     | short_movie_generator 用カスタム plugin は **必要が出てから** 追加。今は標準 + 追加 1〜2 で十分 |
 
 ---
 

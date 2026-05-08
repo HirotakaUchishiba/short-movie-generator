@@ -1,4 +1,4 @@
-# Tensyoku Movie Generator
+# Short Movie Generator
 
 転職系ショート動画を自動生成する日本語特化ツール。
 

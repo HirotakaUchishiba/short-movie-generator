@@ -1,4 +1,4 @@
-# Tensyoku Movie Generator
+# Short Movie Generator
 
 転職系ショート動画（Instagram Reels / TikTok / YouTube Shorts）の自動生成ツール。日本語音声・日本語字幕に特化。
 
@@ -135,7 +135,7 @@ characters/
 ## ディレクトリ構成
 
 ```
-tensyoku_movie_generator/
+short_movie_generator/
 ├── main.py                   # エントリーポイント
 ├── scene_gen.py              # 背景生成 + TTS + Kling V3動画生成（並列実行）
 ├── compositor.py             # ASS字幕合成 + 最終動画合成

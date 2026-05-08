@@ -1,6 +1,6 @@
 # アーキテクチャ
 
-本ドキュメントは tensyoku_movie_generator のシステム構成・レイヤ・依存方向・技術スタック・データフロー・認証経路を 1 ページに集約する。実装の詳細は各モジュールの doc / 関連 docs (`content-strategy.md` `architecture-decisions.md` `abstract-screenplay-design.md`) を参照。
+本ドキュメントは short_movie_generator のシステム構成・レイヤ・依存方向・技術スタック・データフロー・認証経路を 1 ページに集約する。実装の詳細は各モジュールの doc / 関連 docs (`content-strategy.md` `architecture-decisions.md` `abstract-screenplay-design.md`) を参照。
 
 ---
 
@@ -212,7 +212,7 @@ project 作成後に template が外部で書き換わっても、進行中 proj
 ## 7. ディレクトリレイアウト (主要のみ)
 
 ```
-tensyoku_movie_generator/
+short_movie_generator/
   main.py                       ← CLI エントリ
   preview_server.py             ← Flask ベースの HTTP API
   staged_pipeline.py            ← stage dispatcher

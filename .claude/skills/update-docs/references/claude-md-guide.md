@@ -52,7 +52,7 @@ ruff format . && ruff check --fix . # 整形 + 修正
 ```markdown
 ## 🏗️ システム概要
 
-**tensyoku_movie_generator** — 転職系ショート動画を自動生成する日本語特化ツール
+**short_movie_generator** — ショート動画を自動生成する日本語特化ツール
 
 - 入力: `screenplays/<名前>.json` (= 手書き台本 or analyze 経由の自動生成)
 - 出力: 9:16 縦長動画 + SNS キャプション

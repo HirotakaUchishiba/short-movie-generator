@@ -1,6 +1,6 @@
 # コーディング規約
 
-本ドキュメントは tensyoku_movie_generator の Python / TypeScript コードと付随するドキュメントの記述ルールを集約する。CLAUDE.md からの切り出し + 補強。
+本ドキュメントは short_movie_generator の Python / TypeScript コードと付随するドキュメントの記述ルールを集約する。CLAUDE.md からの切り出し + 補強。
 
 新たなルールを増やすときはここに追記し、末尾の最終更新日を更新する。
 
