@@ -11,6 +11,8 @@
     - retry も NG なら qa_failures に auto_flagged で記録 + Slack + abort
     - 公開先は AUTO_LOOP_ALLOW_PUBLIC=0 (default) の間 unlisted 強制
       (= youtube._resolve_privacy が二重防衛)
+    - PRODUCTION_HUMAN_GATE_ENABLED=1 (default) の間は publish 直前で停止し
+      status="awaiting_human_gate" にして人手承認を待つ (= 半自動運用)
     - すべての abort で notify_slack + generation_records.status = "auto_rejected"
 
 使い方:
@@ -371,6 +373,22 @@ def run_one_video(
         if dry_run:
             logger.info("[auto-loop] dry_run: publish skip ts=%s", ts)
             _adb.update_generation_record(ts, status="completed")
+            return ts
+
+        # Phase 4: 既定で publish 直前に停止し、人手承認を待つ。
+        # PRODUCTION_HUMAN_GATE_ENABLED=0 を明示した時だけ完全自動になる。
+        if config.PRODUCTION_HUMAN_GATE_ENABLED:
+            notify_slack(
+                "info",
+                f"auto_loop awaiting human gate: ts={ts}",
+                context={"ts": ts, "privacy": privacy},
+            )
+            logger.info(
+                "[auto-loop] human gate ON: publish skip ts=%s "
+                "(PRODUCTION_HUMAN_GATE_ENABLED=0 で完全自動化)",
+                ts,
+            )
+            _adb.update_generation_record(ts, status="awaiting_human_gate")
             return ts
 
         # Stage 8: publish (= unlisted 強制 by youtube._resolve_privacy)

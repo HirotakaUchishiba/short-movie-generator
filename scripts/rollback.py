@@ -32,7 +32,7 @@ from notify import notify_slack  # noqa: E402
 logger = logging.getLogger(__name__)
 
 
-def rollback_youtube(platform_post_id: str) -> dict:
+def rollback_youtube(platform_post_id: str) -> None:
     """YouTube 動画を ``privacyStatus=private`` に降格する。
 
     Raises:
@@ -64,7 +64,8 @@ def rollback_youtube(platform_post_id: str) -> dict:
         raise RuntimeError(
             f"YouTube rollback API error {resp.status_code}: {resp.text[:300]}",
         )
-    return resp.json()
+    # 戻り値は呼び出し側で使っていないので resp.json() は呼ばない
+    # (= 空ボディ / 非 JSON が返っても JSONDecodeError を出さない)
 
 
 def _resolve_posts(video_id: str,

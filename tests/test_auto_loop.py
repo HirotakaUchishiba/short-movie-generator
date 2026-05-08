@@ -28,6 +28,9 @@ def auto_loop_env(tmp_path, monkeypatch):
     monkeypatch.setattr("config.DAILY_COST_CAP_USD", 0.0)
     monkeypatch.setattr("config.MONTHLY_COST_CAP_USD", 0.0)
     monkeypatch.setattr("config.DAILY_VIDEO_CAP", 0)
+    # 既定 fixture では human gate を OFF にして publish 経路を通す。
+    # gate ON のケースは個別テストで上書きする。
+    monkeypatch.setattr("config.PRODUCTION_HUMAN_GATE_ENABLED", False)
 
     Path(tmp_path / "screenplays").mkdir()
     Path(tmp_path / "temp").mkdir()
@@ -262,3 +265,22 @@ def test_invalid_license_aborts_before_fetch(stub_pipeline, auto_loop_env):
             "https://example.com/x",
             license_status="not_a_license",
         )
+
+
+def test_human_gate_skips_publish_and_marks_awaiting(
+    stub_pipeline, auto_loop_env, monkeypatch,
+):
+    """PRODUCTION_HUMAN_GATE_ENABLED=True のとき publish を skip して
+    status="awaiting_human_gate" で停止する。"""
+    al, _ = stub_pipeline
+    _, db = auto_loop_env
+    monkeypatch.setattr("config.PRODUCTION_HUMAN_GATE_ENABLED", True)
+    with patch("final_import.publish.publish") as p:
+        ts = al.run_one_video(
+            "https://example.com/gate",
+            license_status="user_owned",
+            dry_run=False,
+        )
+    p.assert_not_called()
+    rec = db.get_generation_record(ts)
+    assert rec["status"] == "awaiting_human_gate"

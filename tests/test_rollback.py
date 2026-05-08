@@ -18,11 +18,10 @@ def isolated(tmp_path, monkeypatch):
 
 def _seed(db, *, video_id: str, platform: str = "youtube",
           platform_post_id: str = "abc"):
-    """seed: screenplay + video (なければ) + post 1 件。
+    """idempotent seed: screenplay + video + post 1 件。
 
-    `insert_video` は INSERT OR REPLACE で既存 row を再作成するため、
-    関連する posts が ``ON DELETE CASCADE`` で消える。同じ video_id を
-    別 platform で seed し直したい場合は重複 insert を避ける。
+    test_rollback_filter_by_platform で同じ video_id を複数 platform で
+    seed するため、screenplay / video は INSERT OR IGNORE で再 insert しない。
     """
     sp_id = "sp1"
     with db.get_connection() as conn:
@@ -32,16 +31,12 @@ def _seed(db, *, video_id: str, platform: str = "youtube",
                VALUES (?, '/x', 'x', 'sha1', datetime('now'), '{}')""",
             (sp_id,),
         )
-        existing = conn.execute(
-            "SELECT 1 FROM videos WHERE id = ?", (video_id,),
-        ).fetchone()
-        if not existing:
-            conn.execute(
-                """INSERT INTO videos (id, screenplay_id, output_path,
-                   generated_at)
-                   VALUES (?, ?, '/tmp/v.mp4', datetime('now'))""",
-                (video_id, sp_id),
-            )
+        conn.execute(
+            """INSERT OR IGNORE INTO videos (id, screenplay_id, output_path,
+               generated_at)
+               VALUES (?, ?, '/tmp/v.mp4', datetime('now'))""",
+            (video_id, sp_id),
+        )
     db.register_post(video_id, platform, platform_post_id,
                      url=f"https://yt/watch?v={platform_post_id}")
 

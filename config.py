@@ -771,7 +771,19 @@ QA_RETRY_LIMITS: dict[str, int] = {
 #           (= prompt 注入はしない、効果評価期間)。
 # active:   バンディットの選択を analyze の instructions に注入する
 #           (= 本番実験)。
-IMPROVEMENT_STRATEGY = os.getenv("IMPROVEMENT_STRATEGY", "baseline")
+VALID_IMPROVEMENT_STRATEGIES: tuple[str, ...] = ("baseline", "shadow", "active")
+_raw_improvement_strategy = os.getenv("IMPROVEMENT_STRATEGY", "baseline")
+if _raw_improvement_strategy in VALID_IMPROVEMENT_STRATEGIES:
+    IMPROVEMENT_STRATEGY = _raw_improvement_strategy
+else:
+    import warnings as _warnings
+    _warnings.warn(
+        f"IMPROVEMENT_STRATEGY={_raw_improvement_strategy!r} is invalid "
+        f"(valid: {VALID_IMPROVEMENT_STRATEGIES}). "
+        "Falling back to 'baseline'.",
+        RuntimeWarning, stacklevel=2,
+    )
+    IMPROVEMENT_STRATEGY = "baseline"
 
 # ε-greedy の exploration 確率。0.2 = 20% random、80% historical best。
 BANDIT_EPSILON = float(os.getenv("BANDIT_EPSILON", "0.2"))
@@ -781,17 +793,6 @@ BANDIT_EPSILON = float(os.getenv("BANDIT_EPSILON", "0.2"))
 BANDIT_AXES: tuple[str, ...] = (
     "hook_type", "tone", "dominant_emotion", "theme",
 )
-
-_VALID_IMPROVEMENT_STRATEGIES: tuple[str, ...] = ("baseline", "shadow", "active")
-if IMPROVEMENT_STRATEGY not in _VALID_IMPROVEMENT_STRATEGIES:
-    import warnings as _warnings
-    _warnings.warn(
-        f"IMPROVEMENT_STRATEGY={IMPROVEMENT_STRATEGY!r} is invalid "
-        f"(valid: {_VALID_IMPROVEMENT_STRATEGIES}). "
-        "Falling back to 'baseline'.",
-        RuntimeWarning, stacklevel=2,
-    )
-    IMPROVEMENT_STRATEGY = "baseline"
 
 # ───────────── Phase 4: 本番展開 ─────────────
 # True (= 既定): publish 直前に人手承認を要求する (= 半自動運用)

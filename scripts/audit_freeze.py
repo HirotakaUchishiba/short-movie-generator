@@ -34,15 +34,20 @@ from analytics import db  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-TABLES: tuple[str, ...] = (
-    "generation_records",
-    "experiment_assignments",
-    "qa_failures",
-    "videos",
-    "posts",
-    "post_metrics",
-    "screenplays",
-)
+# View / SQLite 内部テーブルは除外。新テーブルが schema に追加されると
+# 自動で freeze 対象になる (= 手動メンテナンスが要らない)。
+_EXCLUDED_TABLES: frozenset[str] = frozenset({
+    "schema_version",  # スキーマ履歴は _metadata.json に snapshot 済み
+})
+
+
+def _list_tables(conn) -> list[str]:
+    rows = conn.execute(
+        "SELECT name FROM sqlite_master "
+        "WHERE type='table' AND name NOT LIKE 'sqlite_%' "
+        "ORDER BY name",
+    ).fetchall()
+    return [r["name"] for r in rows if r["name"] not in _EXCLUDED_TABLES]
 
 
 def _table_columns(conn, table: str) -> list[str]:
@@ -63,7 +68,7 @@ def freeze_tables(out_dir: Path, *, since: str | None = None) -> dict[str, int]:
     out_dir.mkdir(parents=True, exist_ok=True)
     counts: dict[str, int] = {}
     with db.get_connection() as conn:
-        for table in TABLES:
+        for table in _list_tables(conn):
             cols = _table_columns(conn, table)
             sql = f"SELECT * FROM {table}"
             params: tuple = ()
