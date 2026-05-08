@@ -27,29 +27,57 @@ logger = logging.getLogger(__name__)
 
 KLING_FILE_RE = re.compile(r"kling_(\d+)\.mp4$")
 CHAR_DRIFT_DISTANCE_FAIL = 0.35  # cosine 距離 (= 1 - similarity) がこれを超えると fail
+# 代表フレームを取り出す秒数。Kling は 5s / 10s 出力なので 1.0s なら必ず安全圏で
+# かつ初動 (= subject の動きが完了していない静止状態) を避けられる。
+_REPRESENTATIVE_FRAME_SEC = 1.0
+
+# CLIP モデルは module-level cache する (= auto_loop の retry ループで毎回
+# 数百 MB のロードを起こさない)。ロード成否を 1 度だけ評価し、以後は同じ結果を返す。
+_CLIP_MODEL: object | None = None
+_CLIP_LOAD_ATTEMPTED = False
 
 
 def _load_clip_model():
-    """sentence_transformers の CLIP を lazy load。失敗で None。"""
+    """sentence_transformers の CLIP を lazy load (= module-level cache)。失敗で None。
+
+    cache 実装上、test 等で再評価したい場合は ``_CLIP_MODEL`` /
+    ``_CLIP_LOAD_ATTEMPTED`` を直接 reset するか、関数自体を ``patch.object`` で
+    すり替える。
+    """
+    global _CLIP_MODEL, _CLIP_LOAD_ATTEMPTED
+    if _CLIP_LOAD_ATTEMPTED:
+        return _CLIP_MODEL
+    _CLIP_LOAD_ATTEMPTED = True
     try:
         from sentence_transformers import SentenceTransformer  # type: ignore[import-not-found]
-        return SentenceTransformer("clip-ViT-B-32")
+        _CLIP_MODEL = SentenceTransformer("clip-ViT-B-32")
     except (ImportError, ModuleNotFoundError):
-        return None
+        _CLIP_MODEL = None
     except Exception as e:  # pragma: no cover
         logger.warning("[character_drift] CLIP load failed: %s", e)
-        return None
+        _CLIP_MODEL = None
+    return _CLIP_MODEL
 
 
-def _extract_first_frame(mp4_path: str, frame_path: str) -> bool:
-    """ffmpeg で最初のフレームを png に抜き出す。"""
+def _extract_representative_frame(mp4_path: str, frame_path: str) -> bool:
+    """中間付近のフレームを png に抜き出す。
+
+    最初のフレームは Kling 動画の "動き出し" 直前 (= 静止状態に近い) のことが
+    多く、character_refs の参照画像も静止全身 std なので両者が無相関になりやすい。
+    1.0s 地点を取れば subject の動作が乗った状態と参照画像を比較できる。動画長
+    が 1s 未満で seek 失敗した場合は最初のフレームへフォールバックする。
+    """
     import subprocess
-    proc = subprocess.run(
-        ["ffmpeg", "-hide_banner", "-y", "-i", mp4_path,
-         "-vframes", "1", frame_path],
-        capture_output=True, text=True, check=False, timeout=30,
-    )
-    return proc.returncode == 0 and os.path.exists(frame_path)
+    for ss in (f"00:00:0{_REPRESENTATIVE_FRAME_SEC:.1f}", "00:00:00"):
+        proc = subprocess.run(
+            ["ffmpeg", "-hide_banner", "-y",
+             "-ss", ss, "-i", mp4_path,
+             "-vframes", "1", frame_path],
+            capture_output=True, text=True, check=False, timeout=30,
+        )
+        if proc.returncode == 0 and os.path.exists(frame_path):
+            return True
+    return False
 
 
 def _resolve_character_ref_paths(refs: list[str]) -> list[str]:
@@ -109,7 +137,7 @@ def check_character_drift(
                 # キャラ無しシーンは判定 skip (= 背景のみ)
                 continue
             frame_path = os.path.join(tmp, f"frame_{s_idx}.png")
-            if not _extract_first_frame(mp4, frame_path):
+            if not _extract_representative_frame(mp4, frame_path):
                 out.append(failed_result(
                     score=0.0, reason="frame extraction failed",
                     tag="character_drift", scene_idx=s_idx,

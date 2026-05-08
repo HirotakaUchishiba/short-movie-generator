@@ -267,6 +267,42 @@ def test_append_stage_run_extra_rejects_reserved_keys(isolated_db) -> None:
             started_at="x", ended_at="y", status="completed",
             extra={"status": "spoofed", "error": "ok"},
         )
+
+
+def test_append_stage_run_concurrent_no_lost_entries(isolated_db) -> None:
+    """並列に同 ts へ append_stage_run を投げると、BEGIN IMMEDIATE の writer
+    serialize により全 entry が stage_runs に残る (= lost-update 無し)。
+    Phase 2 で複数 worker から append される将来に備える契約。"""
+    n = 8
+    errors: list[Exception] = []
+    barrier = threading.Barrier(n)
+
+    def _worker(idx: int):
+        try:
+            barrier.wait(timeout=5)
+            isolated_db.append_stage_run(
+                ts="ts_concurrent_append", stage=f"s{idx}",
+                started_at="x", ended_at="y", status="completed",
+                cost_usd=1.0,
+            )
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert errors == [], f"並列 append でエラー: {errors}"
+    rec = isolated_db.get_generation_record("ts_concurrent_append")
+    assert rec is not None
+    runs = json.loads(rec["stage_runs"])
+    # 8 thread 全員の entry が積まれている (= lost update なし)
+    assert len(runs) == n, f"想定 {n} 件 / 実 {len(runs)} 件"
+    assert {r["stage"] for r in runs} == {f"s{i}" for i in range(n)}
+    # cost も合算されている
+    assert rec["total_cost_usd"] == pytest.approx(float(n))
     # 非 reserved key は通る
     isolated_db.append_stage_run(
         ts="ts_reserved_key", stage="script",

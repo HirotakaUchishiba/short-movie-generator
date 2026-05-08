@@ -65,11 +65,23 @@ class AutoLoopAborted(RuntimeError):
 # ───────────── kill-switch / cap ─────────────
 
 
+def _is_truthy_env(value: str | None) -> bool:
+    """env の値を寛容に真偽判定する (= "1"/"true"/"True"/"yes" を真)。
+
+    config 層 (``AUTO_LOOP_ALLOW_PUBLIC`` 等) と同じ受け入れ集合を使うことで、
+    運用者の env 設定時の食い違いを避ける。``main.py._is_truthy`` と同じ実装。
+    """
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes")
+
+
 def _kill_switch_guard() -> None:
-    if os.environ.get("DISABLE_AUTO_LOOP") == "1":
+    raw = os.environ.get("DISABLE_AUTO_LOOP")
+    if _is_truthy_env(raw):
         notify_slack("warning",
-                     "auto_loop kill-switch active (DISABLE_AUTO_LOOP=1)")
-        raise SystemExit("auto_loop disabled by env DISABLE_AUTO_LOOP=1")
+                     f"auto_loop kill-switch active (DISABLE_AUTO_LOOP={raw})")
+        raise SystemExit(f"auto_loop disabled by env DISABLE_AUTO_LOOP={raw}")
 
 
 def _budget_guard() -> None:
@@ -153,11 +165,14 @@ def _run_one_stage(sp_name: str, ts: str, expected_stage: str) -> None:
     started = time.time()
     staged_pipeline.run_next_stage(sp, sp_name, ts_path)
     elapsed = time.time() - started
-    if elapsed > config.AUTO_LOOP_STAGE_TIMEOUT_SEC:
+    # AUTO_LOOP_STAGE_SOFT_LIMIT_SEC は観測用の警告閾値で、超過しても stage は
+    # 完走させる (= ハード中断はしない)。名前を "TIMEOUT" にしないのは、本物の
+    # timeout (= signal.alarm 等での強制中断) と区別するため。
+    if elapsed > config.AUTO_LOOP_STAGE_SOFT_LIMIT_SEC:
         notify_slack(
             "warning",
             f"stage {expected_stage} took {elapsed:.0f}s "
-            f"(soft limit {config.AUTO_LOOP_STAGE_TIMEOUT_SEC}s)",
+            f"(soft limit {config.AUTO_LOOP_STAGE_SOFT_LIMIT_SEC}s)",
             context={"ts": ts},
         )
 
@@ -265,14 +280,26 @@ def _retry_stage(sp_name: str, ts: str, stage: str,
 
 def _retry_failed_scenes(sp_name: str, ts: str, stage: str,
                          fails: list[ValidationResult]) -> None:
-    """fail のあったシーンだけを regen する。stage 全体 fail なら full regen。"""
+    """fail のあったシーンだけを regen する。
+
+    優先順位:
+      1. ``scene_idx=None`` の fail が **1 つでも混ざっていれば** 局所修正では
+         直らない可能性が高いと見なし full-stage regen にフォールバックする
+         (= planning doc 既定の挙動)。
+      2. すべて ``scene_idx=N`` の fail だけなら、該当 scene 群だけを per-scene
+         regen する (= Kling 1 シーン $0.6 vs 全シーン $3.4 の差を吸収)。
+      3. fails が空の場合は no-op (= 呼出側で fails の有無は事前チェック前提)。
+    """
+    if not fails:
+        return
+    has_global_fail = any(r.scene_idx is None for r in fails)
+    if has_global_fail:
+        _retry_stage(sp_name, ts, stage, scene_idx=None)
+        return
     fail_scenes = sorted({r.scene_idx for r in fails
                           if r.scene_idx is not None})
-    if fail_scenes:
-        for s_idx in fail_scenes:
-            _retry_stage(sp_name, ts, stage, scene_idx=s_idx)
-    else:
-        _retry_stage(sp_name, ts, stage, scene_idx=None)
+    for s_idx in fail_scenes:
+        _retry_stage(sp_name, ts, stage, scene_idx=s_idx)
 
 
 def _approve(ts: str, stage: str) -> None:
@@ -284,7 +311,19 @@ def _approve(ts: str, stage: str) -> None:
 
 
 def _import_raw_as_final(ts: str) -> None:
-    """Stage 6 で書き出された pipeline raw を Stage 7 取込として canonical 化。"""
+    """Stage 6 で書き出された pipeline raw を Stage 7 取込として canonical 化する。
+
+    auto_loop は CapCut 編集を **意図的にスキップ** し、raw (`output/reels_<TS>.mp4`)
+    をそのまま canonical な final として登録する設計。raw は pipeline の TTS
+    そのものを内包しているので、`compute_match_score` (= raw 音声 vs. final 音声
+    の指紋照合) は定義上 1.0 になり、`FINGERPRINT_THRESHOLD` (既定 0.6) を必ず
+    通過する。
+
+    したがって `skip_fingerprint=True` の最適化は **意図的に避けて** いる
+    (= 将来「fingerprint < threshold で hard fail にする」変更が入っても、
+    auto_loop の挙動は raw === raw のため誤爆しない)。fingerprint を hard
+    block 化するときは、ここのコメントが invariants の根拠になる。
+    """
     raw_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     if not os.path.exists(raw_path):
         raise AutoLoopAborted(f"pipeline raw が見つかりません: {raw_path}")
@@ -322,8 +361,21 @@ def run_one_video(
     ref = _fetch_reference(reference_url, license_status, max_duration)
 
     # Phase 3: bandit で各軸の値を選択し、analyze の instructions に注入する。
-    # baseline は空 dict + None を返すので Phase 2 と同等の挙動になる。
-    assignments = improvement_strategy.select_assignments_for_video()
+    # baseline は空 dict + None を返すので Phase 2 と同等の挙動になる。seed には
+    # 参考動画の sha256 を渡し、同じ参考動画 + 同じ DB state なら同じ選択が再現
+    # できる経路を確保する (= 監査 / デバッグ向け)。
+    assignments = improvement_strategy.select_assignments_for_video(
+        seed=ref["sha256"],
+    )
+    if assignments:
+        logger.info(
+            "[auto-loop] strategy=%s assignments=%s",
+            config.IMPROVEMENT_STRATEGY,
+            ", ".join(
+                f"{ax}={v}({sub})"
+                for ax, (v, sub) in sorted(assignments.items())
+            ),
+        )
     instructions = compose_instructions(assignments)
 
     sp_name = _run_analyze(

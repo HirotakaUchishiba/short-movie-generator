@@ -127,3 +127,37 @@ def test_old_records_ignored(isolated_budget) -> None:
     assert status.daily_cost_usd == 0.0
     # ただし monthly も今月外なので 0
     assert status.monthly_cost_usd == 0.0
+
+
+def test_daily_video_count_matches_iso_stored_created_at(isolated_budget) -> None:
+    """generation_records.created_at は _now() (= ISO + tz suffix) で書き込まれる。
+    `_count_videos_since` はその ISO 形式と一致する `since.isoformat()` で
+    比較しないと、過去 / 未来日がたまたま含まれる lex 比較バグを起こす。
+
+    同月の昨日 (= daily 範囲外、monthly 範囲内) と今日を 1 件ずつ仕込み:
+      - daily count == 1 (= 今日のみ)
+      - monthly cost が daily cost と独立に動くこと
+    を一度に保証する。"""
+    budget, db, cost_path = isolated_budget
+    from datetime import datetime, timedelta, timezone
+    now = datetime.now(timezone.utc)
+    today_noon = now.replace(hour=12, minute=0, second=0, microsecond=0)
+    yesterday_noon = today_noon - timedelta(days=1)
+
+    db.append_stage_run(
+        ts="today_v1", stage="script",
+        started_at="x", ended_at="y", status="completed",
+    )
+    # 過去日に書き込んだ風の row を直接 INSERT (= append_stage_run は always
+    # `_now()` を使うので、過去日付の挿入は raw SQL でしかできない)。
+    with db.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO generation_records (ts, created_at) VALUES (?, ?)",
+            ("yesterday_v0", yesterday_noon.isoformat(timespec="seconds")),
+        )
+
+    status = budget.current_status(now=today_noon)
+    # 今日の row のみカウント (= ISO 比較がきちんと "T" を区切りとして扱えていれば 1)。
+    # 旧 strftime("%Y-%m-%d %H:%M:%S") では yesterday_noon ISO ("2026-..-..T..:..:..+00:00")
+    # と "2026-05-08 00:00:00" の lex 比較が不安定で 2 が混ざるリスクがあった。
+    assert status.daily_video_count == 1

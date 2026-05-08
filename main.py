@@ -14,6 +14,17 @@ log_setup.setup()
 logger = logging.getLogger(__name__)
 
 
+def _is_truthy(value: str | None) -> bool:
+    """env の値を寛容に真偽判定する (= "1"/"true"/"True"/"yes" を真)。
+
+    config 層の ``AUTO_LOOP_ALLOW_PUBLIC`` 等と同じ受け入れ集合を使うことで、
+    運用者が env を設定するときの食い違いを防ぐ。
+    """
+    if value is None:
+        return False
+    return value.strip().lower() in ("1", "true", "yes")
+
+
 def _build_parser() -> argparse.ArgumentParser:
     p = argparse.ArgumentParser(
         prog="main.py",
@@ -60,10 +71,12 @@ def main() -> None:
     # cron / auto_loop が main.py を subprocess 起動するので、env を 1 にすると
     # 全自動レーンが即停止する。手動運用 (= 直接実行) では env を立てなければ
     # 無視される (= 退路を必ず残す原則)。
-    if os.environ.get("DISABLE_AUTO_LOOP") == "1":
+    # env の真偽値解釈は config.AUTO_LOOP_ALLOW_PUBLIC と統一 (= 1/true/True/yes)。
+    if _is_truthy(os.environ.get("DISABLE_AUTO_LOOP")):
         logger.error(
-            "DISABLE_AUTO_LOOP=1: auto-loop kill-switch が有効です。"
+            "DISABLE_AUTO_LOOP=%s: auto-loop kill-switch が有効です。"
             "手動運用を再開するには env を unset してください。",
+            os.environ.get("DISABLE_AUTO_LOOP"),
         )
         sys.exit(2)
 

@@ -114,14 +114,21 @@ def stub_pipeline(auto_loop_env, monkeypatch):
             mark_generated(ts_path, stage_name)
         return _r
 
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "tts",
-                        _make_runner("tts", write_artifacts=["tts_0_0.mp3"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "bg",
-                        _make_runner("bg", write_artifacts=["bg_0.png"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "kling",
-                        _make_runner("kling", write_artifacts=["kling_0.mp4"]))
-    monkeypatch.setitem(sp_mod.STAGE_RUNNERS, "scene",
-                        _make_runner("scene", write_artifacts=["scene_0.mp4"]))
+    # production の命名は f"<stage>_{scene_idx:03d}.<ext>" (3 桁ゼロ詰め)。
+    # auto_loop の glob (`tts_*_*.mp3` 等) と stage_artifact_paths が
+    # マッチさせる対象。
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "tts",
+        _make_runner("tts", write_artifacts=["tts_000_000.mp3"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "bg",
+        _make_runner("bg", write_artifacts=["bg_000.png"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "kling",
+        _make_runner("kling", write_artifacts=["kling_000.mp4"]))
+    monkeypatch.setitem(
+        sp_mod.STAGE_RUNNERS, "scene",
+        _make_runner("scene", write_artifacts=["scene_000.mp4"]))
 
     # overlay は mark_generated + output/reels_<ts>.mp4 を作る
     def _overlay_runner(screenplay, screenplay_name, ts_path):
@@ -184,6 +191,81 @@ def test_dry_run_skips_publish(stub_pipeline, auto_loop_env):
     p.assert_not_called()
     rec = db.get_generation_record(ts)
     assert rec["status"] == "completed"
+
+
+def test_active_strategy_logs_and_records_assignments(
+    stub_pipeline, auto_loop_env, monkeypatch, caplog,
+):
+    """active 戦略で履歴があれば、log と experiment_assignments の両方に出る。"""
+    al, _ = stub_pipeline
+    _, db = auto_loop_env
+    monkeypatch.setattr("config.IMPROVEMENT_STRATEGY", "active")
+    monkeypatch.setattr("config.BANDIT_AXES", ("hook_type",))
+    monkeypatch.setattr("config.BANDIT_EPSILON", 0.0)  # 必ず exploit
+
+    # 軸別 view が空だと bandit が assignments を返さないので、history を仕込む
+    with db.get_connection() as conn:
+        for i, (hook, comp) in enumerate(
+            (("共感型", 0.4), ("結論先出し", 0.7)),
+        ):
+            sp = f"sp_seed_{i}"
+            v = f"v_seed_{i}"
+            p = f"p_seed_{i}"
+            conn.execute(
+                """INSERT INTO screenplays (id, path, name, sha256, created_at,
+                   raw_json, hook_type) VALUES (?, '/x', 'x', ?, datetime('now'),
+                   '{}', ?)""", (sp, sp + "_sha", hook),
+            )
+            conn.execute(
+                """INSERT INTO videos (id, screenplay_id, output_path,
+                   generated_at) VALUES (?, ?, '/x', datetime('now'))""",
+                (v, sp),
+            )
+            conn.execute(
+                """INSERT INTO posts (id, video_id, platform, platform_post_id,
+                   posted_at, registered_at) VALUES (?, ?, 'youtube', ?,
+                   datetime('now', '-2 days'), datetime('now'))""",
+                (p, v, p),
+            )
+            conn.execute(
+                """INSERT INTO post_metrics (post_id, fetched_at, views,
+                   completion_rate) VALUES (?, datetime('now'), 1000, ?)""",
+                (p, comp),
+            )
+
+    # analyze.run の instructions が active 経路で string になることも確認
+    captured: dict = {}
+
+    def _fake_analyze(**kwargs):
+        captured["instructions"] = (
+            kwargs["options"].instructions if kwargs.get("options") else None
+        )
+        out = kwargs.get("output_path")
+        Path(out).write_text(json.dumps(_fake_screenplay()), encoding="utf-8")
+        return _fake_screenplay()
+    monkeypatch.setattr("analyze.run", _fake_analyze)
+
+    with caplog.at_level("INFO"):
+        ts = al.run_one_video(
+            "https://example.com/active",
+            license_status="user_owned",
+            dry_run=True,
+        )
+
+    log_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "strategy=active" in log_text
+    assert "hook_type=結論先出し(exploit)" in log_text
+
+    # experiment_assignments に書かれている
+    rows = db.list_experiment_assignments(video_id=ts)
+    assert len(rows) == 1
+    assert rows[0]["axis"] == "hook_type"
+    assert rows[0]["selected_value"] == "結論先出し"
+    assert rows[0]["strategy"] == "active_exploit"
+
+    # active なので analyze.run.instructions に注入文字列が乗っている
+    assert captured.get("instructions")
+    assert "結論先出し" in captured["instructions"]
 
 
 def test_kill_switch_blocks(monkeypatch, auto_loop_env):
@@ -284,3 +366,132 @@ def test_human_gate_skips_publish_and_marks_awaiting(
     p.assert_not_called()
     rec = db.get_generation_record(ts)
     assert rec["status"] == "awaiting_human_gate"
+
+
+def test_archive_before_retry_archives_per_scene_artifacts(
+    stub_pipeline, auto_loop_env, tmp_path,
+):
+    """bg / kling / scene stage の retry で、scene_idx=None でも
+    実 production 命名 (= bg_000.png 等) の per-scene artifact が
+    qa_failures に regenerate_implicit で残ることを確認する。
+
+    Phase 2 の validator しきい値学習は
+    `qa_failures (auto_flagged) + (regenerate_implicit)` の両方を訓練データに
+    使う前提なので、このアーカイブ抜けは Phase 0 の契約違反になる。"""
+    al, tp = stub_pipeline
+    _, db = auto_loop_env
+
+    # 仮の TS ディレクトリを用意して production 命名で artifact を撒く
+    ts = "20260507_990000"
+    ts_dir = tp / "temp" / ts
+    ts_dir.mkdir(parents=True)
+    (ts_dir / "screenplay.json").write_text("{}")
+    (ts_dir / "bg_000.png").write_bytes(b"old_bg_0")
+    (ts_dir / "bg_001.png").write_bytes(b"old_bg_1")
+    (ts_dir / "kling_000.mp4").write_bytes(b"old_kling")
+    (ts_dir / "scene_000.mp4").write_bytes(b"old_scene")
+
+    al._archive_before_retry(ts, "bg")
+    al._archive_before_retry(ts, "kling")
+    al._archive_before_retry(ts, "scene")
+
+    rows = db.list_qa_failures(ts=ts, source="regenerate_implicit")
+    by_stage = {r["stage"]: r for r in rows}
+    assert {"bg", "kling", "scene"} <= set(by_stage.keys()), (
+        f"per-scene artifact が archive されていない: {by_stage}"
+    )
+    # bg は 2 シーン分、archive_dir に両方コピー済みである
+    bg_arc = by_stage["bg"]["artifact_path"]
+    assert bg_arc and os.path.exists(bg_arc)
+    bg_dir = os.path.dirname(bg_arc)
+    assert {"bg_000.png", "bg_001.png"} <= set(os.listdir(bg_dir))
+
+
+# ─── _retry_failed_scenes の per-scene / full-regen 切替 ──────────
+
+
+def test_retry_failed_scenes_per_scene_when_all_have_scene_idx(monkeypatch):
+    """全 fails に scene_idx=N が付いていれば per-scene regen を呼ぶ。"""
+    import scripts.auto_loop as al
+    from qa.validators.base import failed_result
+
+    calls: list[tuple[str, int | None]] = []
+
+    def _stub_retry(sp_name, ts, stage, scene_idx=None):
+        calls.append((stage, scene_idx))
+    monkeypatch.setattr(al, "_retry_stage", _stub_retry)
+
+    fails = [
+        failed_result(score=0.0, reason="x", tag="audio_silence",
+                      scene_idx=0, line_idx=0),
+        failed_result(score=0.0, reason="x", tag="audio_silence",
+                      scene_idx=2, line_idx=1),
+    ]
+    al._retry_failed_scenes("sp", "ts", "tts", fails)
+
+    # scene 0 と scene 2 の 2 回 (= 重複 dedup 済み、scene_idx=None は呼ばれない)
+    assert calls == [("tts", 0), ("tts", 2)]
+
+
+def test_retry_failed_scenes_falls_back_to_full_when_global_fail_mixed(monkeypatch):
+    """scene_idx=None が 1 つでも混ざっていれば full-stage regen に倒す。"""
+    import scripts.auto_loop as al
+    from qa.validators.base import failed_result
+
+    calls: list[tuple[str, int | None]] = []
+
+    def _stub_retry(sp_name, ts, stage, scene_idx=None):
+        calls.append((stage, scene_idx))
+    monkeypatch.setattr(al, "_retry_stage", _stub_retry)
+
+    fails = [
+        failed_result(score=0.0, reason="x", tag="audio_silence",
+                      scene_idx=0, line_idx=0),
+        failed_result(score=0.0, reason="stage-wide", tag="audio_silence",
+                      scene_idx=None, line_idx=None),
+    ]
+    al._retry_failed_scenes("sp", "ts", "tts", fails)
+
+    # scene-idx=None があれば 1 回だけ full regen が呼ばれて scene 0 はスキップ
+    assert calls == [("tts", None)]
+
+
+def test_retry_failed_scenes_noop_when_empty(monkeypatch):
+    """fails が空なら何も呼ばない (= 防御的 no-op)。"""
+    import scripts.auto_loop as al
+    calls: list = []
+    monkeypatch.setattr(al, "_retry_stage",
+                        lambda *a, **kw: calls.append((a, kw)))
+    al._retry_failed_scenes("sp", "ts", "tts", [])
+    assert calls == []
+
+
+# ─── kill-switch の env 真偽値解釈 ──────────
+
+
+def test_is_truthy_env_accepts_common_truthy_values():
+    import scripts.auto_loop as al
+    assert al._is_truthy_env("1") is True
+    assert al._is_truthy_env("true") is True
+    assert al._is_truthy_env("True") is True
+    assert al._is_truthy_env("yes") is True
+    assert al._is_truthy_env(" 1 ") is True  # 空白許容
+
+
+def test_is_truthy_env_rejects_falsy_values():
+    import scripts.auto_loop as al
+    assert al._is_truthy_env(None) is False
+    assert al._is_truthy_env("") is False
+    assert al._is_truthy_env("0") is False
+    assert al._is_truthy_env("false") is False
+    assert al._is_truthy_env("no") is False
+
+
+def test_kill_switch_truthy_value_blocks(monkeypatch, auto_loop_env):
+    """DISABLE_AUTO_LOOP=true (= 1 以外の truthy) でも kill-switch が発火する。"""
+    monkeypatch.setenv("DISABLE_AUTO_LOOP", "true")
+    import scripts.auto_loop as al
+    with pytest.raises(SystemExit):
+        al.run_one_video(
+            "https://example.com/x", license_status="user_owned",
+        )

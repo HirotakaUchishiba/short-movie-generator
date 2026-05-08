@@ -107,3 +107,59 @@ def test_ytdlp_missing_binary(fetch_module):
             fetch_module.fetch_and_register(
                 "https://example.com/x", "user_owned",
             )
+
+
+def test_ytdlp_failure_does_not_leak_tmp_file(fetch_module):
+    """yt-dlp 失敗時に tempfile.NamedTemporaryFile で作った tmp が残らない
+    (= REFERENCE_DIR に未命名の .mp4 が孤立しない)。"""
+    import subprocess
+    with patch("subprocess.run",
+               side_effect=subprocess.CalledProcessError(1, "yt-dlp")):
+        with pytest.raises(RuntimeError):
+            fetch_module.fetch_and_register(
+                "https://example.com/leak", "user_owned",
+            )
+    ref_dir = fetch_module.REFERENCE_DIR
+    leftovers = list(ref_dir.glob("*.mp4")) if ref_dir.exists() else []
+    assert leftovers == [], f"tmp file leak: {leftovers}"
+
+
+def test_sha256_failure_cleans_up_tmp(fetch_module, tmp_path):
+    """fetch_with_ytdlp は成功したが _sha256_file が raise した場合に、
+    tmp ファイルが必ず unlink される (= disk full 等の保険経路)。"""
+    with patch("subprocess.run",
+               side_effect=_ytdlp_stub_writing(b"OK_FETCH")):
+        with patch.object(fetch_module, "_sha256_file",
+                          side_effect=OSError("disk full")):
+            with pytest.raises(OSError, match="disk full"):
+                fetch_module.fetch_and_register(
+                    "https://example.com/sha-fail", "user_owned",
+                )
+    ref_dir = fetch_module.REFERENCE_DIR
+    leftovers = list(ref_dir.glob("*.mp4")) if ref_dir.exists() else []
+    assert leftovers == [], f"tmp file leak after sha failure: {leftovers}"
+
+
+def test_ytdlp_uses_merge_output_format_mp4(fetch_module):
+    """`--merge-output-format mp4` を yt-dlp に渡し、container を mp4 強制する
+    (= best fallback で webm が来ても remux mp4 になる)。"""
+    captured: list[list[str]] = []
+
+    def _capturing_runner(args, **_):
+        captured.append(list(args))
+        # 何か書いておかないと size==0 で reject される
+        out_idx = args.index("-o") + 1
+        Path(args[out_idx]).write_bytes(b"X")
+
+        class _R:
+            returncode = 0
+        return _R()
+
+    with patch("subprocess.run", side_effect=_capturing_runner):
+        fetch_module.fetch_and_register(
+            "https://example.com/m", "user_owned",
+        )
+    assert captured, "subprocess.run が呼ばれていない"
+    args = captured[0]
+    assert "--merge-output-format" in args
+    assert args[args.index("--merge-output-format") + 1] == "mp4"

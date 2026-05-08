@@ -3,6 +3,12 @@
 軸 (= hook_type / tone / dominant_emotion / theme) ごとに独立した instance を
 持つ想定。サンプル ≥ 200 で Thompson sampling に切替検討するのは Phase 3.5
 以降。
+
+並列実行時の注意:
+    instance は in-memory state のみ持ち永続化しない。複数プロセスで同時に
+    `select` を呼ぶ場合、それぞれが独立して同じ history を見て同じ exploit
+    arm を選びうる (= 並列度が高いと exploration が偏る)。期待値ベースでは
+    正しく動くため、シングルマシン cron 程度ならば問題ない。
 """
 from __future__ import annotations
 
@@ -52,15 +58,15 @@ class EpsilonGreedyBandit:
             raise ValueError("candidates must not be empty")
         if self.rng.random() < self.epsilon:
             return self.rng.choice(candidates), "explore"
-        # exploit: 平均 reward 最大。同点は最初に出てきた候補。
-        best_value = candidates[0]
-        best_mean = self.stats.get(best_value, ArmStats()).mean
-        for v in candidates[1:]:
-            mean = self.stats.get(v, ArmStats()).mean
-            if mean > best_mean:
-                best_mean = mean
-                best_value = v
-        return best_value, "exploit"
+        # exploit: 平均 reward 最大。同点は rng で公平に tie-break する
+        # (= 旧版は先頭優先で、cold-start arm すべて mean=0 のとき insertion-first
+        # に固定的に偏っていた)。
+        means = [self.stats.get(v, ArmStats()).mean for v in candidates]
+        best_mean = max(means)
+        tied = [v for v, m in zip(candidates, means) if m == best_mean]
+        if len(tied) == 1:
+            return tied[0], "exploit"
+        return self.rng.choice(tied), "exploit"
 
     def snapshot(self) -> dict[str, dict[str, float]]:
         """現在の各 arm の累積を dict で返す (= debug / persist 用)。"""

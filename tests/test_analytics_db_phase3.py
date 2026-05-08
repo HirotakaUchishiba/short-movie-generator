@@ -13,7 +13,10 @@ def isolated_db(tmp_path, monkeypatch):
 
 
 def _seed_chain(db, *, ts: str, hook: str, completion: float,
-                posted_days_ago: int = 2):
+                posted_days_ago: int = 2,
+                tone: str = "casual",
+                dominant_emotion: str = "喜び",
+                theme: str = "career_change"):
     sp_id = f"sp_{ts}"
     v_id = f"v_{ts}"
     p_id = f"p_{ts}"
@@ -22,8 +25,8 @@ def _seed_chain(db, *, ts: str, hook: str, completion: float,
             """INSERT INTO screenplays (id, path, name, sha256, created_at,
                raw_json, hook_type, tone, dominant_emotion, theme)
                VALUES (?, '/x', 'x', ?, datetime('now'), '{}',
-                       ?, 'casual', '喜び', 'career_change')""",
-            (sp_id, sp_id + "_sha", hook),
+                       ?, ?, ?, ?)""",
+            (sp_id, sp_id + "_sha", hook, tone, dominant_emotion, theme),
         )
         conn.execute(
             """INSERT INTO videos (id, screenplay_id, output_path, generated_at)
@@ -102,3 +105,38 @@ def test_query_axis_performance_rejects_unknown_axis(isolated_db):
 def test_query_axis_performance_rejects_unknown_metric(isolated_db):
     with pytest.raises(ValueError):
         isolated_db.query_axis_performance("hook_type", metric="bogus")
+
+
+def test_query_axis_performance_aggregates_across_other_axes(isolated_db):
+    """同じ hook_type が tone / emotion / theme 違いで複数 row を持っても、
+    軸別 view は hook_type だけで GROUP BY するので 1 行に集約される。
+
+    旧 v_axis_performance は 4 軸同時 GROUP BY だったため、(共感型, casual, ...) と
+    (共感型, formal, ...) が別 row になり、bandit 側で重複扱いされていた。
+    """
+    db = isolated_db
+    _seed_chain(db, ts="t1", hook="共感型", completion=0.4, tone="casual")
+    _seed_chain(db, ts="t2", hook="共感型", completion=0.6, tone="formal")
+    _seed_chain(db, ts="t3", hook="共感型", completion=0.8, tone="serious")
+    rows = db.query_axis_performance("hook_type", metric="avg_completion")
+    common = [r for r in rows if r["axis_value"] == "共感型"]
+    assert len(common) == 1
+    assert common[0]["n"] == 3
+    assert common[0]["metric"] == pytest.approx(0.6)
+
+
+def test_query_axis_performance_dispatches_per_axis(isolated_db):
+    """各軸で独立した view が呼ばれることを 4 軸全部で確認。"""
+    db = isolated_db
+    _seed_chain(db, ts="a1", hook="共感型", completion=0.3,
+                tone="casual", dominant_emotion="喜び", theme="career_change")
+    _seed_chain(db, ts="a2", hook="結論先出し", completion=0.7,
+                tone="serious", dominant_emotion="焦り", theme="salary")
+    for axis, expected in (
+        ("hook_type", {"共感型", "結論先出し"}),
+        ("tone", {"casual", "serious"}),
+        ("dominant_emotion", {"喜び", "焦り"}),
+        ("theme", {"career_change", "salary"}),
+    ):
+        rows = db.query_axis_performance(axis)
+        assert {r["axis_value"] for r in rows} == expected, axis

@@ -18,6 +18,20 @@ from improvement import axis_performance
 logger = logging.getLogger(__name__)
 
 
+_METRIC_LABEL = {
+    "avg_completion": "avg completion rate",
+    "avg_views": "avg views",
+    "avg_save": "avg saves",
+}
+
+
+def _format_reward(value: float, metric: str) -> str:
+    """avg_completion は 0-1 の率なので %、それ以外は raw count として整数表示。"""
+    if metric == "avg_completion":
+        return f"{value:.1%}"
+    return f"{value:,.0f}"
+
+
 def build_performance_summary(
     *, metric: str = "avg_completion", top_n: int = 3,
 ) -> str:
@@ -41,12 +55,15 @@ def build_performance_summary(
         )[:top_n]
         if not ranked:
             continue
-        formatted = " > ".join(f"{v} ({r:.1%})" for v, r in ranked)
+        formatted = " > ".join(
+            f"{v} ({_format_reward(r, metric)})" for v, r in ranked
+        )
         lines.append(f"- {axis}: {formatted}")
     if not lines:
         return ""
+    label = _METRIC_LABEL.get(metric, metric)
     return (
-        "## 過去 30 日の高パフォーマンス傾向 (avg completion rate)\n"
+        f"## 過去 30 日の高パフォーマンス傾向 ({label})\n"
         + "\n".join(lines)
         + "\n"
     )
