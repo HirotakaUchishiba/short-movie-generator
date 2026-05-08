@@ -216,6 +216,43 @@ def _ffprobe_duration(path: str) -> float:
 
 # ───────────────── プロジェクト一覧 / 作成 ─────────────────
 
+def _split_caption(caption: str) -> tuple[str, str]:
+    """caption を「タイトル行」と「ハッシュタグ行」に分離する。
+
+    タイトル = 先頭の非空・非ハッシュタグ行。caption が空・None の場合は
+    両方空文字列を返す。プロジェクト一覧の friendly title 算出に使う。
+    """
+    if not caption:
+        return "", ""
+    title = ""
+    hashtags: list[str] = []
+    for raw in caption.splitlines():
+        line = raw.strip()
+        if not line:
+            continue
+        if line.startswith("#"):
+            hashtags.append(line)
+        elif not title:
+            title = line
+    return title, " ".join(hashtags)
+
+
+def _project_display_title(screenplay: dict | None, screenplay_name: str | None) -> str:
+    """プロジェクト一覧用の friendly title。caption 1 行目 → 整形済み filename の順。"""
+    if screenplay:
+        title, _ = _split_caption(str(screenplay.get("caption") or ""))
+        if title:
+            return title
+    if screenplay_name:
+        base = screenplay_name
+        if base.endswith(".json"):
+            base = base[:-5]
+        if base.startswith("auto_") and len(base) > 13:
+            base = "参考動画 " + base[5:13]
+        return base
+    return "(無題)"
+
+
 @app.route("/api/projects", methods=["GET"])
 def api_projects():
     items = []
@@ -230,9 +267,31 @@ def api_projects():
         if not meta:
             continue
         progress = progress_store.load(ts_path)
+
+        screenplay: dict | None = None
+        try:
+            screenplay = staged_pipeline.load_project_screenplay(ts_path)
+        except FileNotFoundError:
+            pass
+        except Exception as e:
+            logger.warning("project list: screenplay load failed for %s: %s", ts, e)
+
+        title = _project_display_title(screenplay, meta.get("screenplay_name"))
+        _, hashtags = _split_caption(
+            str((screenplay or {}).get("caption") or "")
+        )
+        scene_count = len((screenplay or {}).get("scenes") or [])
+        has_bg_thumbnail = os.path.exists(
+            os.path.join(ts_path, "bg_000.png")
+        )
+
         items.append({
             "timestamp": ts,
             "screenplay_name": meta.get("screenplay_name"),
+            "display_title": title,
+            "caption_hashtags": hashtags,
+            "scene_count": scene_count,
+            "has_bg_thumbnail": has_bg_thumbnail,
             "created_at": meta.get("created_at"),
             "current_stage": progress_store.current_stage(ts_path),
             "progress": progress,
