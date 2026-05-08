@@ -1,0 +1,11 @@
+{
+  "id": "before_after",
+  "label": "ビフォーアフター型",
+  "description": "過去の自分 vs 現在の自分の対比を冒頭で示し、その変化のプロセスを語る",
+  "first_scene_template": {
+    "action_id": "look_at_phone",
+    "line_pattern": "{過去の状態} → {現在の状態}",
+    "emotion": "中立"
+  },
+  "follow_arc_id_candidates": ["low_to_high", "failure_to_pivot"]
+}

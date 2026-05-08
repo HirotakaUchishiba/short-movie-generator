@@ -1,0 +1,14 @@
+{
+  "id": "direct_addr",
+  "label": "直接呼びかけ型",
+  "description": "特定の悩みを抱える視聴者に直接呼びかけ、自分ごと化させる",
+  "first_scene_template": {
+    "action_id": "confused_search",
+    "line_pattern": "{視聴者の悩みへの呼びかけ}",
+    "emotion": "困惑"
+  },
+  "follow_arc_id_candidates": [
+    "confusion_to_resolve",
+    "problem_solution_celebration"
+  ]
+}

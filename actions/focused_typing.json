@@ -1,0 +1,10 @@
+{
+  "id": "focused_typing",
+  "label": "集中してタイピング",
+  "subject_state": "hands on the keyboard, eyes locked onto the screen, brow slightly tense in deep concentration",
+  "animation_motion": "subject types steadily on the keyboard, eyes focused on the screen, occasional small nods of concentration",
+  "recommended_emotion": "中立",
+  "recommended_camera_distance": "medium-close",
+  "compatible_locations": ["home_office", "warm_cafe"],
+  "duration_bucket_sec": 5
+}

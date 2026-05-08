@@ -1,0 +1,7 @@
+{
+  "id": "problem_solution_celebration",
+  "label": "問題提起→解決→祝福",
+  "description": "問題提起から段階的に解決し、最終的に達成感で締める王道アーク",
+  "emotion_sequence": ["困惑", "焦り", "中立", "満足", "喜び"],
+  "scene_count_range": [5, 7]
+}

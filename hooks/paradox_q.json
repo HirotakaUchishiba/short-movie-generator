@@ -1,0 +1,11 @@
+{
+  "id": "paradox_q",
+  "label": "逆説提示型",
+  "description": "視聴者の常識を揺さぶる逆説的な問いかけで掴む。1〜3 秒の冒頭で「実は◯◯ほど△△」のような構造を提示する",
+  "first_scene_template": {
+    "action_id": "surprise_pc",
+    "line_pattern": "{常識と逆の主張}",
+    "emotion": "驚き"
+  },
+  "follow_arc_id_candidates": ["low_to_high", "confusion_to_resolve"]
+}

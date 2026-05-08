@@ -1,0 +1,14 @@
+{
+  "id": "behind_scene",
+  "label": "裏側公開型",
+  "description": "業界の内部情報や知られざる実態を冒頭で示し、続きを聞きたくさせる",
+  "first_scene_template": {
+    "action_id": "focused_typing",
+    "line_pattern": "{業界の裏側の事実}",
+    "emotion": "中立"
+  },
+  "follow_arc_id_candidates": [
+    "confusion_to_resolve",
+    "problem_solution_celebration"
+  ]
+}

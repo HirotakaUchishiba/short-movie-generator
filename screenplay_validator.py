@@ -2,6 +2,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
+import atomic_assets
 import config
 
 # preset enum 一覧 (config.py から動的に取得して enum 制約に展開する)
@@ -52,6 +53,22 @@ SCHEMA: dict = {
                 "未指定なら config.SUBTITLE_Y_FROM_BOTTOM を使用"
             ),
         },
+        "hook_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": (
+                "Phase X-2a: 動画冒頭のフックパターン (= hooks/<id>.json)。"
+                "存在チェックは _check_atomic_refs で実施"
+            ),
+        },
+        "arc_id": {
+            "type": "string",
+            "minLength": 1,
+            "description": (
+                "Phase X-2a: シーン進行の感情変化テンプレ (= arcs/<id>.json)。"
+                "存在チェックは _check_atomic_refs で実施"
+            ),
+        },
         "scenes": {
             "type": "array",
             "minItems": 1,
@@ -93,6 +110,17 @@ SCHEMA: dict = {
                             "グローバル locations/<id>.json のキーを参照。"
                             "ロケの装飾・光源・色味・小道具・カメラ距離が "
                             "background_prompt の先頭に自動注入される"
+                        ),
+                    },
+                    "action_id": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "Phase X-2a: 動作テンプレ (= actions/<id>.json)。"
+                            "指定すると subject_state / animation_motion から "
+                            "scene の background_prompt / animation_prompt が "
+                            "自動派生する (= 既存の自由テキストは override 用に残せる)。"
+                            "存在チェックは _check_atomic_refs で実施"
                         ),
                     },
                     "camera_distance": {
@@ -409,15 +437,64 @@ def _check_composed_required(screenplay: dict) -> list[str]:
 
     abstract 形式では `background_prompt` が未生成でも許容するが、後段
     (TTS / 背景 / Kling) に渡す直前にはこの形に解決済みである必要がある。
+
+    Phase X-2a: scene に ``action_id`` がある場合は atomic SSOT 経路で
+    ``background_prompt`` が scene_gen 側で派生されるため、composed 必須
+    チェックの対象外とする。
     """
     errors: list[str] = []
     for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
+        if scene.get("action_id"):
+            continue
         bg = scene.get("background_prompt")
         if not isinstance(bg, str) or not bg.strip():
             errors.append(
                 f"scenes/{s_idx}/background_prompt: composed 形式では必須 "
                 "(abstract 形式なら compose を経由してください)",
             )
+    return errors
+
+
+def _check_atomic_refs(screenplay: dict) -> list[str]:
+    """Phase X-2a: hook_id / arc_id / scenes[].action_id が atomic SSOT に存在するか検証。
+
+    atomic_assets.list_*_ids() 経由で hooks/ arcs/ actions/ ディレクトリの中身と
+    照合する。空集合 (= テスト環境で SSOT を置いていない) の場合はスキップする
+    (= scene 側の参照が存在しないだけのチェックを通す)。
+    """
+    errors: list[str] = []
+
+    available_hooks = set(atomic_assets.list_hook_ids())
+    hook_id = screenplay.get("hook_id")
+    if isinstance(hook_id, str) and hook_id and available_hooks:
+        if hook_id not in available_hooks:
+            keys = ", ".join(sorted(available_hooks)) or "(空)"
+            errors.append(
+                f"hook_id: '{hook_id}' は hooks/ に未定義 (定義済み: {keys})",
+            )
+
+    available_arcs = set(atomic_assets.list_arc_ids())
+    arc_id = screenplay.get("arc_id")
+    if isinstance(arc_id, str) and arc_id and available_arcs:
+        if arc_id not in available_arcs:
+            keys = ", ".join(sorted(available_arcs)) or "(空)"
+            errors.append(
+                f"arc_id: '{arc_id}' は arcs/ に未定義 (定義済み: {keys})",
+            )
+
+    available_actions = set(atomic_assets.list_action_ids())
+    if available_actions:
+        for s_idx, scene in enumerate(screenplay.get("scenes") or []):
+            action_id = scene.get("action_id")
+            if not isinstance(action_id, str) or not action_id:
+                continue
+            if action_id not in available_actions:
+                keys = ", ".join(sorted(available_actions)) or "(空)"
+                errors.append(
+                    f"scenes/{s_idx}/action_id: '{action_id}' は actions/ "
+                    f"に未定義 (定義済み: {keys})",
+                )
+
     return errors
 
 
@@ -443,6 +520,7 @@ def validate_screenplay(screenplay: dict,
     errors.extend(_check_line_bounds(screenplay))
     errors.extend(_check_location_refs(screenplay))
     errors.extend(_check_character_refs(screenplay))
+    errors.extend(_check_atomic_refs(screenplay))
     if require_composed:
         errors.extend(_check_composed_required(screenplay))
 

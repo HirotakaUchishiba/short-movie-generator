@@ -1,0 +1,10 @@
+{
+  "id": "lean_back_relief",
+  "label": "椅子にもたれて安堵",
+  "subject_state": "leaning back into the chair with shoulders dropped, soft smile, eyes half-closed in relief",
+  "animation_motion": "subject leans back into the chair, exhales visibly, shoulders drop as tension releases",
+  "recommended_emotion": "満足",
+  "recommended_camera_distance": "medium-close",
+  "compatible_locations": ["home_office", "warm_cafe"],
+  "duration_bucket_sec": 5
+}

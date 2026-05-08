@@ -1,0 +1,10 @@
+{
+  "id": "stand_thinking",
+  "label": "立ったまま考え込む",
+  "subject_state": "standing still with one hand at the chin, eyes lowered in thought, body slightly turned",
+  "animation_motion": "subject pauses, brings a hand to the chin, gaze drifting downward in contemplation",
+  "recommended_emotion": "困惑",
+  "recommended_camera_distance": "medium",
+  "compatible_locations": ["city_park", "soft_gradient", "cozy_living"],
+  "duration_bucket_sec": 5
+}
