@@ -132,6 +132,10 @@ export interface Screenplay {
 export interface ProjectListItem {
   timestamp: string;
   screenplay_name: string;
+  display_title: string;
+  caption_hashtags: string;
+  scene_count: number;
+  has_bg_thumbnail: boolean;
   created_at: string;
   current_stage: StageName | null;
   progress: Progress;
