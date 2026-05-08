@@ -11,8 +11,11 @@ scene の atomic 情報からどの version を選ぶかは ``resolve_version`` 
 location + 同じ character_refs) でも異なる hash を出すので、cache key 衝突は起き
 ない。
 
-X-2a では cache meta と experiment_assignments テーブルに書き込まれるが、cache
-key そのものには影響しない (= 既存の prompt SHA 完全一致は破壊しない)。
+X-2a では bg_cache / kling_cache の meta にのみ書き込まれる。
+``experiment_assignments`` テーブルへの v2 composition_id 連動は scene 粒度
+bandit を回す X-3 で wire される予定 (= 現状は ``record_assignments`` の caller
+が composition_id を渡していないので NULL で記録される)。cache key そのもの
+には影響しない (= 既存の prompt SHA 完全一致は破壊しない)。
 """
 from __future__ import annotations
 

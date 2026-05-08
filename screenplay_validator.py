@@ -2,6 +2,7 @@ import re
 
 from jsonschema import Draft202012Validator
 
+import atomic_assets
 import config
 
 # preset enum 一覧 (config.py から動的に取得して enum 制約に展開する)
@@ -461,8 +462,6 @@ def _check_atomic_refs(screenplay: dict) -> list[str]:
     照合する。空集合 (= テスト環境で SSOT を置いていない) の場合はスキップする
     (= scene 側の参照が存在しないだけのチェックを通す)。
     """
-    import atomic_assets
-
     errors: list[str] = []
 
     available_hooks = set(atomic_assets.list_hook_ids())

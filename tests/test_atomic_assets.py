@@ -71,6 +71,40 @@ def test_load_arc_missing_raises():
         atomic_assets.load_arc("nonexistent_arc_xyz")
 
 
+@pytest.mark.parametrize(
+    "bad_id",
+    [
+        "../config",
+        "..",
+        "/etc/passwd",
+        "foo/bar",
+        "Foo",
+        "1abc",
+        "",
+        "foo.bar",
+        "foo-bar",
+    ],
+)
+def test_load_action_rejects_invalid_id_pattern(bad_id):
+    with pytest.raises(atomic_assets.AtomicAssetNotFound):
+        atomic_assets.load_action(bad_id)
+
+
+def test_load_hook_rejects_invalid_id_pattern():
+    with pytest.raises(atomic_assets.AtomicAssetNotFound):
+        atomic_assets.load_hook("../foo")
+
+
+def test_load_arc_rejects_invalid_id_pattern():
+    with pytest.raises(atomic_assets.AtomicAssetNotFound):
+        atomic_assets.load_arc("../foo")
+
+
+def test_load_action_rejects_non_string_id():
+    with pytest.raises(atomic_assets.AtomicAssetNotFound):
+        atomic_assets.load_action(None)  # type: ignore[arg-type]
+
+
 def test_compatible_locations_reference_existing_locations():
     """各 action.compatible_locations は実在する locations/ の id でなければならない。"""
     from analyze import location as loc_mod
