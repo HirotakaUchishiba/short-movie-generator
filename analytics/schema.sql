@@ -205,6 +205,11 @@ CREATE TABLE IF NOT EXISTS experiment_assignments (
     selected_value TEXT NOT NULL,
     strategy TEXT NOT NULL,
     observed_value TEXT,
+    -- schema v8 (Phase X-1): scene 粒度 + composition identity 列。
+    -- 既存 Phase 3 の動画粒度書き込みは scene_idx=NULL で続行可能。
+    scene_idx INTEGER,
+    composition_id TEXT,
+    composition_version TEXT,
     created_at TEXT NOT NULL DEFAULT (datetime('now'))
 );
 

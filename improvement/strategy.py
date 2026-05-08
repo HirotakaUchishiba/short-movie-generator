@@ -77,12 +77,24 @@ def select_assignments_for_video(
 def record_assignments(
     video_id: str,
     assignments: dict[str, tuple[str, str]],
+    *,
+    scene_idx: int | None = None,
+    composition_id: str | None = None,
+    composition_version: str | None = None,
 ) -> None:
     """experiment_assignments テーブルに 1 video 分の選択を保存する。
 
     strategy 列は ``<overall_strategy>_<sub_strategy>`` 形式 (例:
     ``shadow_explore`` / ``active_exploit``)。baseline は空 dict なので
     そもそもここには来ない。
+
+    Phase X-1 で追加された keyword 引数:
+        scene_idx: scene 粒度の bandit を回す段階 (= X-3) で 1 scene 分の
+            記録を残すために使う。X-1 段階の auto_loop は動画粒度のままなので
+            None で呼ばれ、experiment_assignments には NULL で書かれる。
+        composition_id / composition_version: ``composition_id.compute_composition_id``
+            の戻り値と "v1" 等のバージョンタグ。X-1 段階では cache 解析と紐付け
+            たい時に上層で計算して渡す形 (= 動画粒度書き込みなら通常 None)。
     """
     overall = config.IMPROVEMENT_STRATEGY
     if overall == "baseline" or not assignments:
@@ -93,6 +105,9 @@ def record_assignments(
             db.insert_experiment_assignment(
                 video_id=video_id, axis=axis,
                 selected_value=value, strategy=full,
+                scene_idx=scene_idx,
+                composition_id=composition_id,
+                composition_version=composition_version,
             )
         except Exception as e:
             logger.warning(
