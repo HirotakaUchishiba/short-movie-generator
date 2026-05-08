@@ -19,6 +19,7 @@ from dataclasses import asdict, dataclass
 from pathlib import Path
 from typing import Any, Callable
 
+import atomic_assets
 import config
 import furigana_store
 from analyze import cache as _cache
@@ -358,6 +359,7 @@ def run(
                 extra_instructions=options.instructions,
                 frame_interval_sec=frame_interval_sec,
                 known_furigana=known_furigana,
+                atomic_menu=atomic_assets.build_prompt_menu(),
             )
         except ScreenplayParseError as e:
             # Claude 課金は発生済みなので、parse 失敗でも usage を emit して
