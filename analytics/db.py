@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 4
+CURRENT_SCHEMA_VERSION = 5
 
 
 def _now() -> str:
@@ -52,6 +52,12 @@ def init_db() -> None:
         _ensure_column(conn, "videos", "final_filename", "final_filename TEXT")
         _ensure_column(conn, "videos", "final_audio_match_score",
                        "final_audio_match_score REAL")
+        # schema v5: reference_videos に source_url / fetched_at / license_status を
+        # 追加。既存 row は NULL / "unconfirmed" のまま (= UI upload 経路は影響なし)。
+        _ensure_column(conn, "reference_videos", "source_url", "source_url TEXT")
+        _ensure_column(conn, "reference_videos", "fetched_at", "fetched_at TEXT")
+        _ensure_column(conn, "reference_videos", "license_status",
+                       "license_status TEXT DEFAULT 'unconfirmed'")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -262,3 +268,225 @@ def query_performance() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM v_performance").fetchall()
         return [dict(r) for r in rows]
+
+
+# ───────────── generation_records (Phase 0: 計測基盤) ─────────────
+
+# stage_runs entry のトップレベルキー。``extra`` でこれらを上書きされると
+# stage / status などのコア・フィールドが breakage するので明示的に reject する。
+_RESERVED_STAGE_RUN_KEYS: frozenset[str] = frozenset({
+    "stage", "started_at", "ended_at", "status", "retry_count", "cost_usd",
+})
+
+
+def append_stage_run(
+    *,
+    ts: str,
+    stage: str,
+    started_at: str,
+    ended_at: str | None,
+    status: str,
+    retry_count: int = 0,
+    cost_usd: float | None = None,
+    extra: dict[str, Any] | None = None,
+) -> None:
+    """generation_records.stage_runs に 1 stage 実行を追記する。
+
+    ``ts`` 行が無ければ作成する (= 各 stage の最初の append が自動で init)。
+    ``total_cost_usd`` は付随する ``cost_usd`` を合算する。
+    ``extra`` で reserved key (stage / status 等) を上書きしようとすると
+    ``ValueError`` を投げる (= stage_runs のスキーマを壊さないガード)。"""
+    if extra:
+        invalid = set(extra) & _RESERVED_STAGE_RUN_KEYS
+        if invalid:
+            raise ValueError(
+                f"append_stage_run: extra cannot override reserved keys "
+                f"{sorted(invalid)} (reserved: {sorted(_RESERVED_STAGE_RUN_KEYS)})",
+            )
+
+    entry: dict[str, Any] = {
+        "stage": stage,
+        "started_at": started_at,
+        "ended_at": ended_at,
+        "status": status,
+        "retry_count": retry_count,
+        "cost_usd": cost_usd,
+    }
+    if extra:
+        entry.update(extra)
+
+    delta_cost = float(cost_usd or 0.0)
+    with get_connection() as conn:
+        # 並列 append (= 別プロセスの auto_loop など) との read-modify-write 競合を
+        # 防ぐため writer lock を即取得する。BEGIN IMMEDIATE は他 writer をブロック
+        # するので、SELECT → JSON append → UPDATE がアトミックに完了する。
+        conn.execute("BEGIN IMMEDIATE")
+        row = conn.execute(
+            "SELECT stage_runs, total_cost_usd FROM generation_records WHERE ts = ?",
+            (ts,),
+        ).fetchone()
+        if row is None:
+            conn.execute(
+                """INSERT INTO generation_records (ts, stage_runs, total_cost_usd, created_at)
+                   VALUES (?, ?, ?, ?)""",
+                (ts, json.dumps([entry], ensure_ascii=False), delta_cost, _now()),
+            )
+        else:
+            try:
+                runs = json.loads(row["stage_runs"] or "[]")
+                if not isinstance(runs, list):
+                    runs = []
+            except (json.JSONDecodeError, TypeError):
+                runs = []
+            runs.append(entry)
+            new_total = float(row["total_cost_usd"] or 0.0) + delta_cost
+            conn.execute(
+                """UPDATE generation_records
+                   SET stage_runs = ?, total_cost_usd = ?
+                   WHERE ts = ?""",
+                (json.dumps(runs, ensure_ascii=False), new_total, ts),
+            )
+
+
+def get_generation_record(ts: str) -> dict | None:
+    """ts に対応する generation_records 行を返す。無ければ None。"""
+    with get_connection() as conn:
+        row = conn.execute(
+            "SELECT * FROM generation_records WHERE ts = ?", (ts,),
+        ).fetchone()
+        return dict(row) if row else None
+
+
+# update_generation_record で扱うフィールド (`json.dumps` で TEXT 化する column を区別)。
+_GEN_REC_JSON_FIELDS = frozenset({"prompts", "seeds", "api_meta", "validator_scores"})
+_GEN_REC_PLAIN_FIELDS = frozenset({
+    "video_id", "reference_video_id", "screenplay_sha", "status",
+})
+
+
+def update_generation_record(ts: str, **fields: Any) -> None:
+    """generation_records の付随フィールドを部分更新する。
+
+    指定された field だけを SET する。``prompts`` 等の dict は JSON 文字列化、
+    ``video_id`` 等の plain 型はそのまま使う。行が無ければ作成し、既存なら指定
+    フィールドのみ上書きする (= 単一 UPSERT で atomic、並列 writer 衝突なし)。
+    None を渡したフィールドは無視 (= 削除ではなく未指定として扱う)。"""
+    insert_cols: list[str] = ["ts", "created_at"]
+    insert_vals: list[Any] = [ts, _now()]
+    update_sets: list[str] = []
+    for key, value in fields.items():
+        if value is None:
+            continue
+        if key in _GEN_REC_JSON_FIELDS:
+            v: Any = json.dumps(value, ensure_ascii=False)
+        elif key in _GEN_REC_PLAIN_FIELDS:
+            v = value
+        else:
+            raise ValueError(f"unknown generation_records field: {key}")
+        insert_cols.append(key)
+        insert_vals.append(v)
+        update_sets.append(f"{key} = excluded.{key}")
+    if not update_sets:
+        return
+    cols_sql = ", ".join(insert_cols)
+    placeholders = ", ".join("?" for _ in insert_cols)
+    sets_sql = ", ".join(update_sets)
+    sql = (
+        f"INSERT INTO generation_records ({cols_sql}) VALUES ({placeholders}) "
+        f"ON CONFLICT(ts) DO UPDATE SET {sets_sql}"
+    )
+    with get_connection() as conn:
+        conn.execute(sql, insert_vals)
+
+
+# ───────────── qa_failures (Phase 0: 計測基盤) ─────────────
+
+def insert_qa_failure(
+    *,
+    ts: str,
+    stage: str,
+    source: str,
+    tags: list[str] | None = None,
+    note: str | None = None,
+    scene_idx: int | None = None,
+    line_idx: int | None = None,
+    artifact_path: str | None = None,
+    screenplay_snapshot_path: str | None = None,
+) -> int:
+    """qa_failures に 1 行追加して新規 id を返す。"""
+    tag_json = json.dumps(tags or [], ensure_ascii=False)
+    with get_connection() as conn:
+        cur = conn.execute(
+            """INSERT INTO qa_failures
+               (ts, stage, scene_idx, line_idx, tags, note, source,
+                artifact_path, screenplay_snapshot_path, created_at)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+            (ts, stage, scene_idx, line_idx, tag_json, note, source,
+             artifact_path, screenplay_snapshot_path, _now()),
+        )
+        return int(cur.lastrowid or 0)
+
+
+def list_qa_failures(
+    *,
+    ts: str | None = None,
+    stage: str | None = None,
+    source: str | None = None,
+    limit: int | None = None,
+) -> list[dict]:
+    """qa_failures を絞り込んで返す。tags は JSON list として deserialize 済み。"""
+    where: list[str] = []
+    params: list[Any] = []
+    if ts is not None:
+        where.append("ts = ?")
+        params.append(ts)
+    if stage is not None:
+        where.append("stage = ?")
+        params.append(stage)
+    if source is not None:
+        where.append("source = ?")
+        params.append(source)
+    sql = "SELECT * FROM qa_failures"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY id DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        try:
+            d["tags"] = json.loads(d.get("tags") or "[]")
+        except (json.JSONDecodeError, TypeError):
+            d["tags"] = []
+        out.append(d)
+    return out
+
+
+def count_qa_failures(
+    *,
+    ts: str | None = None,
+    stage: str | None = None,
+    source: str | None = None,
+) -> int:
+    """フィルタ条件にマッチする qa_failures の件数を返す。"""
+    where: list[str] = []
+    params: list[Any] = []
+    if ts is not None:
+        where.append("ts = ?")
+        params.append(ts)
+    if stage is not None:
+        where.append("stage = ?")
+        params.append(stage)
+    if source is not None:
+        where.append("source = ?")
+        params.append(source)
+    sql = "SELECT COUNT(*) AS c FROM qa_failures"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    with get_connection() as conn:
+        row = conn.execute(sql, params).fetchone()
+    return int(row["c"]) if row else 0

@@ -56,6 +56,17 @@ def _print_screenplays() -> None:
 
 
 def main() -> None:
+    # フルオート量産経路の kill-switch (Phase 1+ で使う)。
+    # cron / auto_loop が main.py を subprocess 起動するので、env を 1 にすると
+    # 全自動レーンが即停止する。手動運用 (= 直接実行) では env を立てなければ
+    # 無視される (= 退路を必ず残す原則)。
+    if os.environ.get("DISABLE_AUTO_LOOP") == "1":
+        logger.error(
+            "DISABLE_AUTO_LOOP=1: auto-loop kill-switch が有効です。"
+            "手動運用を再開するには env を unset してください。",
+        )
+        sys.exit(2)
+
     parser = _build_parser()
     args = parser.parse_args()
 

@@ -8,6 +8,36 @@ export type StageName =
   | "final_import"
   | "publish";
 
+// QA failure tag は backend (qa/categories.py) を SSOT とし、
+// /api/config/qa-tags 経由で取得する。型は string に緩めて runtime validate に
+// 任せる (= 列挙の追加を frontend と同期する手間をなくす)。
+export type QaFailureTag = string;
+
+export interface QaFailureTagDef {
+  tag: string;
+  label: string;
+  axis: string;
+}
+
+export interface QaTagsConfig {
+  tags: QaFailureTagDef[];
+  axis_labels: Record<string, string>;
+}
+
+export interface RejectBody {
+  stage: StageName;
+  scene_idx?: number | null;
+  line_idx?: number | null;
+  tags: string[];
+  note?: string;
+}
+
+export interface RejectResponse {
+  ok: true;
+  failure_id: number;
+  archive_dir: string;
+}
+
 // Stage 8 / 9 用の型
 export interface FinalVersion {
   filename: string;

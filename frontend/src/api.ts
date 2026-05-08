@@ -9,6 +9,9 @@ import type {
   BgDecisionsResponse,
   BgSceneDecision,
   CharacterMeta,
+  QaTagsConfig,
+  RejectBody,
+  RejectResponse,
   CostEstimate,
   CostMedianRate,
   CostOverallReport,
@@ -67,6 +70,7 @@ export const api = {
       method: "POST",
       body: JSON.stringify(body),
     }),
+  qaTags: () => http<QaTagsConfig>("/api/config/qa-tags"),
   projects: () =>
     http<{ projects: ProjectListItem[]; screenplays: string[] }>(
       "/api/projects",
@@ -89,6 +93,11 @@ export const api = {
       `/api/projects/${ts}/approve`,
       { method: "POST", body: JSON.stringify({ stage }) },
     ),
+  reject: (ts: string, body: RejectBody) =>
+    http<RejectResponse>(`/api/projects/${ts}/reject`, {
+      method: "POST",
+      body: JSON.stringify(body),
+    }),
   runNext: (ts: string) =>
     http<{ job_id: string }>(`/api/projects/${ts}/run-next`, {
       method: "POST",

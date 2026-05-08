@@ -1,4 +1,5 @@
 import json
+import threading
 from pathlib import Path
 
 import pytest
@@ -139,6 +140,215 @@ def test_insert_video_with_final_metadata(isolated_db, sample_screenplay_file) -
     assert row["final_imported"] == 1
     assert row["final_filename"] == "142233.mp4"
     assert row["final_audio_match_score"] == 0.87
+
+
+def test_append_stage_run_creates_record(isolated_db) -> None:
+    isolated_db.append_stage_run(
+        ts="20260507_120000", stage="script",
+        started_at="2026-05-07T12:00:00", ended_at="2026-05-07T12:00:01",
+        status="completed",
+    )
+    rec = isolated_db.get_generation_record("20260507_120000")
+    assert rec is not None
+    assert rec["status"] == "in_progress"  # stage append では status は触らない
+    runs = json.loads(rec["stage_runs"])
+    assert len(runs) == 1
+    assert runs[0]["stage"] == "script"
+    assert runs[0]["status"] == "completed"
+
+
+def test_append_stage_run_accumulates_cost(isolated_db) -> None:
+    isolated_db.append_stage_run(
+        ts="20260507_130000", stage="bg",
+        started_at="2026-05-07T13:00:00", ended_at="2026-05-07T13:00:10",
+        status="completed", cost_usd=1.5,
+    )
+    isolated_db.append_stage_run(
+        ts="20260507_130000", stage="kling",
+        started_at="2026-05-07T13:00:11", ended_at="2026-05-07T13:00:30",
+        status="completed", cost_usd=3.36,
+    )
+    rec = isolated_db.get_generation_record("20260507_130000")
+    runs = json.loads(rec["stage_runs"])
+    assert len(runs) == 2
+    assert rec["total_cost_usd"] == pytest.approx(4.86, rel=1e-3)
+
+
+def test_append_stage_run_extra_metadata(isolated_db) -> None:
+    isolated_db.append_stage_run(
+        ts="20260507_131500", stage="kling",
+        started_at="x", ended_at="y", status="failed",
+        retry_count=2, extra={"error": "timeout"},
+    )
+    runs = json.loads(isolated_db.get_generation_record(
+        "20260507_131500")["stage_runs"])
+    assert runs[0]["retry_count"] == 2
+    assert runs[0]["error"] == "timeout"
+
+
+def test_update_generation_record_partial(isolated_db, sample_screenplay_file) -> None:
+    sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
+    isolated_db.insert_video("vid_abc", sp_id, "/tmp/v.mp4")
+    isolated_db.append_stage_run(
+        ts="20260507_140000", stage="script",
+        started_at="x", ended_at="y", status="completed",
+    )
+    isolated_db.update_generation_record(
+        "20260507_140000",
+        video_id="vid_abc",
+        prompts={"bg": [{"scene_idx": 0, "prompt": "p0"}]},
+        status="completed",
+    )
+    rec = isolated_db.get_generation_record("20260507_140000")
+    assert rec["video_id"] == "vid_abc"
+    assert rec["status"] == "completed"
+    assert json.loads(rec["prompts"])["bg"][0]["scene_idx"] == 0
+
+
+def test_update_generation_record_creates_missing_row(isolated_db) -> None:
+    isolated_db.update_generation_record(
+        "20260507_150000",
+        screenplay_sha="abcd",
+    )
+    rec = isolated_db.get_generation_record("20260507_150000")
+    assert rec is not None
+    assert rec["screenplay_sha"] == "abcd"
+
+
+def test_update_generation_record_rejects_unknown_field(isolated_db) -> None:
+    with pytest.raises(ValueError):
+        isolated_db.update_generation_record(
+            "20260507_160000", _no_such_field="x",
+        )
+
+
+def test_update_generation_record_concurrent_upsert(isolated_db) -> None:
+    """並列に同 ts へ update_generation_record を投げても、UPSERT で衝突せずに
+    最後の write が反映されることを契約として固定する (= INSERT-then-UPDATE
+    パターンと違い PRIMARY KEY 違反で例外を投げない)。"""
+    n = 8
+    errors: list[Exception] = []
+    barrier = threading.Barrier(n)
+
+    def _worker(idx: int):
+        try:
+            barrier.wait(timeout=5)
+            isolated_db.update_generation_record(
+                "ts_concurrent_upsert", screenplay_sha=f"sha{idx:02d}",
+            )
+        except Exception as e:
+            errors.append(e)
+
+    threads = [threading.Thread(target=_worker, args=(i,)) for i in range(n)]
+    for t in threads:
+        t.start()
+    for t in threads:
+        t.join(timeout=10)
+
+    assert errors == [], f"並列実行でエラー: {errors}"
+    rec = isolated_db.get_generation_record("ts_concurrent_upsert")
+    assert rec is not None
+    # screenplay_sha は最後に勝った write のもの (= sha00..sha07 のいずれか)。
+    assert rec["screenplay_sha"] in {f"sha{i:02d}" for i in range(n)}
+
+
+def test_append_stage_run_extra_rejects_reserved_keys(isolated_db) -> None:
+    """append_stage_run の extra で reserved key (stage/status/...) を上書き
+    しようとすると ValueError を投げる (= entry スキーマを壊さないガード)。"""
+    with pytest.raises(ValueError, match="reserved"):
+        isolated_db.append_stage_run(
+            ts="ts_reserved_key", stage="script",
+            started_at="x", ended_at="y", status="completed",
+            extra={"stage": "spoofed"},
+        )
+    with pytest.raises(ValueError, match="reserved"):
+        isolated_db.append_stage_run(
+            ts="ts_reserved_key", stage="script",
+            started_at="x", ended_at="y", status="completed",
+            extra={"status": "spoofed", "error": "ok"},
+        )
+    # 非 reserved key は通る
+    isolated_db.append_stage_run(
+        ts="ts_reserved_key", stage="script",
+        started_at="x", ended_at="y", status="completed",
+        extra={"error": "x", "trace_id": "abc"},
+    )
+    rec = isolated_db.get_generation_record("ts_reserved_key")
+    runs = json.loads(rec["stage_runs"])
+    assert runs[0]["error"] == "x"
+    assert runs[0]["trace_id"] == "abc"
+
+
+def test_insert_and_list_qa_failures(isolated_db) -> None:
+    fid1 = isolated_db.insert_qa_failure(
+        ts="20260507_120000", stage="bg", source="human_reject",
+        tags=["character_drift"], note="顔が崩れた",
+        scene_idx=2, artifact_path="/tmp/bg_2.png",
+    )
+    fid2 = isolated_db.insert_qa_failure(
+        ts="20260507_120000", stage="tts", source="auto_flagged",
+        tags=["audio_silence"], scene_idx=1, line_idx=0,
+    )
+    assert fid1 != fid2
+
+    rows = isolated_db.list_qa_failures(ts="20260507_120000")
+    assert len(rows) == 2
+    bg_row = next(r for r in rows if r["stage"] == "bg")
+    assert bg_row["tags"] == ["character_drift"]
+    assert bg_row["note"] == "顔が崩れた"
+
+    bg_only = isolated_db.list_qa_failures(stage="bg")
+    assert len(bg_only) == 1
+
+    auto_only = isolated_db.list_qa_failures(source="auto_flagged")
+    assert len(auto_only) == 1
+
+
+def test_count_qa_failures(isolated_db) -> None:
+    isolated_db.insert_qa_failure(ts="t1", stage="tts", source="human_reject", tags=[])
+    isolated_db.insert_qa_failure(ts="t1", stage="bg", source="human_reject", tags=[])
+    isolated_db.insert_qa_failure(ts="t1", stage="bg", source="regenerate_implicit", tags=[])
+
+    assert isolated_db.count_qa_failures() == 3
+    assert isolated_db.count_qa_failures(stage="bg") == 2
+    assert isolated_db.count_qa_failures(source="human_reject") == 2
+
+
+def test_reference_videos_has_license_columns(isolated_db) -> None:
+    with isolated_db.get_connection() as conn:
+        cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(reference_videos)"
+        )}
+    assert {"source_url", "fetched_at", "license_status"} <= cols
+
+
+def test_init_db_adds_license_columns_to_existing(tmp_path, monkeypatch) -> None:
+    """schema v4 以前で作られた reference_videos に source_url 等が後から ALTER で
+    追加されることを確認 (= 既存運用 DB を壊さない)。"""
+    import sqlite3
+    db_path = tmp_path / "old_v4.db"
+    monkeypatch.setenv("ANALYTICS_DB_PATH", str(db_path))
+    conn = sqlite3.connect(str(db_path))
+    conn.execute("""
+        CREATE TABLE reference_videos (
+            sha256 TEXT PRIMARY KEY,
+            original_name TEXT NOT NULL,
+            size_bytes INTEGER NOT NULL,
+            duration_sec REAL,
+            uploaded_at TEXT NOT NULL,
+            last_used_at TEXT
+        )
+    """)
+    conn.commit()
+    conn.close()
+
+    from analytics import db as _db
+    _db.init_db()
+    with _db.get_connection() as conn:
+        cols = {r["name"] for r in conn.execute(
+            "PRAGMA table_info(reference_videos)"
+        )}
+    assert {"source_url", "fetched_at", "license_status"} <= cols
 
 
 def test_init_db_migrates_old_videos_table(tmp_path, monkeypatch) -> None:
