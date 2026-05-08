@@ -85,3 +85,63 @@ def list_hook_ids() -> list[str]:
 
 def list_arc_ids() -> list[str]:
     return _list_ids(ARCS_DIR)
+
+
+def build_prompt_menu() -> dict:
+    """Phase X-2b: Claude SYSTEM_PROMPT に注入する atomic id menu を構築する。
+
+    各集合の id + 主要メタ (= Claude が選択判断するために必要な最小限) のみを
+    含む。subject_state / animation_motion 等の生成 prompt 本体は **含めない**
+    (= Claude にビジュアル詳細を意識させると "似たシーンを自由生成して" の方向
+    に逸れるため)。
+
+    返り値の構造:
+        {
+          "actions": [{id, label, recommended_emotion, recommended_camera_distance,
+                       compatible_locations, duration_bucket_sec}, ...],
+          "hooks":   [{id, label, description, first_scene_action_id,
+                       follow_arc_id_candidates}, ...],
+          "arcs":    [{id, label, description, emotion_sequence,
+                       scene_count_range}, ...],
+        }
+
+    ローカル disk から都度ロードする (= キャッシュ無し)。SSOT 集合は数十件
+    オーダーでファイル I/O も微量、analyze pipeline は 1 動画 1 回しか呼ばない
+    のでパフォーマンス影響は無視できる。
+    """
+    actions: list[dict] = []
+    for action_id in list_action_ids():
+        a = load_action(action_id)
+        actions.append({
+            "id": action_id,
+            "label": a.get("label"),
+            "recommended_emotion": a.get("recommended_emotion"),
+            "recommended_camera_distance": a.get("recommended_camera_distance"),
+            "compatible_locations": a.get("compatible_locations") or [],
+            "duration_bucket_sec": a.get("duration_bucket_sec"),
+        })
+
+    hooks: list[dict] = []
+    for hook_id in list_hook_ids():
+        h = load_hook(hook_id)
+        first_template = h.get("first_scene_template") or {}
+        hooks.append({
+            "id": hook_id,
+            "label": h.get("label"),
+            "description": h.get("description"),
+            "first_scene_action_id": first_template.get("action_id"),
+            "follow_arc_id_candidates": h.get("follow_arc_id_candidates") or [],
+        })
+
+    arcs: list[dict] = []
+    for arc_id in list_arc_ids():
+        ar = load_arc(arc_id)
+        arcs.append({
+            "id": arc_id,
+            "label": ar.get("label"),
+            "description": ar.get("description"),
+            "emotion_sequence": ar.get("emotion_sequence") or [],
+            "scene_count_range": ar.get("scene_count_range"),
+        })
+
+    return {"actions": actions, "hooks": hooks, "arcs": arcs}
