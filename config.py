@@ -6,7 +6,6 @@ load_dotenv()
 GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
 FAL_API_KEY = os.getenv("FAL_KEY")
 ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-DOMOAI_API_KEY = os.getenv("DOMOAI_API_KEY")
 ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
 SYNCSO_API_KEY = os.getenv("SYNC_API_KEY") or os.getenv("SYNCSO_API_KEY")
 
@@ -641,7 +640,6 @@ KLING_DURATION_TOLERANCE_RATIO = 1.2
 # クライアント側で総ジョブ尺をタイムアウトする (案 A: threading watchdog)。
 # 期限超過で TimeoutError 相当を投げ、上位の MAX_RETRIES ループで停止する。
 FAL_KLING_TIMEOUT_SEC = float(os.getenv("FAL_KLING_TIMEOUT_SEC", "3600"))     # 1 hour
-FAL_LIPSYNC_TIMEOUT_SEC = float(os.getenv("FAL_LIPSYNC_TIMEOUT_SEC", "3600"))  # 1 hour
 
 # fingerprint threshold (= final_import の audio match warning)
 FINGERPRINT_THRESHOLD = 0.6
@@ -655,21 +653,9 @@ LIPSYNC_HTTP_TIMEOUT_UPLOAD_SEC = 120
 LIPSYNC_HTTP_TIMEOUT_DOWNLOAD_SEC = 300
 
 LIPSYNC_ENABLED = os.getenv("LIPSYNC_ENABLED", "true").lower() == "true"
-# fal-sync (= sync.so の lipsync-1.9.0-beta) は顎が伸びる等の崩れが多いため、
-# 既定を Sync.so 公式 API + lipsync-2 に切替。SYNC_API_KEY を .env に入れる
-# だけで動作する。
-LIPSYNC_PROVIDER = os.getenv("LIPSYNC_PROVIDER", "syncso")
-LIPSYNC_MODEL = os.getenv("LIPSYNC_MODEL", "lipsync-1.9.0-beta")  # fal-sync 用
-LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")     # 各 provider 共通
+LIPSYNC_SYNC_MODE = os.getenv("LIPSYNC_SYNC_MODE", "cut_off")
 # コスト単価は data/pricebook.json で管理し、実コストは cost_tracking モジュールが
 # data/cost_records.jsonl に記録する (= ハードコード単価は廃止)。
-
-# DomoAI talking-avatar 用
-DOMOAI_BASE_URL = os.getenv("DOMOAI_BASE_URL", "https://api.domoai.com/v1")
-DOMOAI_LIPSYNC_MODEL = os.getenv("DOMOAI_LIPSYNC_MODEL", "talking-avatar-v1")
-DOMOAI_POLL_INTERVAL_SEC = float(os.getenv("DOMOAI_POLL_INTERVAL_SEC", "3.0"))
-DOMOAI_POLL_TIMEOUT_SEC = float(os.getenv("DOMOAI_POLL_TIMEOUT_SEC", "1800"))
-DOMOAI_MAX_DURATION_SEC = 60
 
 # Sync.so 用 (POST /v2/generate multipart, GET /v2/generate/{id} polling)
 # モデル: lipsync-2 (汎用), lipsync-2-pro (高品質), lipsync-1.9.0-beta (高速),

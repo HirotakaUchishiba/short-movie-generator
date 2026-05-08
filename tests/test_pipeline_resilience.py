@@ -4,7 +4,7 @@ PR #52〜#57 で塞いだ穴 (timeout / partial output / disk space / 整合性)
 将来のリファクタで silent に崩れないようガードする。
 
 カバーしているケース:
-    - lipsync / kling 結果動画 DL の timeout が retry 経路に乗る
+    - kling 結果動画 DL の timeout が retry 経路に乗る
     - collect_scene_videos が truncated mp4 を確実に reject する
     - run_overlay の途中失敗で merged / overlaid / output 残骸が残らない
     - preflight.check_disk_space が空き不足で PreflightError を投げる
@@ -15,7 +15,6 @@ from collections import namedtuple
 from unittest.mock import MagicMock
 
 import pytest
-import requests
 
 import compositor
 import config
@@ -48,47 +47,6 @@ def _make_tiny_mp4(path: str, duration: float = 0.5) -> None:
 
 
 # ──────────────── timeout retry ────────────────
-
-def test_lipsync_fal_download_timeout_triggers_retry(monkeypatch, tmp_path):
-    """fal-sync の result DL が timeout した時、retry classifier が
-    'retry' と判定して再試行に乗るか。"""
-    import lipsync_client
-
-    monkeypatch.setattr(lipsync_client.config, "FAL_API_KEY", "test-key")
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_MODEL",
-                        "lipsync-1.9.0-beta", raising=False)
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_SYNC_MODE",
-                        "cut_off", raising=False)
-
-    fake_fal = MagicMock()
-    fake_fal.upload_file.side_effect = ["http://v", "http://a"]
-    fake_fal.subscribe.return_value = {"video": {"url": "http://out.mp4"}}
-    monkeypatch.setattr(lipsync_client, "fal_client", fake_fal)
-
-    # backoff を潰してテストを高速化
-    monkeypatch.setattr(lipsync_client, "BACKOFF_SECONDS", [0, 0, 0, 0, 0])
-
-    call_count = {"n": 0}
-    fake_resp = MagicMock()
-    fake_resp.content = b"recovered"
-    fake_resp.raise_for_status.return_value = None
-
-    def flaky_get(url, **kw):
-        # 1 回目 = timeout、2 回目以降 = 成功 (retry が走った証拠)
-        call_count["n"] += 1
-        assert kw.get("timeout") is not None, "timeout 引数が抜けている"
-        if call_count["n"] == 1:
-            raise requests.Timeout("simulated timeout")
-        return fake_resp
-
-    monkeypatch.setattr(lipsync_client.requests, "get", flaky_get)
-
-    out = tmp_path / "out.mp4"
-    lipsync_client._apply_fal_sync("/v.mp4", "/a.mp3", str(out))
-
-    assert call_count["n"] >= 2
-    assert out.read_bytes() == b"recovered"
-
 
 def test_fal_video_client_download_timeout_passes_kwarg(monkeypatch, tmp_path):
     """Kling V3 の result DL が timeout kwarg 付きで呼ばれることを確認 (回帰防止)。"""

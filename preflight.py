@@ -91,32 +91,14 @@ def check_kling() -> None:
 
 
 def check_scene() -> None:
-    """Stage 5: lipsync provider に応じた key を検査。"""
+    """Stage 5: Sync.so lipsync の key を検査。"""
     if not getattr(config, "LIPSYNC_ENABLED", True):
         check_disk_space(_min_free_bytes(_DEFAULT_MIN_FREE_BYTES_BIG))
         return
-    provider = getattr(config, "LIPSYNC_PROVIDER", "syncso")
-    if provider == "syncso":
-        if not config.SYNCSO_API_KEY:
-            raise PreflightError(
-                "SYNC_API_KEY 未設定 — Sync.so lipsync を実行できません。"
-                ".env に SYNC_API_KEY=<key> を追加するか、"
-                "LIPSYNC_PROVIDER を fal-sync / domoai に切替えてください。"
-            )
-    elif provider == "fal-sync":
-        if not config.FAL_API_KEY:
-            raise PreflightError(
-                "FAL_KEY 未設定 — fal-sync lipsync を実行できません。"
-            )
-    elif provider == "domoai":
-        if not config.DOMOAI_API_KEY:
-            raise PreflightError(
-                "DOMOAI_API_KEY 未設定 — DomoAI lipsync を実行できません。"
-            )
-    else:
+    if not config.SYNCSO_API_KEY:
         raise PreflightError(
-            f"未知の LIPSYNC_PROVIDER: {provider} "
-            f"(対応: syncso / fal-sync / domoai)"
+            "SYNC_API_KEY 未設定 — Sync.so lipsync を実行できません。"
+            ".env に SYNC_API_KEY=<key> を追加してください。"
         )
     check_disk_space(_min_free_bytes(_DEFAULT_MIN_FREE_BYTES_BIG))
 

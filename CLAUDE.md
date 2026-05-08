@@ -346,22 +346,17 @@ Stage 6 UI (`StageOverlay.tsx`) では:
 
 ## リップシンクプロバイダー
 
-`config.LIPSYNC_PROVIDER` で切替。既定は `syncso` (Sync.so 公式 lipsync-2)。
+Sync.so 公式 API (`lipsync-2`) のみ。`.env` に `SYNC_API_KEY=<key>` を入れれば動作する。
 
-| provider   | API key          | モデル                      | エンドポイント                                                              |
-| ---------- | ---------------- | --------------------------- | --------------------------------------------------------------------------- |
-| `syncso`   | `SYNC_API_KEY`   | `lipsync-2` (既定)          | `https://api.sync.so/v2/generate` (multipart) + `/v2/generate/{id}` polling |
-| `domoai`   | `DOMOAI_API_KEY` | `talking-avatar-v1` (既定)  | `https://api.domoai.com/v1/video/talking-avatar`                            |
-| `fal-sync` | `FAL_KEY`        | `lipsync-1.9.0-beta` (既定) | `fal-ai/sync-lipsync`                                                       |
+| API key        | モデル             | エンドポイント                                                              |
+| -------------- | ------------------ | --------------------------------------------------------------------------- |
+| `SYNC_API_KEY` | `lipsync-2` (既定) | `https://api.sync.so/v2/generate` (multipart) + `/v2/generate/{id}` polling |
 
-Sync.so 既定で動かすなら `.env` に `SYNC_API_KEY=<key>` を入れるだけ。プロバイダを変える場合は `LIPSYNC_PROVIDER=domoai` か `fal-sync` を追加。
-
-Sync.so のモデル切替: `SYNCSO_LIPSYNC_MODEL` で `lipsync-2` / `lipsync-2-pro` (高品質) / `lipsync-1.9.0-beta` (高速) / `react-1` (短尺感情) / `sync-3` から選択。
+モデル切替: `SYNCSO_LIPSYNC_MODEL` で `lipsync-2` / `lipsync-2-pro` (高品質) / `lipsync-1.9.0-beta` (高速) / `react-1` (短尺感情) / `sync-3` から選択。
 
 ### 制約
 
-- **Sync.so**: multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
-- **DomoAI**: 出力 1〜60s。60s 超えは LipsyncClientError raise (= fallback chain で次プロバイダへ)
+- multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
 
 ## Stage 7 取込 + Stage 8 公開 (CapCut → SNS の自動化)
 

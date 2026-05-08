@@ -80,10 +80,10 @@
 
 ## 7. リップシンク
 
-| 用語             | コード                    | 説明                                                                               |
-| ---------------- | ------------------------- | ---------------------------------------------------------------------------------- |
-| lipsync provider | `config.LIPSYNC_PROVIDER` | `syncso` (既定) / `domoai` / `fal-sync` の 3 択                                    |
-| Sync.so モデル   | `SYNCSO_LIPSYNC_MODEL`    | `lipsync-2` (既定) / `lipsync-2-pro` / `lipsync-1.9.0-beta` / `react-1` / `sync-3` |
+| 用語           | コード                 | 説明                                                                               |
+| -------------- | ---------------------- | ---------------------------------------------------------------------------------- |
+| lipsync        | `lipsync_client.apply` | Sync.so 公式 API (`/v2/generate` multipart + polling) で口の動きを音声に同期       |
+| Sync.so モデル | `SYNCSO_LIPSYNC_MODEL` | `lipsync-2` (既定) / `lipsync-2-pro` / `lipsync-1.9.0-beta` / `react-1` / `sync-3` |
 
 ## 8. 取込 (Stage 8)
 

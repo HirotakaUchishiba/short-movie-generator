@@ -72,7 +72,6 @@ def test_lipsync_disabled_per_scene_skips_lipsync(temp_dir, monkeypatch) -> None
 
 def test_lipsync_enabled_invokes_client(temp_dir, monkeypatch) -> None:
     monkeypatch.setattr(scene_gen.config, "LIPSYNC_ENABLED", True)
-    monkeypatch.setattr(scene_gen.config, "LIPSYNC_PROVIDER", "fal-sync")
     trim = _prepare_trim_and_audio(temp_dir)
 
     monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 5.0)

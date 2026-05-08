@@ -1437,11 +1437,7 @@ def api_config():
             "tts": elevenlabs_client.MODEL_ID,
             "bg": imagen_client.MODEL,
             "kling": fal_video_client.MODEL_ID,
-            "lipsync": (
-                config.SYNCSO_LIPSYNC_MODEL
-                if config.LIPSYNC_PROVIDER == "syncso"
-                else config.LIPSYNC_PROVIDER
-            ),
+            "lipsync": config.SYNCSO_LIPSYNC_MODEL,
             "analyze": video_analyzer.ANALYZER_MODEL,
         },
     })
