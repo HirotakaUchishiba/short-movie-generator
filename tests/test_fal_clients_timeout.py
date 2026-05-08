@@ -1,4 +1,4 @@
-"""fal_video_client / lipsync_client のタイムアウト統合テスト。
+"""fal_video_client のタイムアウト統合テスト。
 fal_client.subscribe をモックして watchdog の挙動を検証する。"""
 
 import time
@@ -7,7 +7,6 @@ from unittest.mock import MagicMock
 import pytest
 
 import fal_video_client
-import lipsync_client
 from fal_runner import FalJobTimeoutError
 
 
@@ -17,11 +16,6 @@ from fal_runner import FalJobTimeoutError
 def test_video_classify_treats_timeout_as_retry() -> None:
     exc = FalJobTimeoutError("kling stuck")
     assert fal_video_client._classify_error(exc) == "retry"
-
-
-def test_lipsync_classify_treats_timeout_as_retry() -> None:
-    exc = FalJobTimeoutError("lipsync stuck")
-    assert lipsync_client._classify_error(exc) == "retry"
 
 
 def test_video_classify_still_fails_on_4xx() -> None:
@@ -94,47 +88,3 @@ def test_video_immediate_success_avoids_timeout(tmp_path, monkeypatch) -> None:
     fake_fal.subscribe.assert_called_once()
 
 
-# ─────────── _apply_fal_sync の watchdog 動作 ───────────
-
-
-def test_lipsync_subscribe_timeout_triggers_retry(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(lipsync_client.config, "FAL_LIPSYNC_TIMEOUT_SEC", 0.05)
-    monkeypatch.setattr(lipsync_client.config, "FAL_API_KEY", "k")
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_MODEL", "lipsync-2")
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_SYNC_MODE", "cut_off")
-    monkeypatch.setattr(lipsync_client, "MAX_RETRIES", 2)
-    monkeypatch.setattr(lipsync_client, "BACKOFF_SECONDS", [0])
-
-    fake_fal = MagicMock()
-    fake_fal.upload_file = MagicMock(side_effect=["http://v", "http://a"])
-    fake_fal.subscribe.side_effect = lambda *a, **kw: time.sleep(2.0)
-    monkeypatch.setattr(lipsync_client, "fal_client", fake_fal)
-
-    out = tmp_path / "o.mp4"
-    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
-        lipsync_client._apply_fal_sync("/v.mp4", "/a.mp3", str(out))
-    assert "リトライ上限超過" in str(exc.value)
-    assert fake_fal.subscribe.call_count == 2
-
-
-def test_lipsync_immediate_success_avoids_timeout(tmp_path, monkeypatch) -> None:
-    monkeypatch.setattr(lipsync_client.config, "FAL_LIPSYNC_TIMEOUT_SEC", 5.0)
-    monkeypatch.setattr(lipsync_client.config, "FAL_API_KEY", "k")
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_MODEL", "lipsync-2")
-    monkeypatch.setattr(lipsync_client.config, "LIPSYNC_SYNC_MODE", "cut_off")
-
-    fake_fal = MagicMock()
-    fake_fal.upload_file = MagicMock(side_effect=["http://v", "http://a"])
-    fake_fal.subscribe.return_value = {"video": {"url": "http://result"}}
-    monkeypatch.setattr(lipsync_client, "fal_client", fake_fal)
-
-    fake_resp = MagicMock()
-    fake_resp.content = b"LIPSYNCED"
-    fake_resp.raise_for_status = MagicMock()
-    monkeypatch.setattr(lipsync_client.requests, "get",
-                        MagicMock(return_value=fake_resp))
-
-    out = tmp_path / "o.mp4"
-    lipsync_client._apply_fal_sync("/v.mp4", "/a.mp3", str(out))
-    assert out.read_bytes() == b"LIPSYNCED"
-    fake_fal.subscribe.assert_called_once()

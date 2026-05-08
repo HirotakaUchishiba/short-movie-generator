@@ -2193,8 +2193,7 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
     )
     if not final_skip_ok:
         if lipsync_enabled:
-            logger.info("シーン%d リップシンク処理中 (%s)",
-                        scene_idx + 1, config.LIPSYNC_PROVIDER)
+            logger.info("シーン%d リップシンク処理中 (Sync.so)", scene_idx + 1)
             try:
                 lipsync_client.apply(video_path, audio_path, final_path)
             except Exception:
@@ -2225,17 +2224,16 @@ def _scene_video_for_scene(scene_idx: int, scene: dict, screenplay: dict,
                     f"(audio stream 欠落 / duration 不整合の可能性) — "
                     f"再生成してください",
                 )
-            if config.LIPSYNC_PROVIDER == "syncso":
-                try:
-                    cost_recorder.record_lipsync(
-                        project_ts=_project_ts(temp_dir),
-                        model=config.SYNCSO_LIPSYNC_MODEL,
-                        duration_sec=audio_dur,
-                        scene_index=scene_idx,
-                    )
-                except Exception:
-                    logger.exception(
-                        "cost recording failed (lipsync, scene=%d)", scene_idx)
+            try:
+                cost_recorder.record_lipsync(
+                    project_ts=_project_ts(temp_dir),
+                    model=config.SYNCSO_LIPSYNC_MODEL,
+                    duration_sec=audio_dur,
+                    scene_index=scene_idx,
+                )
+            except Exception:
+                logger.exception(
+                    "cost recording failed (lipsync, scene=%d)", scene_idx)
         else:
             _replace_audio(video_path, audio_path, final_path)
 
@@ -2249,7 +2247,7 @@ def _validate_lipsynced_scene(path: str, expected_audio_duration: float) -> bool
       - duration が expected_audio_duration ±0.5s
     を満たすかを確認する。
 
-    Sync.so / DomoAI / fal-sync が partial-fail で audio 無し or truncated mp4
+    Sync.so が partial-fail で audio 無し or truncated mp4
     を返した時に検出する。誤検知を避けるため tolerance は緩め。
     """
     try:

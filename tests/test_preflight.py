@@ -31,35 +31,11 @@ def test_check_kling_raises_when_key_missing(monkeypatch):
     assert "FAL_KEY" in str(exc.value)
 
 
-def test_check_scene_syncso_requires_sync_key(monkeypatch):
-    monkeypatch.setattr(config, "LIPSYNC_PROVIDER", "syncso", raising=False)
+def test_check_scene_requires_sync_key(monkeypatch):
     monkeypatch.setattr(config, "SYNCSO_API_KEY", None)
     with pytest.raises(preflight.PreflightError) as exc:
         preflight.check_scene()
     assert "SYNC_API_KEY" in str(exc.value)
-
-
-def test_check_scene_falsync_requires_fal_key(monkeypatch):
-    monkeypatch.setattr(config, "LIPSYNC_PROVIDER", "fal-sync", raising=False)
-    monkeypatch.setattr(config, "FAL_API_KEY", None)
-    with pytest.raises(preflight.PreflightError) as exc:
-        preflight.check_scene()
-    assert "FAL_KEY" in str(exc.value)
-
-
-def test_check_scene_domoai_requires_domoai_key(monkeypatch):
-    monkeypatch.setattr(config, "LIPSYNC_PROVIDER", "domoai", raising=False)
-    monkeypatch.setattr(config, "DOMOAI_API_KEY", None)
-    with pytest.raises(preflight.PreflightError) as exc:
-        preflight.check_scene()
-    assert "DOMOAI_API_KEY" in str(exc.value)
-
-
-def test_check_scene_unknown_provider_raises(monkeypatch):
-    monkeypatch.setattr(config, "LIPSYNC_PROVIDER", "bogus", raising=False)
-    with pytest.raises(preflight.PreflightError) as exc:
-        preflight.check_scene()
-    assert "未知" in str(exc.value)
 
 
 def test_check_scene_skipped_when_lipsync_disabled(monkeypatch):

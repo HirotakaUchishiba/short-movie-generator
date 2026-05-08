@@ -85,7 +85,7 @@ def test_screenplay_validator_subtitles_の_片方時刻指定_は_reject():
 
 - ElevenLabs API timeout → 適切な例外を raise する
 - Kling 429 → 5 回 backoff 後に最終失敗 (`fal_video_client`)
-- Sync.so 20MB 超過 → `LipsyncClientError` で fallback chain
+- Sync.so 20MB 超過 → `LipsyncClientError`
 - ディスク不足 → `preflight` で停止
 
 ```python
