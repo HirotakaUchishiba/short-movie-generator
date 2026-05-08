@@ -188,6 +188,103 @@ CREATE INDEX IF NOT EXISTS idx_qaf_ts ON qa_failures(ts);
 CREATE INDEX IF NOT EXISTS idx_qaf_stage ON qa_failures(stage);
 CREATE INDEX IF NOT EXISTS idx_qaf_source ON qa_failures(source);
 
+-- ─────────────────────────────────────────────────────────────────
+-- Phase 3: closed-loop 改善 (= experiment_assignments + 軸別 view)
+-- ─────────────────────────────────────────────────────────────────
+
+-- 1 video の各軸で「今回どの値を試したか」+「strategy (= baseline / shadow_explore
+-- / shadow_exploit / active_explore / active_exploit)」+「Haiku が事後 tag した
+-- 観測値」を記録する。video_id は ts (= temp dir timestamp) を入れ、ingest_video
+-- 後に videos.id (= 同じ ts) と join できる。FK 制約は付けていない (= record_assignments
+-- が ingest_video より先に走るため)。observed_value は improvement.observed.back_fill
+-- が screenplays.<axis> から後で書き込む。
+CREATE TABLE IF NOT EXISTS experiment_assignments (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    video_id TEXT NOT NULL,
+    axis TEXT NOT NULL,
+    selected_value TEXT NOT NULL,
+    strategy TEXT NOT NULL,
+    observed_value TEXT,
+    created_at TEXT NOT NULL DEFAULT (datetime('now'))
+);
+
+CREATE INDEX IF NOT EXISTS idx_exp_video ON experiment_assignments(video_id);
+CREATE INDEX IF NOT EXISTS idx_exp_axis ON experiment_assignments(axis);
+CREATE INDEX IF NOT EXISTS idx_exp_strategy ON experiment_assignments(strategy);
+
+-- 軸別パフォーマンス view (= bandit の reward source)。
+-- 旧 v_axis_performance は 4 軸を同時 GROUP BY していたため、1 軸だけ問い合わせる
+-- と他 3 軸の組合せ別に行が分かれて重複していた。schema v7 で軸ごとに分離。
+-- 各 view は post 投稿後 24h 経過したメトリクスのみ採用 (= まだ伸びていない動画の
+-- ノイズを排除)。
+CREATE VIEW IF NOT EXISTS v_hook_type_performance AS
+SELECT
+    s.hook_type AS axis_value,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+  AND s.hook_type IS NOT NULL
+GROUP BY s.hook_type;
+
+CREATE VIEW IF NOT EXISTS v_tone_performance AS
+SELECT
+    s.tone AS axis_value,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+  AND s.tone IS NOT NULL
+GROUP BY s.tone;
+
+CREATE VIEW IF NOT EXISTS v_dominant_emotion_performance AS
+SELECT
+    s.dominant_emotion AS axis_value,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+  AND s.dominant_emotion IS NOT NULL
+GROUP BY s.dominant_emotion;
+
+CREATE VIEW IF NOT EXISTS v_theme_performance AS
+SELECT
+    s.theme AS axis_value,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+  AND s.theme IS NOT NULL
+GROUP BY s.theme;
+
 -- Performance summary (screenplay × platform latest metrics)
 CREATE VIEW IF NOT EXISTS v_performance AS
 SELECT

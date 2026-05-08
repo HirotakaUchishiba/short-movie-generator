@@ -18,6 +18,7 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 import log_setup  # noqa: E402
 from analytics import db  # noqa: E402
+from improvement import observed as _observed  # noqa: E402
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
@@ -101,6 +102,15 @@ def main() -> int:
         "video %s 登録完了 (screenplay=%s, source=%s, duration=%.1fs, cost=$%.2f)",
         ts, sp_id, "final" if final_meta else "raw", duration or 0, cost or 0,
     )
+    # video が DB に乗ったので、Phase 3 の experiment_assignments に observed_value
+    # を書ける (= screenplay が事前に auto_tag されていなければ何も入らないが、
+    # ingest_screenplay 側からも back-fill が走るので最終的には埋まる)。
+    try:
+        n = _observed.back_fill_observed_for_ts(ts)
+        if n:
+            logger.info("observed_value back-filled: ts=%s rows=%d", ts, n)
+    except Exception as e:
+        logger.warning("observed_value back-fill failed: ts=%s err=%s", ts, e)
     return 0
 
 

@@ -190,6 +190,81 @@ def test_dry_run_skips_publish(stub_pipeline, auto_loop_env):
     assert rec["status"] == "completed"
 
 
+def test_active_strategy_logs_and_records_assignments(
+    stub_pipeline, auto_loop_env, monkeypatch, caplog,
+):
+    """active 戦略で履歴があれば、log と experiment_assignments の両方に出る。"""
+    al, _ = stub_pipeline
+    _, db = auto_loop_env
+    monkeypatch.setattr("config.IMPROVEMENT_STRATEGY", "active")
+    monkeypatch.setattr("config.BANDIT_AXES", ("hook_type",))
+    monkeypatch.setattr("config.BANDIT_EPSILON", 0.0)  # 必ず exploit
+
+    # 軸別 view が空だと bandit が assignments を返さないので、history を仕込む
+    with db.get_connection() as conn:
+        for i, (hook, comp) in enumerate(
+            (("共感型", 0.4), ("結論先出し", 0.7)),
+        ):
+            sp = f"sp_seed_{i}"
+            v = f"v_seed_{i}"
+            p = f"p_seed_{i}"
+            conn.execute(
+                """INSERT INTO screenplays (id, path, name, sha256, created_at,
+                   raw_json, hook_type) VALUES (?, '/x', 'x', ?, datetime('now'),
+                   '{}', ?)""", (sp, sp + "_sha", hook),
+            )
+            conn.execute(
+                """INSERT INTO videos (id, screenplay_id, output_path,
+                   generated_at) VALUES (?, ?, '/x', datetime('now'))""",
+                (v, sp),
+            )
+            conn.execute(
+                """INSERT INTO posts (id, video_id, platform, platform_post_id,
+                   posted_at, registered_at) VALUES (?, ?, 'youtube', ?,
+                   datetime('now', '-2 days'), datetime('now'))""",
+                (p, v, p),
+            )
+            conn.execute(
+                """INSERT INTO post_metrics (post_id, fetched_at, views,
+                   completion_rate) VALUES (?, datetime('now'), 1000, ?)""",
+                (p, comp),
+            )
+
+    # analyze.run の instructions が active 経路で string になることも確認
+    captured: dict = {}
+
+    def _fake_analyze(**kwargs):
+        captured["instructions"] = (
+            kwargs["options"].instructions if kwargs.get("options") else None
+        )
+        out = kwargs.get("output_path")
+        Path(out).write_text(json.dumps(_fake_screenplay()), encoding="utf-8")
+        return _fake_screenplay()
+    monkeypatch.setattr("analyze.run", _fake_analyze)
+
+    with caplog.at_level("INFO"):
+        ts = al.run_one_video(
+            "https://example.com/active",
+            license_status="user_owned",
+            dry_run=True,
+        )
+
+    log_text = "\n".join(r.getMessage() for r in caplog.records)
+    assert "strategy=active" in log_text
+    assert "hook_type=結論先出し(exploit)" in log_text
+
+    # experiment_assignments に書かれている
+    rows = db.list_experiment_assignments(video_id=ts)
+    assert len(rows) == 1
+    assert rows[0]["axis"] == "hook_type"
+    assert rows[0]["selected_value"] == "結論先出し"
+    assert rows[0]["strategy"] == "active_exploit"
+
+    # active なので analyze.run.instructions に注入文字列が乗っている
+    assert captured.get("instructions")
+    assert "結論先出し" in captured["instructions"]
+
+
 def test_kill_switch_blocks(monkeypatch, auto_loop_env):
     monkeypatch.setenv("DISABLE_AUTO_LOOP", "1")
     import scripts.auto_loop as al
