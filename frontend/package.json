@@ -8,13 +8,22 @@
     "build": "tsc -b && vite build",
     "preview": "vite preview",
     "test": "vitest",
-    "test:ci": "vitest run"
+    "test:ci": "vitest run",
+    "remotion:studio": "remotion studio",
+    "remotion:render": "remotion render",
+    "remotion:still": "remotion still"
   },
   "dependencies": {
+    "@remotion/bundler": "^4.0.459",
+    "@remotion/cli": "^4.0.459",
+    "@remotion/player": "^4.0.459",
+    "@remotion/renderer": "^4.0.459",
     "react": "^18.3.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.26.2",
-    "wavesurfer.js": "^7.12.6"
+    "remotion": "^4.0.459",
+    "wavesurfer.js": "^7.12.6",
+    "zod": "^4.3.6"
   },
   "devDependencies": {
     "@testing-library/jest-dom": "^6.5.0",
