@@ -11,7 +11,7 @@ export default function SceneTtsRow({ lines }: { lines: Line[] }) {
       </div>
       <ol className="space-y-0.5 text-[11px] text-slate-200">
         {lines.map((line, i) => (
-          <li key={i} className="flex gap-2">
+          <li key={line._uid ?? i} className="flex gap-2">
             <span className="text-slate-500 flex-shrink-0 w-8 text-right tabular-nums">
               {(line.start ?? 0).toFixed(1)}s
             </span>

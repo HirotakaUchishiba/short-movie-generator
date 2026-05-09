@@ -71,25 +71,33 @@ export default function ProjectShell() {
   useEffect(() => {
     if (!jobId) return;
     let stop = false;
+    let timerId: number | null = null;
     const tick = async () => {
+      if (stop) return;
       try {
         const j = await api.job(jobId);
+        if (stop) return;
         setJobStatus(j);
         if (j.status === "completed" || j.status === "failed") {
           await reload();
+          if (stop) return;
           if (j.status === "failed") setError(j.error ?? "ジョブ失敗");
           if (j.status === "completed") setJobId(null);
           return;
         }
       } catch (e) {
-        setError(String(e));
+        if (!stop) setError(String(e));
         return;
       }
-      if (!stop) setTimeout(tick, 1500);
+      if (!stop) timerId = window.setTimeout(tick, 1500);
     };
-    tick();
+    void tick();
     return () => {
       stop = true;
+      if (timerId !== null) {
+        window.clearTimeout(timerId);
+        timerId = null;
+      }
     };
   }, [jobId, reload]);
 

@@ -38,6 +38,7 @@ import type {
   JobStatus,
   TtsPricing,
 } from "./types";
+import { attachUidsToAbstract, attachUidsToScreenplay, stripUids } from "./uid";
 
 const API_BASE = "";
 
@@ -101,7 +102,11 @@ export const api = {
         ...(analyzeJobId ? { analyze_job_id: analyzeJobId } : {}),
       }),
     }),
-  project: (ts: string) => http<ProjectDetail>(`/api/projects/${ts}`),
+  project: async (ts: string) => {
+    const r = await http<ProjectDetail>(`/api/projects/${ts}`);
+    if (r.screenplay) attachUidsToScreenplay(r.screenplay);
+    return r;
+  },
   progress: (ts: string) =>
     http<{ progress: Progress; current_stage: StageName | null }>(
       `/api/projects/${ts}/progress`,
@@ -145,7 +150,7 @@ export const api = {
   saveScreenplay: (ts: string, screenplay: Screenplay) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay`, {
       method: "PUT",
-      body: JSON.stringify({ screenplay }),
+      body: JSON.stringify({ screenplay: stripUids(screenplay) }),
     }),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
@@ -158,12 +163,12 @@ export const api = {
   ) =>
     http<{ ok: true }>(`/api/projects/${ts}/lines/${sceneIdx}/${lineIdx}`, {
       method: "PATCH",
-      body: JSON.stringify({ patch }),
+      body: JSON.stringify({ patch: stripUids(patch) }),
     }),
   patchScene: (ts: string, sceneIdx: number, patch: Record<string, unknown>) =>
     http<{ ok: true }>(`/api/projects/${ts}/scenes/${sceneIdx}`, {
       method: "PATCH",
-      body: JSON.stringify({ patch }),
+      body: JSON.stringify({ patch: stripUids(patch) }),
     }),
   patchScreenplayMeta: (ts: string, patch: Record<string, unknown>) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay-meta`, {
@@ -291,12 +296,20 @@ export const api = {
     new EventSource(`${API_BASE}/api/screenplay/analyze/${id}/events`),
 
   // ─── project snapshot (Stage 1 素材編集) ──────────
-  getProjectAbstract: (ts: string) =>
-    http<AbstractScreenplayResponse>(`/api/projects/${ts}/abstract`),
+  getProjectAbstract: async (ts: string) => {
+    const r = await http<AbstractScreenplayResponse>(
+      `/api/projects/${ts}/abstract`,
+    );
+    if (r.abstract) attachUidsToAbstract(r.abstract);
+    return r;
+  },
   putProjectAbstract: (ts: string, abstract: AbstractScreenplay) =>
     http<{ screenplay_path: string; scenes: number }>(
       `/api/projects/${ts}/abstract`,
-      { method: "PUT", body: JSON.stringify({ abstract }) },
+      {
+        method: "PUT",
+        body: JSON.stringify({ abstract: stripUids(abstract) }),
+      },
     ),
 
   // ─── scene 境界の手動再定義 (TTS 完了後) ──────────

@@ -31,7 +31,7 @@ export default function StageTTS() {
       <div className="space-y-6 mt-4">
         {sp.scenes.map((scene, sIdx) => (
           <SceneTTSCard
-            key={sIdx}
+            key={scene._uid ?? sIdx}
             scene={scene}
             sIdx={sIdx}
             pricing={ctx.serverConfig.tts_pricing}
@@ -179,17 +179,21 @@ function SpeedControl({ pricing }: { pricing: TtsPricing }) {
   const native = Math.max(0.7, Math.min(1.2, draft));
   const atempo = draft / native;
 
-  const onCommit = async () => {
-    if (Math.abs(draft - pricing.global_speed) < 0.001) return;
+  const commit = async (next: number) => {
+    if (Math.abs(next - pricing.global_speed) < 0.001) return;
     setSaving(true);
     try {
-      await api.setSpeed(draft);
+      await api.setSpeed(next);
       await ctx.reloadConfig();
     } catch (e) {
       alert(`速度変更失敗: ${e}`);
     } finally {
       setSaving(false);
     }
+  };
+
+  const onCommit = () => {
+    void commit(draft);
   };
 
   return (
@@ -225,7 +229,7 @@ function SpeedControl({ pricing }: { pricing: TtsPricing }) {
               type="button"
               onClick={() => {
                 setDraft(v);
-                setTimeout(onCommit, 0);
+                void commit(v);
               }}
               className={
                 Math.abs(draft - v) < 0.025
@@ -548,7 +552,12 @@ function TtsSourcePreview() {
   }
 
   // 各 line を別色で、separator は "·" で可視化したセグメントに分解
-  type Seg = { kind: "line" | "sep"; text: string; idx?: number };
+  type Seg = {
+    kind: "line" | "sep";
+    text: string;
+    idx?: number;
+    key: string;
+  };
   const segs: Seg[] = [];
   let cursor = 0;
   data.line_specs.forEach((spec, i) => {
@@ -556,17 +565,23 @@ function TtsSourcePreview() {
       segs.push({
         kind: "sep",
         text: data.text.slice(cursor, spec.char_start),
+        key: `sep-${cursor}-${spec.char_start}`,
       });
     }
     segs.push({
       kind: "line",
       text: data.text.slice(spec.char_start, spec.char_end),
       idx: i,
+      key: `line-${i}`,
     });
     cursor = spec.char_end;
   });
   if (cursor < data.text.length) {
-    segs.push({ kind: "sep", text: data.text.slice(cursor) });
+    segs.push({
+      kind: "sep",
+      text: data.text.slice(cursor),
+      key: `sep-tail-${cursor}`,
+    });
   }
 
   // separator を点滅文字で見える化
@@ -598,10 +613,10 @@ function TtsSourcePreview() {
       </div>
       {open && (
         <div className="mt-1 p-3 rounded bg-slate-950/70 border border-slate-800 font-mono text-[13px] leading-7 break-all whitespace-pre-wrap">
-          {segs.map((s, i) =>
+          {segs.map((s) =>
             s.kind === "line" ? (
               <span
-                key={i}
+                key={s.key}
                 className={
                   ((s.idx ?? 0) % 2 === 0
                     ? "bg-emerald-900/30 text-emerald-100"
@@ -612,7 +627,7 @@ function TtsSourcePreview() {
                 {s.text}
               </span>
             ) : (
-              <span key={i} className="text-slate-500" title="separator">
+              <span key={s.key} className="text-slate-500" title="separator">
                 {renderSep(s.text)}
               </span>
             ),
@@ -692,7 +707,7 @@ function SceneTTSCard({
       <div className="space-y-3">
         {lines.map((line, lIdx) => (
           <LineTTSRow
-            key={lIdx}
+            key={line._uid ?? lIdx}
             line={line}
             sIdx={sIdx}
             lIdx={lIdx}

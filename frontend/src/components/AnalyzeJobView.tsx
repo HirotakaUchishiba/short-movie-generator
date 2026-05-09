@@ -91,9 +91,11 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
 
   // 初回詳細ロード
   useEffect(() => {
+    let cancelled = false;
     api
       .getAnalyzeJob(jobId)
       .then((d) => {
+        if (cancelled) return;
         setJob(d);
         setPhases((prev) => {
           const next = { ...prev };
@@ -125,7 +127,12 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
         if (d.screenplay_path) setCompletedPath(d.screenplay_path);
         if (d.error) setError(d.error);
       })
-      .catch((e) => setError(String(e)));
+      .catch((e) => {
+        if (!cancelled) setError(String(e));
+      });
+    return () => {
+      cancelled = true;
+    };
   }, [jobId]);
 
   // SSE 接続
@@ -243,11 +250,12 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
 
   // リアルタイム時計 (ジョブ実行中のみ更新)
   const isTerminal = job ? TERMINAL.includes(job.status) : false;
+  const jobAbsent = !job;
   useEffect(() => {
-    if (!job || isTerminal) return;
+    if (jobAbsent || isTerminal) return;
     const id = window.setInterval(() => setNow(Date.now()), 200);
     return () => window.clearInterval(id);
-  }, [job?.status, isTerminal, job]);
+  }, [jobAbsent, isTerminal]);
 
   // 集計
   const { completedCount, totalCount, overallPct } = useMemo(() => {

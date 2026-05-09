@@ -21,7 +21,7 @@ export default function StageScene() {
       <BulkSceneRegenBar scenes={sp.scenes} />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         {sp.scenes.map((scene, i) => (
-          <SceneVideoCard key={i} scene={scene} sIdx={i} />
+          <SceneVideoCard key={scene._uid ?? i} scene={scene} sIdx={i} />
         ))}
       </div>
     </StageGate>
@@ -102,72 +102,67 @@ function BulkSceneRegenBar({ scenes }: { scenes: Scene[] }) {
 
 function SceneVideoCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
   const ctx = useShellCtx();
+  const sceneV = ctx.detail.progress.stages.scene.regen_count;
+  const klingV = ctx.detail.progress.stages.kling.regen_count;
 
   return (
     <div className="card">
-      {(() => {
-        const sceneV = ctx.detail.progress.stages.scene.regen_count;
-        const klingV = ctx.detail.progress.stages.kling.regen_count;
-        return (
-          <div className="flex gap-4">
-            <div className="aspect-[9/16] w-48 flex-shrink-0 bg-slate-950 overflow-hidden rounded">
-              <video
-                key={`scene-${sceneV}`}
-                src={sceneAssetUrl(ctx.detail.timestamp, sIdx, sceneV)}
-                controls
-                playsInline
-                className="w-full h-full object-cover"
-              />
-            </div>
-            <div className="flex-1 space-y-2">
-              <h3 className="font-semibold">
-                シーン{sIdx + 1}{" "}
-                <span className="font-normal text-slate-400 text-sm">
-                  ({scene.duration}s)
-                </span>
-              </h3>
-              <div className="text-xs text-slate-400">
-                lipsync: {scene.lipsync !== false ? "ON" : "OFF"} · lines:{" "}
-                {scene.lines?.length ?? 0}
-              </div>
-              <div className="space-y-1">
-                <div className="text-xs text-slate-400">音声トラックのみ:</div>
-                <audio
-                  key={`audio-${sceneV}`}
-                  src={sceneAudioAssetUrl(ctx.detail.timestamp, sIdx, sceneV)}
-                  controls
-                  preload="none"
-                  className="h-7 w-full"
-                />
-                <div className="text-xs text-slate-400 mt-2">
-                  trim動画 (音声なし):
-                </div>
-                <video
-                  key={`trim-${klingV}`}
-                  src={sceneTrimAssetUrl(ctx.detail.timestamp, sIdx, klingV)}
-                  controls
-                  muted
-                  className="w-full max-h-32"
-                />
-              </div>
-              <LineTimeline lines={scene.lines ?? []} />
-              <div className="flex flex-wrap gap-2 pt-2">
-                <button
-                  className="btn-secondary text-xs"
-                  onClick={() => ctx.regen({ stage: "scene", scene_idx: sIdx })}
-                  title="このシーンのKling動画 + TTS音声を再合成 (リップシンクのみやり直し)"
-                >
-                  音声合成+リップシンク 再実行
-                </button>
-              </div>
-              <p className="text-[10px] text-slate-500 pt-1">
-                TTS音声を変えたい場合は TTS タブへ戻る。Kling動画は Kling
-                タブへ。
-              </p>
-            </div>
+      <div className="flex gap-4">
+        <div className="aspect-[9/16] w-48 flex-shrink-0 bg-slate-950 overflow-hidden rounded">
+          <video
+            key={`scene-${sceneV}`}
+            src={sceneAssetUrl(ctx.detail.timestamp, sIdx, sceneV)}
+            controls
+            playsInline
+            className="w-full h-full object-cover"
+          />
+        </div>
+        <div className="flex-1 space-y-2">
+          <h3 className="font-semibold">
+            シーン{sIdx + 1}{" "}
+            <span className="font-normal text-slate-400 text-sm">
+              ({scene.duration}s)
+            </span>
+          </h3>
+          <div className="text-xs text-slate-400">
+            lipsync: {scene.lipsync !== false ? "ON" : "OFF"} · lines:{" "}
+            {scene.lines?.length ?? 0}
           </div>
-        );
-      })()}
+          <div className="space-y-1">
+            <div className="text-xs text-slate-400">音声トラックのみ:</div>
+            <audio
+              key={`audio-${sceneV}`}
+              src={sceneAudioAssetUrl(ctx.detail.timestamp, sIdx, sceneV)}
+              controls
+              preload="none"
+              className="h-7 w-full"
+            />
+            <div className="text-xs text-slate-400 mt-2">
+              trim動画 (音声なし):
+            </div>
+            <video
+              key={`trim-${klingV}`}
+              src={sceneTrimAssetUrl(ctx.detail.timestamp, sIdx, klingV)}
+              controls
+              muted
+              className="w-full max-h-32"
+            />
+          </div>
+          <LineTimeline lines={scene.lines ?? []} />
+          <div className="flex flex-wrap gap-2 pt-2">
+            <button
+              className="btn-secondary text-xs"
+              onClick={() => ctx.regen({ stage: "scene", scene_idx: sIdx })}
+              title="このシーンのKling動画 + TTS音声を再合成 (リップシンクのみやり直し)"
+            >
+              音声合成+リップシンク 再実行
+            </button>
+          </div>
+          <p className="text-[10px] text-slate-500 pt-1">
+            TTS音声を変えたい場合は TTS タブへ戻る。Kling動画は Kling タブへ。
+          </p>
+        </div>
+      </div>
     </div>
   );
 }
@@ -184,7 +179,7 @@ function LineTimeline({ lines }: { lines: Line[] }) {
           const right = ((line.end ?? line.start + 1) / maxEnd) * 100;
           return (
             <div
-              key={i}
+              key={line._uid ?? i}
               className="absolute top-1 h-4 bg-emerald-600/60 rounded text-[10px] px-1 truncate"
               style={{ left: `${left}%`, width: `${right - left}%` }}
               title={line.text}

@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, bgAssetUrl } from "../api";
 import type { ProjectListItem, StageName } from "../types";
@@ -119,25 +119,23 @@ export default function ProjectList() {
   const [error, setError] = useState<string | null>(null);
   const navigate = useNavigate();
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     setLoading(true);
     try {
       const r = await api.projects();
       setProjects(r.projects);
       setScreenplays(r.screenplays);
-      if (r.screenplays.length && !selectedScreenplay) {
-        setSelectedScreenplay(r.screenplays[0]);
-      }
+      setSelectedScreenplay((prev) => prev || r.screenplays[0] || "");
     } catch (e) {
       setError(String(e));
     } finally {
       setLoading(false);
     }
-  };
+  }, []);
 
   useEffect(() => {
-    reload();
-  }, []);
+    void reload();
+  }, [reload]);
 
   const onCreate = async () => {
     if (!selectedScreenplay) return;
@@ -229,20 +227,20 @@ function PendingAnalyticsBadge() {
   const [syncing, setSyncing] = useState(false);
   const [lastResult, setLastResult] = useState<string | null>(null);
 
-  const reload = async () => {
+  const reload = useCallback(async () => {
     try {
       const r = await api.analyticsPendingStatus();
       setCount(r.count);
     } catch {
       setCount(null);
     }
-  };
+  }, []);
 
   useEffect(() => {
     void reload();
     const t = window.setInterval(() => void reload(), 30_000);
     return () => window.clearInterval(t);
-  }, []);
+  }, [reload]);
 
   if (count === null || count === 0) return null;
 

@@ -55,7 +55,7 @@ export default function CandidatePreview<TMeta>({
         {hasWarning && (
           <ul className="text-amber-300 space-y-0.5">
             {candidate.warnings.map((w, i) => (
-              <li key={i}>⚠ {w}</li>
+              <li key={`${candidate.key}-${i}-${w}`}>⚠ {w}</li>
             ))}
           </ul>
         )}

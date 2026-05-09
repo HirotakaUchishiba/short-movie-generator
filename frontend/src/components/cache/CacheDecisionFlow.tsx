@@ -199,7 +199,7 @@ export default function CacheDecisionFlow<TMeta>({
       <div className="flex flex-col gap-3">
         {Array.from({ length: sceneCount }, (_, i) => (
           <SceneDecisionCard
-            key={i}
+            key={`scene-${i}`}
             sceneIdx={i}
             decision={sceneDecisions[String(i)]}
             presenter={presenter}
