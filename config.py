@@ -711,6 +711,8 @@ KLING_CACHE_TTL_DAYS = int(os.getenv("KLING_CACHE_TTL_DAYS", "365"))
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")
+LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(20 * 1024 * 1024)))
+LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "10"))
 
 # ───────────── Phase 1: フルオート量産経路 ─────────────
 # auto_loop / cron が暴走しないための上限。0 を指定すると無制限。

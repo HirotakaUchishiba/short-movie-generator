@@ -41,9 +41,21 @@ import type {
 
 const API_BASE = "";
 
+const PREVIEW_TOKEN: string | undefined = (
+  import.meta as { env?: Record<string, string> }
+).env?.VITE_PREVIEW_TOKEN;
+
+function authHeader(): Record<string, string> {
+  return PREVIEW_TOKEN ? { Authorization: `Bearer ${PREVIEW_TOKEN}` } : {};
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(API_BASE + path, {
-    headers: { "Content-Type": "application/json", ...(init?.headers || {}) },
+    headers: {
+      "Content-Type": "application/json",
+      ...authHeader(),
+      ...(init?.headers || {}),
+    },
     ...init,
   });
   if (!r.ok) {
@@ -51,6 +63,12 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
     throw new Error(`${r.status}: ${text}`);
   }
   return r.json();
+}
+
+function applyAuthToXhr(xhr: XMLHttpRequest): void {
+  if (PREVIEW_TOKEN) {
+    xhr.setRequestHeader("Authorization", `Bearer ${PREVIEW_TOKEN}`);
+  }
 }
 
 export const api = {
@@ -243,6 +261,7 @@ export const api = {
       };
       xhr.onerror = () => reject(new Error("network error"));
       xhr.open("POST", `${API_BASE}/api/reference_videos`);
+      applyAuthToXhr(xhr);
       xhr.send(fd);
     });
   },
@@ -334,6 +353,7 @@ export const api = {
       };
       xhr.onerror = () => reject(new Error("network error"));
       xhr.open("POST", `${API_BASE}/api/projects/${ts}/final${q}`);
+      applyAuthToXhr(xhr);
       xhr.send(fd);
     });
   },
@@ -362,6 +382,21 @@ export const api = {
     http<{ published_posts: PublishedPost[] }>(
       `/api/projects/${ts}/publish-history`,
     ),
+
+  // ─── Analytics queue (pending) replay ────────────
+  analyticsPendingStatus: () =>
+    http<{
+      count: number;
+      oldest_at: string | null;
+      platforms?: string[];
+    }>("/api/analytics/pending"),
+  analyticsPendingSync: () =>
+    http<{
+      success: number;
+      failed: number;
+      synced_ts: string[];
+      finalized_ts: string[];
+    }>("/api/analytics/pending/sync", { method: "POST" }),
 
   // ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
   cost: {

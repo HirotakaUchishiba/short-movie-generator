@@ -29,6 +29,21 @@ ALLOWED_EXTS = (".mp4", ".mov", ".m4v")
 SourceLiteral = Literal["watch", "ui", "cli"]
 
 
+def has_mp4_ftyp_atom(path: Path | str) -> bool:
+    """MP4 / MOV / M4V は先頭 box が ftyp で、bytes 4-7 が "ftyp" になる。
+
+    `.txt` を `.mp4` にリネームしただけ等の事故を弾く。攻撃対策ではなく事故防止。
+    """
+    try:
+        with open(path, "rb") as f:
+            head = f.read(16)
+    except OSError:
+        return False
+    if len(head) < 8:
+        return False
+    return head[4:8] == b"ftyp"
+
+
 @dataclass
 class FinalVersion:
     filename: str
@@ -123,6 +138,10 @@ def import_final(
     if ext not in ALLOWED_EXTS:
         raise ValueError(
             f"unsupported extension: {ext} (allowed: {ALLOWED_EXTS})",
+        )
+    if not has_mp4_ftyp_atom(src):
+        raise ValueError(
+            f"not a valid MP4/MOV file (ftyp atom missing): {src.name}",
         )
 
     final_d = ensure_final_dir(ts_path)
