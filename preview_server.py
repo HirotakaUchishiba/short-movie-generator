@@ -193,22 +193,21 @@ def _no_cache_for_assets(resp):
     return resp
 
 
+# Blueprint 分割の段階移行 (= routes/__init__.py 参照) のため、検証ヘルパは
+# routes/_helpers.py を SSOT とし、ここでは shim を残す (= 既存 import 互換)。
+from routes import _helpers as _route_helpers  # noqa: E402
+
+
 def _validate_ts(ts: str) -> str:
-    if not re.match(r'^[\w\-]+$', ts):
-        abort(400, "不正なタイムスタンプ")
-    return ts
+    return _route_helpers.validate_ts(ts)
 
 
 def _ts_path(ts: str) -> str:
-    return os.path.join(TEMP_DIR, ts)
+    return _route_helpers.ts_path(ts, temp_dir=TEMP_DIR)
 
 
 def _safe_join(base: str, *parts: str) -> str:
-    """ディレクトリトラバーサル防止。"""
-    p = os.path.realpath(os.path.join(base, *parts))
-    if not p.startswith(os.path.realpath(base) + os.sep) and p != os.path.realpath(base):
-        abort(400, "不正なパス")
-    return p
+    return _route_helpers.safe_join(base, *parts)
 
 
 def _list_screenplays() -> list[str]:
