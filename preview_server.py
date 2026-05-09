@@ -11,7 +11,6 @@ import subprocess
 import sys
 import time
 import uuid
-from dataclasses import asdict
 from flask import Flask, jsonify, request, send_file, abort, send_from_directory, Response
 from flask_cors import CORS
 
@@ -41,11 +40,11 @@ _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
 
-# Blueprint 段階移行: routes/__init__.py の roadmap に従って次は assets →
-# final → publish の順。
+# Blueprint 段階移行: routes/__init__.py の roadmap に従って次は assets の順。
 from routes.analytics import analytics_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
+from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
 
@@ -54,6 +53,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(stages_bp)
+app.register_blueprint(final_publish_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -1523,121 +1523,8 @@ def api_kling_cache_preview(key):
 # Blueprint 完全移行は routes/__init__.py の roadmap 参照。
 
 
-# ───────────────── Stage 7 final import / Stage 8 publish ─────────────────
-
-@app.route("/api/projects/<ts>/final", methods=["GET"])
-def api_list_finals(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    from final_import import core as fi
-    versions = [asdict(v) for v in fi.list_final_versions(_ts_path(ts))]
-    return jsonify({"final_versions": versions})
-
-
-@app.route("/api/projects/<ts>/final", methods=["POST"])
-def api_upload_final(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"error": "file required (multipart 'file' field)"}), 400
-    skip_fp = request.args.get("no_fingerprint", "").lower() in ("1", "true", "yes")
-
-    from final_import import core as fi
-    fi.ensure_final_dir(_ts_path(ts))
-    name = os.path.basename(f.filename or "upload.mp4")
-    ext = os.path.splitext(name)[1].lower()
-    if ext not in fi.ALLOWED_EXTS:
-        return jsonify({"error": f"unsupported extension: {ext}"}), 400
-
-    # 一旦 ts_path 直下の中間 staging に置く (final_d の外なので import_final が
-    # ちゃんと HHMMSS.mp4 にリネームコピーする)。
-    staging_dir = os.path.join(_ts_path(ts), ".final_upload")
-    os.makedirs(staging_dir, exist_ok=True)
-    tmp = os.path.join(staging_dir, f"upload_{uuid.uuid4().hex}{ext}")
-    try:
-        f.save(tmp)
-        v = fi.import_final(ts, tmp, source="ui", skip_fingerprint=skip_fp)
-        return jsonify({"final_version": asdict(v)}), 201
-    except (FileNotFoundError, ValueError, RuntimeError) as e:
-        return jsonify({"error": str(e)}), 400
-    finally:
-        try:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-        except OSError as e:
-            logger.warning("[final-upload] tmp %s unlink 失敗: %s", tmp, e)
-
-
-@app.route("/api/projects/<ts>/final/<filename>/canonical", methods=["POST"])
-def api_set_canonical_final(ts, filename):
-    _validate_ts(ts)
-    if not re.match(r"^[\w\.\-]+$", filename):
-        return jsonify({"error": "invalid filename"}), 400
-    from final_import import core as fi
-    try:
-        v = fi.set_canonical_final(_ts_path(ts), filename)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    return jsonify({"final_version": asdict(v)})
-
-
-@app.route("/api/projects/<ts>/final/<filename>", methods=["DELETE"])
-def api_delete_final(ts, filename):
-    _validate_ts(ts)
-    if not re.match(r"^[\w\.\-]+$", filename):
-        return jsonify({"error": "invalid filename"}), 400
-    from final_import import core as fi
-    try:
-        fi.delete_final_version(_ts_path(ts), filename)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 404
-    return jsonify({"ok": True, "deleted": filename})
-
-
-@app.route("/asset/<ts>/final-version/<filename>")
-def asset_final_version(ts, filename):
-    _validate_ts(ts)
-    if not re.match(r"^[\w\.\-]+$", filename):
-        abort(400)
-    from final_import import core as fi
-    p = fi.final_dir(_ts_path(ts)) / filename
-    if not p.exists():
-        return "", 404
-    return send_file(str(p), mimetype="video/mp4", conditional=True)
-
-
-@app.route("/api/projects/<ts>/publish", methods=["POST"])
-def api_publish(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    data = request.get_json(force=True) or {}
-    platform = data.get("platform")
-    if platform not in ("youtube", "instagram", "tiktok"):
-        return jsonify({"error": f"invalid platform: {platform}"}), 400
-    privacy = data.get("privacy", "private")
-    if privacy not in ("private", "unlisted", "public"):
-        return jsonify({"error": f"invalid privacy: {privacy}"}), 400
-
-    def _do_publish():
-        from final_import.publish import publish
-        return publish(ts, platform, privacy=privacy)
-
-    try:
-        job_id = _spawn_job(_do_publish, kind=f"publish-{platform}", ts=ts)
-    except JobAlreadyRunningError as e:
-        return _job_already_running_response(e)
-    return jsonify({"job_id": job_id})
-
-
-@app.route("/api/projects/<ts>/publish-history", methods=["GET"])
-def api_publish_history(ts):
-    _validate_ts(ts)
-    meta = staged_pipeline.read_metadata(_ts_path(ts)) or {}
-    return jsonify({"published_posts": meta.get("published_posts") or []})
+# Stage 7 (final import) + Stage 8 (publish) は routes/final_publish.py の
+# Blueprint に移管済み。
 
 
 # /api/analytics/pending(/sync) は routes/analytics.py の Blueprint に移管済み。
