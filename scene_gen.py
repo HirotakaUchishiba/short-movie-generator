@@ -107,54 +107,24 @@ def _run_bg_pool_collecting(
     return bg_paths, errors
 
 
+# emotion 派生 helper は stages/emotion.py を SSOT とし、ここでは互換 shim。
+from stages import emotion as _emotion  # noqa: E402
+
+
 def _dominant_emotion(scene: dict) -> str | None:
-    emotions = [l.get("emotion") for l in (scene.get("lines") or []) if l.get("emotion")]
-    if not emotions:
-        return None
-    from collections import Counter
-    return Counter(emotions).most_common(1)[0][0]
+    return _emotion.dominant_emotion(scene)
 
 
 def _emotion_arc_en(scene: dict) -> str:
-    """lines[].emotion を英訳 EMOTION_EN で arc 化 (= "surprise → urgency → calm")。"""
-    seen: set[str] = set()
-    parts: list[str] = []
-    for line in scene.get("lines") or []:
-        e = line.get("emotion")
-        if not e or e in seen:
-            continue
-        seen.add(e)
-        parts.append(config.EMOTION_EN.get(e, e))
-    return " → ".join(parts)
+    return _emotion.emotion_arc_en(scene)
 
 
 def _emotion_arc_summary(scene: dict, cue_key: str) -> str:
-    """lines[].emotion ごとに EMOTION_VISUAL_CUES[cue_key] を引き、" → " 連結。
-
-    例: ["焦り", "焦り", "満足"] + "motion" →
-        "rushed forward-leaning movement → rushed forward-leaning movement →
-         relaxed open posture"
-    """
-    cues: list[str] = []
-    for line in scene.get("lines", []) or []:
-        emo = line.get("emotion")
-        if not emo:
-            continue
-        v = config.EMOTION_VISUAL_CUES.get(emo, {}).get(cue_key)
-        if v:
-            cues.append(v)
-    # 連続重複を畳む (見栄え対策)
-    deduped: list[str] = []
-    for c in cues:
-        if not deduped or deduped[-1] != c:
-            deduped.append(c)
-    return " → ".join(deduped)
+    return _emotion.emotion_arc_summary(scene, cue_key)
 
 
 def _dominant_visual_cues(scene: dict) -> dict:
-    """EMOTION_VISUAL_CUES の dominant emotion 既定 cue を返す。"""
-    dom = _dominant_emotion(scene)
-    return dict(config.EMOTION_VISUAL_CUES.get(dom or "", {}))
+    return _emotion.dominant_visual_cues(scene)
 
 
 _CUE_LABELS_KLING = {
