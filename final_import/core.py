@@ -1,6 +1,6 @@
 """Stage 7 (final_import) の中核ハンドラ。
 
-3 経路 (watchdog / HTTP / CLI) から呼ばれる純関数 import_final を中心に、
+auto_loop の `_import_raw_as_final()` から呼ばれる純関数 import_final を中心に、
 metadata.json の `final_versions` 配列で複数バージョンの取り込みを管理する。
 canonical な final は analytics と publish の正本として扱う。
 """
@@ -13,7 +13,6 @@ import subprocess
 from dataclasses import asdict, dataclass
 from datetime import datetime
 from pathlib import Path
-from typing import Literal
 
 import config
 import io_utils
@@ -25,7 +24,6 @@ logger = logging.getLogger(__name__)
 
 FINAL_DIR_NAME = "final"
 ALLOWED_EXTS = (".mp4", ".mov", ".m4v")
-SourceLiteral = Literal["watch", "ui", "cli"]
 
 
 def has_mp4_ftyp_atom(path: Path | str) -> bool:
@@ -107,13 +105,10 @@ def resolve_canonical_video(ts_path: str) -> Path:
 def import_final(
     ts: str,
     src_path: Path | str,
-    source: SourceLiteral = "cli",
-    skip_fingerprint: bool = False,
 ) -> FinalVersion:
-    """CapCut 出力を取り込み、Stage 8 を generated にマークする。
+    """raw 動画を Stage 7 取込として登録し、Stage 8 を generated にマークする。
 
     - `temp/<TS>/final/<HHMMSS>.<ext>` にコピー (拡張子は元を保持)
-    - 音声指紋スコアを記録 (skip_fingerprint=True で省略可)
     - metadata.json の `final_versions` に追記、最新を canonical 化
     - progress_store の `final_import` を generated に
     - 既存承認は新バージョン取り込み時にリセット (= 再確認が必要)
@@ -159,14 +154,13 @@ def import_final(
         except OSError:
             pass
 
-    # 経路に依らず安全な一意名 (HHMMSS[.MICRO].<ext>) にリネーム / コピーする。
+    # 安全な一意名 (HHMMSS[.MICRO].<ext>) にリネーム / コピーする。
     # 元ファイル名が unsafe (= 空白や記号入り) でも API regex `^[\w\.\-]+$` を必ず通過し、
-    # 同名再ドロップでも一意の history エントリになる。
+    # 同名再投入でも一意の history エントリになる。
     dst_name = _allocate_unique_name(final_d, ext)
     dst = final_d / dst_name
 
     if src.parent.resolve() == final_d.resolve():
-        # 既に final/ 内 (= watchdog がドロップを検知) → in-place rename
         if src.name != dst_name:
             os.rename(src, dst)
         else:
@@ -177,37 +171,22 @@ def import_final(
     duration = _ffprobe_duration(dst)
     size = dst.stat().st_size
 
-    score: float | None = None
-    if not skip_fingerprint:
-        try:
-            from .fingerprint import compute_match_score
-            score = compute_match_score(ts_path, dst)
-        except Exception as e:
-            logger.warning("fingerprint 計算失敗 (%s): %s", dst_name, e)
-    if score is not None and score < config.FINGERPRINT_THRESHOLD:
-        logger.warning(
-            "[取込] fingerprint score=%.2f が閾値 %.2f 未満 — "
-            "pipeline raw との音声乖離の可能性: %s",
-            score, config.FINGERPRINT_THRESHOLD, dst_name,
-        )
-
     new_version = FinalVersion(
         filename=dst_name,
         imported_at=_now_iso(),
         duration_sec=duration,
         size_bytes=size,
-        audio_match_score=score,
-        source=source,
+        audio_match_score=None,
+        source="cli",
         is_canonical=True,
     )
 
     _append_final_version(ts_path, new_version)
     _on_canonical_change(ts_path, ensure_generated=True)
 
-    score_label = f"{score:.2f}" if score is not None else "-"
     logger.info(
-        "[取込] 完了: %s (source=%s, duration=%.1fs, score=%s)",
-        dst_name, source, duration or 0, score_label,
+        "[取込] 完了: %s (duration=%.1fs)",
+        dst_name, duration or 0,
     )
     return new_version
 

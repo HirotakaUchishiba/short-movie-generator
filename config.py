@@ -641,9 +641,6 @@ KLING_DURATION_TOLERANCE_RATIO = 1.2
 # 期限超過で TimeoutError 相当を投げ、上位の MAX_RETRIES ループで停止する。
 FAL_KLING_TIMEOUT_SEC = float(os.getenv("FAL_KLING_TIMEOUT_SEC", "3600"))     # 1 hour
 
-# fingerprint threshold (= final_import の audio match warning)
-FINGERPRINT_THRESHOLD = 0.6
-
 # lipsync provider への HTTP request timeout (秒)
 # QUERY = status / presigned upload, SUBMIT = task 作成,
 # UPLOAD = multipart submit, DOWNLOAD = result fetch

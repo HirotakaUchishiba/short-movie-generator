@@ -35,15 +35,11 @@ def _build_parser() -> argparse.ArgumentParser:
     p.add_argument("--resume", dest="resume_ts", metavar="TS",
                    help="既存 TS の次 stage を実行")
 
-    g = p.add_argument_group("取込 / 公開 (CapCut 編集後)")
-    g.add_argument("--import-final", dest="import_final", metavar="PATH",
-                   help="CapCut 出力を取込ステージに渡す")
+    g = p.add_argument_group("取込 / 公開")
     g.add_argument("--list-finals", dest="list_finals", action="store_true",
                    help="このプロジェクトの final 取込履歴を表示")
     g.add_argument("--canonical", metavar="FILENAME",
                    help="--list-finals の中から canonical を切替える")
-    g.add_argument("--no-fingerprint", action="store_true",
-                   help="--import-final 時に音声指紋検証をスキップ")
     g.add_argument("--publish", choices=["youtube", "instagram", "tiktok"],
                    help="canonical な final をプラットフォームに公開")
     g.add_argument("--privacy", choices=["private", "unlisted", "public"],
@@ -90,11 +86,11 @@ def main() -> None:
     parser = _build_parser()
     args = parser.parse_args()
 
-    if args.import_final or args.list_finals or args.canonical or args.publish:
+    if args.list_finals or args.canonical or args.publish:
         ts = args.resume_ts
         if not ts:
-            parser.error("--import-final / --list-finals / --canonical / "
-                         "--publish には --resume <TS> が必要です")
+            parser.error("--list-finals / --canonical / --publish には "
+                         "--resume <TS> が必要です")
         return _run_stage8_9(args, ts)
 
     if not args.screenplay_name:
@@ -130,8 +126,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
             return
         if cur in progress_store.EXTERNAL_ACTION_STAGES:
             logger.info(
-                "stage '%s' はユーザの外部アクション待ちです — "
-                "`--import-final` / `--publish` を使ってください",
+                "stage '%s' は manual main.py の対象外です — "
+                "Stage 7 (取込) は `scripts/auto_loop.py` 経由で実行されます。"
+                "Stage 8 (公開) は `--publish` を使ってください",
                 cur,
             )
             return
@@ -144,8 +141,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
 
     if nxt in progress_store.EXTERNAL_ACTION_STAGES:
         logger.info(
-            "次 stage '%s' はユーザの外部アクション待ちです — "
-            "`--import-final` / `--publish` を使ってください",
+            "次 stage '%s' は manual main.py の対象外です — "
+            "Stage 7 (取込) は `scripts/auto_loop.py` 経由で実行されます。"
+            "Stage 8 (公開) は `--publish` を使ってください",
             nxt,
         )
         return
@@ -159,8 +157,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
 
     if executed == "overlay":
         logger.info(
-            "字幕焼き込み + pipeline raw 出力完了。プレビューUIで確認後、"
-            "CapCut 編集を経て `--import-final <path>` で取り込んでください: %s",
+            "字幕焼き込み + pipeline raw 出力完了 (= manual main.py はここまで)。"
+            "Stage 7 以降は `scripts/auto_loop.py` 経由でのみ進行します。"
+            "プレビューUIで確認: %s",
             _ui_url(ts),
         )
     else:
@@ -199,21 +198,6 @@ def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
                 f"size={v.size_bytes}  duration={v.duration_sec or 0:.1f}s  "
                 f"score={score}  source={v.source}",
             )
-        return
-
-    if args.import_final:
-        try:
-            v = final_import.import_final(
-                ts, args.import_final, source="cli",
-                skip_fingerprint=args.no_fingerprint,
-            )
-        except (FileNotFoundError, ValueError, RuntimeError) as e:
-            logger.error("取込失敗: %s", e)
-            sys.exit(1)
-        logger.info(
-            "[取込] 完了: %s (canonical=%s) → UI で確認後 `--publish` で公開",
-            v.filename, v.is_canonical,
-        )
         return
 
     if args.publish:

@@ -1,9 +1,7 @@
-import { useEffect, useState, useCallback, useRef } from "react";
+import { useEffect, useState, useCallback } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api, finalVersionAssetUrl } from "../../api";
 import type { FinalVersion } from "../../types";
-
-const SCORE_WARN_THRESHOLD = 0.6;
 
 export default function StageFinalImport() {
   const ctx = useShellCtx();
@@ -11,11 +9,7 @@ export default function StageFinalImport() {
   const overlayApproved = !!ctx.detail.progress.stages.overlay.approved_at;
 
   const [versions, setVersions] = useState<FinalVersion[]>([]);
-  const [uploading, setUploading] = useState(false);
-  const [progress, setProgress] = useState(0);
   const [error, setError] = useState<string | null>(null);
-  const [skipFingerprint, setSkipFingerprint] = useState(false);
-  const inputRef = useRef<HTMLInputElement>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -28,37 +22,10 @@ export default function StageFinalImport() {
 
   useEffect(() => {
     reload();
-    // watchdog 経由の取込もあるので 5 秒ごとに再ロード
+    // auto_loop が背景で取込を実行する可能性があるので 5 秒ごとに再ロード
     const id = setInterval(reload, 5000);
     return () => clearInterval(id);
   }, [reload]);
-
-  const handleUpload = async (file: File) => {
-    setError(null);
-    setUploading(true);
-    setProgress(0);
-    try {
-      await api.uploadFinal(ts, file, {
-        skipFingerprint,
-        onProgress: (p) => setProgress(p),
-      });
-      await reload();
-      await ctx.reload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setUploading(false);
-      setProgress(0);
-      if (inputRef.current) inputRef.current.value = "";
-    }
-  };
-
-  const onDrop = (e: React.DragEvent) => {
-    e.preventDefault();
-    if (uploading) return;
-    const file = e.dataTransfer.files?.[0];
-    if (file) handleUpload(file);
-  };
 
   const setCanonical = async (filename: string) => {
     setError(null);
@@ -89,8 +56,8 @@ export default function StageFinalImport() {
   return (
     <StageGate
       stage="final_import"
-      title="CapCut 出力の取り込み"
-      description="CapCut 等で手動編集した最終動画を取り込み、analytics と公開フローの正本にする。temp/<TS>/final/ にファイルを置けば watchdog が自動検知。"
+      title="取り込み"
+      description="auto_loop が pipeline raw を取り込み canonical 化する。複数の final が存在する場合はここで canonical を切替えて公開対象を選択する。"
     >
       {!overlayApproved ? (
         <div className="card text-center text-slate-400">
@@ -99,58 +66,6 @@ export default function StageFinalImport() {
         </div>
       ) : (
         <>
-          <div
-            onDragOver={(e) => e.preventDefault()}
-            onDrop={onDrop}
-            className={`card border-2 border-dashed border-slate-500 text-center py-10 mb-4 ${
-              uploading ? "opacity-50" : ""
-            }`}
-          >
-            <p className="text-lg mb-2">CapCut 書き出しを ここにドロップ</p>
-            <p className="text-sm text-slate-400 mb-4">
-              または{" "}
-              <button
-                className="underline text-emerald-400"
-                onClick={() => inputRef.current?.click()}
-                disabled={uploading}
-              >
-                ファイル選択
-              </button>{" "}
-              (.mp4 / .mov / .m4v)
-            </p>
-            <input
-              ref={inputRef}
-              type="file"
-              accept=".mp4,.mov,.m4v,video/mp4,video/quicktime"
-              hidden
-              onChange={(e) => {
-                const f = e.target.files?.[0];
-                if (f) handleUpload(f);
-              }}
-            />
-            <label className="text-xs text-slate-400 inline-flex items-center gap-2">
-              <input
-                type="checkbox"
-                checked={skipFingerprint}
-                onChange={(e) => setSkipFingerprint(e.target.checked)}
-              />
-              音声指紋検証をスキップ (高速)
-            </label>
-            {uploading && (
-              <div className="mt-4">
-                <div className="bg-slate-700 h-2 rounded">
-                  <div
-                    className="bg-emerald-500 h-2 rounded transition-all"
-                    style={{ width: `${progress * 100}%` }}
-                  />
-                </div>
-                <p className="text-xs text-slate-400 mt-1">
-                  アップロード中... {Math.round(progress * 100)}%
-                </p>
-              </div>
-            )}
-          </div>
-
           {error && (
             <div className="rounded border border-rose-700 bg-rose-900/40 p-3 text-sm mb-4">
               <div className="flex justify-between">
@@ -160,15 +75,13 @@ export default function StageFinalImport() {
             </div>
           )}
 
-          {canonical &&
-            canonical.audio_match_score !== null &&
-            canonical.audio_match_score < SCORE_WARN_THRESHOLD && (
-              <div className="rounded border border-amber-700 bg-amber-900/30 p-3 text-sm mb-4">
-                ⚠ 音声指紋スコアが低い ({canonical.audio_match_score.toFixed(2)}
-                ) — pipeline
-                出力と一致しない可能性があります。動画を確認してから承認してください。
-              </div>
-            )}
+          {!canonical && versions.length === 0 && (
+            <div className="card text-center text-slate-400">
+              まだ取り込まれた final バージョンがありません。auto_loop による
+              取込を待つか、CLI から `python3 main.py --resume {ts}{" "}
+              --list-finals` で確認してください。
+            </div>
+          )}
 
           {canonical && (
             <div className="card mb-4">
@@ -187,9 +100,6 @@ export default function StageFinalImport() {
                 {canonical.duration_sec
                   ? ` · ${canonical.duration_sec.toFixed(1)}s`
                   : ""}
-                {canonical.audio_match_score !== null
-                  ? ` · score ${canonical.audio_match_score.toFixed(2)}`
-                  : ""}
               </div>
             </div>
           )}
@@ -206,8 +116,6 @@ export default function StageFinalImport() {
                     <th className="text-left">取込</th>
                     <th className="text-right">size</th>
                     <th className="text-right">duration</th>
-                    <th className="text-right">score</th>
-                    <th className="text-center">source</th>
                     <th></th>
                   </tr>
                 </thead>
@@ -230,12 +138,6 @@ export default function StageFinalImport() {
                       <td className="text-right">
                         {v.duration_sec ? `${v.duration_sec.toFixed(1)}s` : "—"}
                       </td>
-                      <td className="text-right">
-                        {v.audio_match_score !== null
-                          ? v.audio_match_score.toFixed(2)
-                          : "—"}
-                      </td>
-                      <td className="text-center text-xs">{v.source}</td>
                       <td className="text-right">
                         {!v.is_canonical && (
                           <button

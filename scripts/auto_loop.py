@@ -312,22 +312,14 @@ def _approve(ts: str, stage: str) -> None:
 def _import_raw_as_final(ts: str) -> None:
     """Stage 6 で書き出された pipeline raw を Stage 7 取込として canonical 化する。
 
-    auto_loop は CapCut 編集を **意図的にスキップ** し、raw (`output/reels_<TS>.mp4`)
-    をそのまま canonical な final として登録する設計。raw は pipeline の TTS
-    そのものを内包しているので、`compute_match_score` (= raw 音声 vs. final 音声
-    の指紋照合) は定義上 1.0 になり、`FINGERPRINT_THRESHOLD` (既定 0.6) を必ず
-    通過する。
-
-    したがって `skip_fingerprint=True` の最適化は **意図的に避けて** いる
-    (= 将来「fingerprint < threshold で hard fail にする」変更が入っても、
-    auto_loop の挙動は raw === raw のため誤爆しない)。fingerprint を hard
-    block 化するときは、ここのコメントが invariants の根拠になる。
+    raw (`output/reels_<TS>.mp4`) をそのまま canonical な final として登録する。
+    auto_loop の取込は本関数が唯一の経路。
     """
     raw_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     if not os.path.exists(raw_path):
         raise AutoLoopAborted(f"pipeline raw が見つかりません: {raw_path}")
     from final_import import import_final
-    import_final(ts, raw_path, source="cli", skip_fingerprint=False)
+    import_final(ts, raw_path)
 
 
 def _publish_youtube(ts: str, privacy: str) -> dict:

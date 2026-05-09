@@ -1,7 +1,8 @@
 """Stage 7 (final_import) と Stage 8 (publish) の中核ロジック。
 
-CapCut で手動編集した動画を `temp/<TS>/final/` に取り込み、analytics と
-ステージ承認を更新する。watchdog / HTTP / CLI の 3 経路から共通呼出。
+Stage 6 で書き出された pipeline raw を `temp/<TS>/final/` に取り込み、
+analytics とステージ承認を更新する。auto_loop の `_import_raw_as_final()`
+から呼ばれる唯一の経路。
 """
 
 from .core import (

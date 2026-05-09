@@ -1434,17 +1434,6 @@ def serve_frontend(path):
     return send_from_directory(FRONTEND_DIST, "index.html")
 
 
-def _start_final_watcher_if_enabled() -> None:
-    if os.environ.get("DISABLE_FINAL_WATCHER", "").lower() in ("1", "true", "yes"):
-        logger.info("DISABLE_FINAL_WATCHER set — Stage 7 watcher を起動しません")
-        return
-    try:
-        from final_import.watcher import start_watcher
-        start_watcher()
-    except Exception as e:
-        logger.warning("final watcher 起動失敗: %s", e)
-
-
 _PARTIAL_ARTIFACT_PATTERNS = (
     "tts_full.tmp.mp3",
     "tts_full.tmp.json",
@@ -1546,7 +1535,6 @@ def _replay_pending_analytics() -> None:
 
 _recover_lost_jobs()
 _replay_pending_analytics()
-_start_final_watcher_if_enabled()
 
 
 if __name__ == "__main__":
