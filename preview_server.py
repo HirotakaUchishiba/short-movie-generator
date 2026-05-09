@@ -26,8 +26,6 @@ from analyze import progress as analyze_progress
 from analyze import runner as analyze_runner
 from analyze.cache import file_sha256
 from analytics import db as _analytics_db
-from qa import artifact_paths as qa_artifact_paths
-from qa import recorder as qa_recorder
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
@@ -43,18 +41,19 @@ _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
 
-# Blueprint 段階移行: /api/cost/* /api/analytics/* /api/config/* /api/projects
-# は routes/ 配下に切り出し済み。routes/__init__.py の roadmap に従って
-# 次は stages (run-next/approve/reject/regen) → assets → final → publish の順。
+# Blueprint 段階移行: routes/__init__.py の roadmap に従って次は assets →
+# final → publish の順。
 from routes.analytics import analytics_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
+from routes.stages import stages_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
+app.register_blueprint(stages_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -217,175 +216,15 @@ def api_project_progress(ts):
     })
 
 
-# ───────────────── 承認 / 次stage実行 ─────────────────
-
-@app.route("/api/projects/<ts>/approve", methods=["POST"])
-def api_approve(ts):
-    _validate_ts(ts)
-    data = request.get_json(force=True) or {}
-    stage = data.get("stage")
-    if stage not in progress_store.STAGES:
-        return jsonify({"error": f"不正なstage: {stage}"}), 400
-    try:
-        progress_store.mark_approved(_ts_path(ts), stage)
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({
-        "ok": True,
-        "approved_stage": stage,
-        "next_stage": progress_store.next_stage(_ts_path(ts)),
-    })
-
-
-# ───────────── reject (= QA failure 記録、Phase 0) ─────────────
-#
-# Phase 0 はデータ収集に専念するため、reject しても progress (generated_at /
-# approved_at) は触らない。「不良サンプルとして記録だけ取る」という割り切り。
-# 再生成したい場合は別途 /regen を叩く (= regenerate 経路で前世代も自動 archive
-# される)。
-
-def _stage_artifact_paths(ts_path: str, stage: str,
-                          scene_idx: int | None,
-                          line_idx: int | None) -> list[str]:
-    """qa.artifact_paths.stage_artifact_paths への薄いラッパ。後方互換のため残す。"""
-    return qa_artifact_paths.stage_artifact_paths(
-        ts_path, stage, scene_idx, line_idx)
-
-
-def _archive_before_regen(ts: str, stage: str,
-                          scene_idx: int | None,
-                          line_idx: int | None) -> None:
-    """regen 実行直前に前世代の artifact を ``regenerate_implicit`` で archive。
-
-    artifact が無ければ何もしない (= 初回生成)。失敗は warn で握りつぶす
-    (= 主目的の regen をブロックさせない)。"""
-    artifact_paths = _stage_artifact_paths(_ts_path(ts), stage,
-                                           scene_idx, line_idx)
-    if not any(os.path.exists(p) for p in artifact_paths):
-        return
-    snapshot_path = staged_pipeline.project_screenplay_path(_ts_path(ts))
-    snapshot_for_archive = snapshot_path if os.path.exists(snapshot_path) else None
-    try:
-        qa_recorder.record_failure(
-            ts=ts, stage=stage, source="regenerate_implicit",
-            tags=None, note=None,
-            scene_idx=scene_idx, line_idx=line_idx,
-            artifact_paths=artifact_paths,
-            screenplay_snapshot_path=snapshot_for_archive,
-        )
-    except Exception as e:
-        logger.warning("[qa archive] regen archive failed (ts=%s stage=%s): %s",
-                       ts, stage, e)
-
-
-# 自由記述 note の上限文字数。誤ペーストによる DB 肥大化 / 検索のばらつきを防ぐ。
-# frontend (RejectModal.tsx) も同じ上限で警告を出す。
-_REJECT_NOTE_MAX_LENGTH = 2000
-
-
-@app.route("/api/projects/<ts>/reject", methods=["POST"])
-def api_reject(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    data = request.get_json(force=True) or {}
-    stage = data.get("stage")
-    if stage not in progress_store.STAGES:
-        return jsonify({"error": f"不正なstage: {stage}"}), 400
-    tags = data.get("tags") or []
-    if not isinstance(tags, list):
-        return jsonify({"error": "tags は list でなければなりません"}), 400
-    note = data.get("note")
-    if note is not None:
-        if not isinstance(note, str):
-            return jsonify({"error": "note は string または null"}), 400
-        if len(note) > _REJECT_NOTE_MAX_LENGTH:
-            return jsonify({
-                "error": f"note は {_REJECT_NOTE_MAX_LENGTH} 文字以内 "
-                         f"(actual={len(note)})",
-            }), 400
-    scene_idx = data.get("scene_idx")
-    line_idx = data.get("line_idx")
-    if scene_idx is not None and not isinstance(scene_idx, int):
-        return jsonify({"error": "scene_idx は int または null"}), 400
-    if line_idx is not None and not isinstance(line_idx, int):
-        return jsonify({"error": "line_idx は int または null"}), 400
-
-    artifact_paths = _stage_artifact_paths(_ts_path(ts), stage,
-                                           scene_idx, line_idx)
-    snapshot_path = staged_pipeline.project_screenplay_path(_ts_path(ts))
-    snapshot_for_archive = snapshot_path if os.path.exists(snapshot_path) else None
-    try:
-        failure_id, archive_dir = qa_recorder.record_failure(
-            ts=ts, stage=stage, source="human_reject",
-            tags=tags, note=note,
-            scene_idx=scene_idx, line_idx=line_idx,
-            artifact_paths=artifact_paths,
-            screenplay_snapshot_path=snapshot_for_archive,
-        )
-    except ValueError as e:
-        return jsonify({"error": str(e)}), 400
-    return jsonify({
-        "ok": True,
-        "failure_id": failure_id,
-        "archive_dir": archive_dir,
-    })
-
-
-@app.route("/api/projects/<ts>/run-next", methods=["POST"])
-def api_run_next(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    sp, name = _load_screenplay_for_project(ts)
-    try:
-        job_id = _spawn_job(
-            lambda: staged_pipeline.run_next_stage(sp, name, _ts_path(ts)),
-            kind="run-next", ts=ts,
-        )
-    except JobAlreadyRunningError as e:
-        return _job_already_running_response(e)
-    return jsonify({"job_id": job_id})
-
-
-# ───────────────── 再生成 ─────────────────
-
-@app.route("/api/projects/<ts>/regen", methods=["POST"])
-def api_regen(ts):
-    _validate_ts(ts)
-    data = request.get_json(force=True) or {}
-    stage = data.get("stage")
-    scene_idx = data.get("scene_idx")
-    line_idx = data.get("line_idx")
-    force = bool(data.get("force", True))
-    # bg ステージの「キャッシュ無視」再生成: 該当 scene に内部 hint を立てる
-    force_no_cache = bool(data.get("force_no_cache", False))
-    if stage not in {"tts", "bg", "kling", "scene", "overlay"}:
-        return jsonify({"error": f"このstageは再生成不可: {stage}"}), 400
-
-    sp, name = _load_screenplay_for_project(ts)
-    if force_no_cache and stage == "bg":
-        scenes = sp.get("scenes") or []
-        if isinstance(scene_idx, int) and 0 <= scene_idx < len(scenes):
-            scenes[scene_idx]["_bg_force_no_cache"] = True
-        else:
-            for s in scenes:
-                s["_bg_force_no_cache"] = True
-
-    def _regen_with_archive():
-        # 旧世代を qa_failures/ に regenerate_implicit で残してから上書きする。
-        # データが揃えば validator のしきい値判定材料になる (= Phase 2 での再訓練)。
-        _archive_before_regen(ts, stage, scene_idx, line_idx)
-        return staged_pipeline.regen(
-            stage, sp, _ts_path(ts), scene_idx, line_idx, force=force,
-            screenplay_name=name)
-
-    try:
-        job_id = _spawn_job(_regen_with_archive,
-                            kind=f"regen-{stage}", ts=ts)
-    except JobAlreadyRunningError as e:
-        return _job_already_running_response(e)
-    return jsonify({"job_id": job_id})
+# /api/projects/<ts>/{run-next,approve,reject,regen} は routes/stages.py
+# の Blueprint に移管済み。互換 shim で _archive_before_regen /
+# _stage_artifact_paths / _REJECT_NOTE_MAX_LENGTH を re-export し、既存テスト
+# (= test_preview_server_reject.py) の import path を保つ。
+from routes.stages import (  # noqa: E402, F401
+    _REJECT_NOTE_MAX_LENGTH,
+    _archive_before_regen,
+    _stage_artifact_paths,
+)
 
 
 # ───────────────── 台本書き戻し ─────────────────
