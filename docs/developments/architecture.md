@@ -25,9 +25,7 @@ flowchart LR
 
   SNAP --> S1
   S6 --> RAW[output/reels_&lt;TS&gt;.mp4<br/>= pipeline raw]
-  RAW --> EXT[CapCut 等で外部編集]
-  EXT --> S7[7.final import]
-  RAW -.直接 canonical 化.-> S7
+  RAW --> S7[7.final import<br/>= raw を canonical 化]
   S7 --> S8[8.publish]
 
   S8 --> YT[YouTube]
@@ -39,7 +37,7 @@ flowchart LR
   TT --> METRIC
 ```
 
-各 stage は **承認 (approve) を経るまで次 stage に進まない**。Stage 7 / 8 はユーザの外部アクション (= ファイル drop / publish コマンド) が起点で、`run-next` では自動起動しない。
+各 stage は **承認 (approve) を経るまで次 stage に進まない**。Stage 7 は auto_loop が pipeline raw を canonical 化する内部経路で、Stage 8 はユーザの publish コマンドが起点 (= `run-next` では自動起動しない)。
 
 ---
 
@@ -104,7 +102,7 @@ flowchart LR
 | Stage 4 (動画)  | I2V アニメーション     | fal.ai Kling V3 Standard                               | `FAL_KEY`                                        |
 | Stage 5 (scene) | 音声重ね + lipsync     | FFmpeg + Sync.so `lipsync-2`                           | `SYNC_API_KEY`                                   |
 | Stage 6 (字幕)  | ASS 焼き込み + caption | FFmpeg + libass + Claude Haiku (caption 生成)          | `ANTHROPIC_API_KEY`                              |
-| Stage 7 (取込)  | watchdog + 指紋検証    | `librosa` (MFCC 相関)                                  | —                                                |
+| Stage 7 (取込)  | raw を canonical 化    | (純ローカル、外部 API なし)                            | —                                                |
 | Stage 8 (公開)  | YouTube / IG / TikTok  | YouTube Data API v3 / Graph API (stub) / Display API   | `YOUTUBE_OAUTH_*` / `INSTAGRAM_*` / `TIKTOK_*`   |
 | analyze         | 参考動画逆算           | Claude Opus 4.7 + OpenAI Whisper (or `faster-whisper`) | `ANTHROPIC_API_KEY` 必須 / `OPENAI_API_KEY` 任意 |
 | auto-tag        | hook_type 等の付与     | Claude Haiku                                           | `ANTHROPIC_API_KEY`                              |
