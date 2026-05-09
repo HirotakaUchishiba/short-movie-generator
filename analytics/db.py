@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 8
+CURRENT_SCHEMA_VERSION = 9
 
 
 def _now() -> str:
@@ -29,9 +29,12 @@ def _db_path() -> Path:
 def get_connection() -> Iterator[sqlite3.Connection]:
     path = _db_path()
     path.parent.mkdir(parents=True, exist_ok=True)
-    conn = sqlite3.connect(str(path))
+    conn = sqlite3.connect(str(path), timeout=30.0)
     conn.row_factory = sqlite3.Row
     conn.execute("PRAGMA foreign_keys = ON")
+    conn.execute("PRAGMA journal_mode = WAL")
+    conn.execute("PRAGMA busy_timeout = 5000")
+    conn.execute("PRAGMA synchronous = NORMAL")
     try:
         yield conn
         conn.commit()
@@ -48,6 +51,19 @@ def init_db() -> None:
         # drop。schema.sql の CREATE VIEW IF NOT EXISTS は drop 後の空の状態に
         # 軸別 4 view を新規作成する。新 DB は drop 対象が無いので no-op。
         conn.execute("DROP VIEW IF EXISTS v_axis_performance")
+        # schema v9: v_active_posts / v_strategy_performance は posts.rollback_at の
+        # 列追加後に作り直す必要があるので、既存 view を drop してから schema.sql の
+        # CREATE VIEW IF NOT EXISTS が新スキーマで再生成する形にする。
+        conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
+        conn.execute("DROP VIEW IF EXISTS v_active_posts")
+        # 既存 DB に rollback_at が無い間は v_active_posts の SELECT * が
+        # 不整合を起こすので、schema.sql 実行前に列を追加しておく。
+        _table_exists = conn.execute(
+            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='posts'"
+        ).fetchone()
+        if _table_exists:
+            _ensure_column(conn, "posts", "rollback_at", "rollback_at TEXT")
+            _ensure_column(conn, "posts", "rollback_reason", "rollback_reason TEXT")
         with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
             conn.executescript(f.read())
         # 既存 DB の videos に final_* カラムが無い場合に追加 (additive migration)
@@ -74,6 +90,9 @@ def init_db() -> None:
                        "composition_id TEXT")
         _ensure_column(conn, "experiment_assignments", "composition_version",
                        "composition_version TEXT")
+        # post_metrics(post_id, fetched_at) UNIQUE 制約 (= 同タイムスタンプの
+        # double-insert を抑止)。既存 DB に重複が残っている場合は最新 id のみ残す。
+        _ensure_unique_post_metrics(conn)
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -89,6 +108,33 @@ def _ensure_column(conn: sqlite3.Connection, table: str,
     cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
+
+
+def _ensure_unique_post_metrics(conn: sqlite3.Connection) -> None:
+    """post_metrics(post_id, fetched_at) UNIQUE INDEX を保証する。
+
+    schema.sql の CREATE UNIQUE INDEX IF NOT EXISTS は既存重複行があると失敗する
+    ので、ここで先に重複を dedupe してから index を作る。新 DB は重複が無いので
+    DELETE は no-op、index 作成も冪等。
+    """
+    has_index = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='index' "
+        "AND name='uq_metrics_post_fetched'"
+    ).fetchone()
+    if has_index:
+        return
+    # 既存重複 (post_id, fetched_at) のうち最大 id だけ残す。
+    conn.execute(
+        """DELETE FROM post_metrics
+           WHERE id NOT IN (
+               SELECT MAX(id) FROM post_metrics
+               GROUP BY post_id, fetched_at
+           )"""
+    )
+    conn.execute(
+        "CREATE UNIQUE INDEX IF NOT EXISTS uq_metrics_post_fetched "
+        "ON post_metrics(post_id, fetched_at)"
+    )
 
 
 def _sha256_file(path: str) -> str:
@@ -238,9 +284,15 @@ def register_post(video_id: str, platform: str, platform_post_id: str,
 
 
 def insert_metrics(post_id: str, metrics: dict[str, Any]) -> None:
+    """post_metrics に 1 行追加。
+
+    UNIQUE(post_id, fetched_at) 制約により、同 post に同タイムスタンプで連続して
+    呼ばれた場合 (= 同秒内の double-run) は INSERT OR IGNORE で 2 行目を握り潰す。
+    1 時間 cron など別タイムスタンプの再呼出しは時系列として通常通り蓄積する。
+    """
     with get_connection() as conn:
         conn.execute(
-            """INSERT INTO post_metrics
+            """INSERT OR IGNORE INTO post_metrics
                (post_id, fetched_at, views, likes, comments, shares, saves,
                 watch_time_sec, avg_view_duration, completion_rate, ctr, raw_response)
                VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
@@ -262,14 +314,31 @@ def insert_metrics(post_id: str, metrics: dict[str, Any]) -> None:
 
 
 def list_active_posts(platform: str | None = None) -> list[dict]:
+    """rollback されていない post のみを返す (= v_active_posts ベース)。
+
+    fetch_metrics / dashboard が rollback 済 post の polling を自動停止する
+    ようになる。古い fetch_metrics は ``rollback_at IS NULL`` を見ていなかった
+    ので、schema v9 の新カラムを尊重する形に統一。
+    """
     with get_connection() as conn:
         if platform:
             rows = conn.execute(
-                "SELECT * FROM posts WHERE platform = ?", (platform,)
+                "SELECT * FROM v_active_posts WHERE platform = ?",
+                (platform,),
             ).fetchall()
         else:
-            rows = conn.execute("SELECT * FROM posts").fetchall()
+            rows = conn.execute("SELECT * FROM v_active_posts").fetchall()
         return [dict(r) for r in rows]
+
+
+def mark_post_rolled_back(post_id: str, reason: str | None = None) -> None:
+    """post を rolled-back 状態にする (= v_active_posts から消える)。"""
+    with get_connection() as conn:
+        conn.execute(
+            "UPDATE posts SET rollback_at = ?, rollback_reason = ? "
+            "WHERE id = ?",
+            (_now(), reason, post_id),
+        )
 
 
 def list_screenplays() -> list[dict]:
@@ -592,24 +661,61 @@ _AXIS_VIEW = {
 
 def query_axis_performance(
     axis: str, *, metric: str = "avg_completion", limit: int = 200,
+    strategy_prefix: str | None = None,
 ) -> list[dict]:
     """軸別 view (= ``v_<axis>_performance``) を読み、(value, metric, n) を返す。
 
     Args:
         axis: ``hook_type`` / ``tone`` / ``dominant_emotion`` / ``theme``
         metric: ``avg_views`` / ``avg_completion`` / ``avg_save``
+        strategy_prefix: "active" / "shadow" / "baseline" を渡すと
+            ``v_strategy_performance`` から該当 strategy のみ集計する (= shadow と
+            active で reward を分離。Phase 3.5)。``None`` なら従来通り全 strategy
+            混合の ``v_<axis>_performance`` を読む (= 後方互換)。
     """
+    if metric not in ("avg_views", "avg_completion", "avg_save"):
+        raise ValueError(f"unknown metric: {metric}")
+    if strategy_prefix is not None:
+        return _query_strategy_axis_performance(
+            axis, metric=metric, limit=limit, strategy_prefix=strategy_prefix,
+        )
     view = _AXIS_VIEW.get(axis)
     if view is None:
         raise ValueError(f"unknown axis: {axis}")
-    if metric not in ("avg_views", "avg_completion", "avg_save"):
-        raise ValueError(f"unknown metric: {metric}")
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT axis_value, {metric} AS metric, n "
             f"FROM {view} "
             "ORDER BY n DESC LIMIT ?",
             (int(limit),),
+        ).fetchall()
+    return [
+        {"axis_value": r["axis_value"],
+         "metric": float(r["metric"] or 0.0),
+         "n": int(r["n"] or 0)}
+        for r in rows
+    ]
+
+
+def _query_strategy_axis_performance(
+    axis: str, *, metric: str, limit: int, strategy_prefix: str,
+) -> list[dict]:
+    """``v_strategy_performance`` から特定 strategy prefix の axis 集計を返す。
+
+    ``v_strategy_performance.strategy`` は ``"baseline"`` / ``"shadow_explore"`` /
+    ``"active_exploit"`` 等の形式なので prefix 比較で sub-strategy を吸収する。
+    """
+    if axis not in _AXIS_VIEW:
+        raise ValueError(f"unknown axis: {axis}")
+    with get_connection() as conn:
+        rows = conn.execute(
+            f"SELECT selected_value AS axis_value, "
+            f"       AVG({metric}) AS metric, SUM(n) AS n "
+            "FROM v_strategy_performance "
+            "WHERE axis = ? AND strategy LIKE ? "
+            "GROUP BY selected_value "
+            "ORDER BY n DESC LIMIT ?",
+            (axis, f"{strategy_prefix}%", int(limit)),
         ).fetchall()
     return [
         {"axis_value": r["axis_value"],

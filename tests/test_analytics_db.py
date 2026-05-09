@@ -46,6 +46,111 @@ def test_init_db_creates_tables(isolated_db) -> None:
     assert {"screenplays", "videos", "posts", "post_metrics", "schema_version"} <= tables
 
 
+def test_get_connection_enables_wal_and_busy_timeout(isolated_db) -> None:
+    with isolated_db.get_connection() as conn:
+        journal_mode = conn.execute("PRAGMA journal_mode").fetchone()[0]
+        busy_timeout = conn.execute("PRAGMA busy_timeout").fetchone()[0]
+        synchronous = conn.execute("PRAGMA synchronous").fetchone()[0]
+    assert journal_mode.lower() == "wal"
+    assert busy_timeout >= 5000
+    assert synchronous == 1  # NORMAL
+
+
+def test_insert_metrics_dedups_same_post_and_timestamp(isolated_db, sample_screenplay_file) -> None:
+    """同 post_id × 同 fetched_at の二重 insert は INSERT OR IGNORE で抑止される。"""
+    sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
+    video_id = "vid_test_" + sp_id[:6]
+    isolated_db.insert_video(video_id, sp_id, output_path="/tmp/x.mp4")
+    post_id = isolated_db.register_post(video_id, "youtube", "https://youtu.be/abc")
+
+    # _now() を固定して同タイムスタンプを強制
+    import analytics.db as _db
+    fixed = "2026-05-09T12:00:00+00:00"
+    monkey = _db._now
+    _db._now = lambda: fixed
+    try:
+        isolated_db.insert_metrics(post_id, {"views": 100})
+        isolated_db.insert_metrics(post_id, {"views": 200})  # 同時刻 → ignore
+    finally:
+        _db._now = monkey
+
+    with isolated_db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT views FROM post_metrics WHERE post_id=?", (post_id,)
+        ).fetchall()
+    assert len(rows) == 1
+    assert rows[0]["views"] == 100  # 最初の insert が残る
+
+
+def test_insert_metrics_keeps_distinct_timestamps(isolated_db, sample_screenplay_file) -> None:
+    """異なる fetched_at は時系列として全て蓄積される。"""
+    sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
+    video_id = "vid_test2_" + sp_id[:6]
+    isolated_db.insert_video(video_id, sp_id, output_path="/tmp/y.mp4")
+    post_id = isolated_db.register_post(video_id, "youtube", "https://youtu.be/xyz")
+
+    import analytics.db as _db
+    timestamps = iter([
+        "2026-05-09T12:00:00+00:00",
+        "2026-05-09T13:00:00+00:00",
+        "2026-05-09T14:00:00+00:00",
+    ])
+    monkey = _db._now
+    _db._now = lambda: next(timestamps)
+    try:
+        for v in (100, 200, 300):
+            isolated_db.insert_metrics(post_id, {"views": v})
+    finally:
+        _db._now = monkey
+
+    with isolated_db.get_connection() as conn:
+        rows = conn.execute(
+            "SELECT views FROM post_metrics WHERE post_id=? ORDER BY fetched_at",
+            (post_id,),
+        ).fetchall()
+    assert [r["views"] for r in rows] == [100, 200, 300]
+
+
+def test_get_connection_concurrent_readers_during_write(isolated_db, sample_screenplay_file) -> None:
+    """WAL mode allows readers to proceed concurrently with a writer."""
+    sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
+
+    write_started = threading.Event()
+    write_done = threading.Event()
+    read_results: list[int] = []
+
+    def writer() -> None:
+        with isolated_db.get_connection() as conn:
+            conn.execute("BEGIN IMMEDIATE")
+            conn.execute(
+                "UPDATE screenplays SET hook_type=? WHERE id=?",
+                ("test_hook", sp_id),
+            )
+            write_started.set()
+            # hold the write lock briefly
+            import time
+            time.sleep(0.2)
+            conn.commit()
+            write_done.set()
+
+    def reader() -> None:
+        write_started.wait(timeout=2.0)
+        with isolated_db.get_connection() as conn:
+            row = conn.execute(
+                "SELECT COUNT(*) FROM screenplays WHERE id=?", (sp_id,)
+            ).fetchone()
+            read_results.append(row[0])
+
+    t_writer = threading.Thread(target=writer)
+    t_reader = threading.Thread(target=reader)
+    t_writer.start()
+    t_reader.start()
+    t_writer.join(timeout=5.0)
+    t_reader.join(timeout=5.0)
+    assert write_done.is_set()
+    assert read_results == [1]
+
+
 def test_upsert_screenplay_inserts_metadata(isolated_db, sample_screenplay_file) -> None:
     sp_id = isolated_db.upsert_screenplay(sample_screenplay_file)
     assert len(sp_id) == 12
