@@ -40,8 +40,11 @@ _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
 
-# Blueprint 段階移行: routes/__init__.py の roadmap に従って次は assets の順。
+# Blueprint 段階移行: 残るのは preview_server に内在する screenplay PUT /
+# stage cache (bg/kling) / analyze job / character_meta / location CRUD 系
+# (= 別 PR で順次)。routes/__init__.py の roadmap 参照。
 from routes.analytics import analytics_bp  # noqa: E402
+from routes.assets import assets_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
 from routes.final_publish import final_publish_bp  # noqa: E402
@@ -54,6 +57,7 @@ app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(stages_bp)
 app.register_blueprint(final_publish_bp)
+app.register_blueprint(assets_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -486,118 +490,9 @@ def api_job(job_id):
 
 
 # ───────────────── アセット配信 ─────────────────
-
-@app.route("/asset/<ts>/tts/<int:scene_idx>/<int:line_idx>")
-def asset_tts(ts, scene_idx, line_idx):
-    _validate_ts(ts)
-    base = _ts_path(ts)
-    adj = _safe_join(base, f"tts_{scene_idx:03d}_{line_idx:03d}.adj.mp3")
-    raw = _safe_join(base, f"tts_{scene_idx:03d}_{line_idx:03d}.mp3")
-    if os.path.exists(adj):
-        return send_file(adj, mimetype="audio/mpeg")
-    if os.path.exists(raw):
-        return send_file(raw, mimetype="audio/mpeg")
-    return "", 404
-
-
-@app.route("/asset/<ts>/tts-merged")
-def asset_tts_merged(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return "", 404
-    sp, _name = _load_screenplay_for_project(ts)
-    try:
-        path = scene_gen.build_merged_tts_preview(sp, _ts_path(ts))
-    except Exception as e:
-        logger.exception("merged TTS build failed")
-        return jsonify({"error": str(e)}), 500
-    if not path or not os.path.exists(path):
-        return "", 404
-    mimetype = "audio/mp4" if path.endswith(".m4a") else "audio/mpeg"
-    return send_file(path, mimetype=mimetype)
-
-
-@app.route("/asset/<ts>/bg/<int:scene_idx>")
-def asset_bg(ts, scene_idx):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), f"bg_{scene_idx:03d}.png")
-    if os.path.exists(p):
-        return send_file(p, mimetype="image/png")
-    return "", 404
-
-
-@app.route("/asset/<ts>/kling/<int:scene_idx>")
-def asset_kling(ts, scene_idx):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), f"kling_{scene_idx:03d}.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
-@app.route("/asset/<ts>/scene-trim/<int:scene_idx>")
-def asset_scene_trim(ts, scene_idx):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), f"scene_{scene_idx:03d}.trim.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
-@app.route("/asset/<ts>/scene/<int:scene_idx>")
-def asset_scene(ts, scene_idx):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), f"scene_{scene_idx:03d}.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
-@app.route("/asset/<ts>/scene-audio/<int:scene_idx>")
-def asset_scene_audio(ts, scene_idx):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), f"audio_{scene_idx:03d}.m4a")
-    if os.path.exists(p):
-        return send_file(p, mimetype="audio/mp4")
-    return "", 404
-
-
-@app.route("/asset/<ts>/overlay")
-def asset_overlay(ts):
-    _validate_ts(ts)
-    p = _safe_join(_ts_path(ts), "overlaid.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
-@app.route("/asset/character/<name>")
-def asset_character(name):
-    from analyze import character_meta as cmeta_mod
-    if not re.match(r'^[\w\-]+$', name):
-        abort(400)
-    p = cmeta_mod.image_path(name)
-    if p is not None and p.exists():
-        return send_file(str(p), mimetype="image/png")
-    return "", 404
-
-
-@app.route("/asset/reference-video/<sha>")
-def asset_reference_video(sha):
-    """analyze ジョブの参考動画を Stage 1「素材編集」UI でプレビューさせる。"""
-    if not _SHA256_RE.match(sha):
-        abort(400)
-    p = analyze_job.reference_video_path(sha)
-    if not p or not os.path.exists(p):
-        return "", 404
-    ext = os.path.splitext(p)[1].lower()
-    mimetype = {
-        ".mp4": "video/mp4",
-        ".mov": "video/quicktime",
-        ".webm": "video/webm",
-        ".mkv": "video/x-matroska",
-    }.get(ext, "application/octet-stream")
-    return send_file(p, mimetype=mimetype, conditional=True)
+# /asset/<ts>/* (= TTS / BG / Kling / scene / overlay) と /asset/character/* /
+# /asset/reference-video/* / /asset/location/* は routes/assets.py の
+# Blueprint に移管済み。
 
 
 # ───────────────── reference videos (analyze 用) ─────────────────
@@ -762,15 +657,7 @@ def api_delete_location(loc_id):
     return jsonify({"id": loc_id, "deleted": True})
 
 
-@app.route("/asset/location/<loc_id>/preview")
-def asset_location_preview(loc_id):
-    from analyze import location as loc_mod
-    if not loc_mod.ID_RE.match(loc_id or ""):
-        abort(400)
-    p = loc_mod.preview_path(loc_id)
-    if p.exists():
-        return send_file(str(p), mimetype="image/png")
-    return "", 404
+# /asset/location/<loc_id>/preview は routes/assets.py に移管済み。
 
 
 # ───────────────── character meta CRUD ─────────────────
