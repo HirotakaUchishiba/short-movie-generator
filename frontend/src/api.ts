@@ -29,6 +29,7 @@ import type {
   ProjectListItem,
   Progress,
   PublishedPost,
+  YoutubeChannelInfo,
   ReferenceVideo,
   ReferenceVideoUploadResult,
   Screenplay,
@@ -372,6 +373,7 @@ export const api = {
     body: {
       platform: "youtube" | "instagram" | "tiktok";
       privacy?: "private" | "unlisted" | "public";
+      channel?: string;
     },
   ) =>
     http<{ job_id: string }>(`/api/projects/${ts}/publish`, {
@@ -382,6 +384,11 @@ export const api = {
     http<{ published_posts: PublishedPost[] }>(
       `/api/projects/${ts}/publish-history`,
     ),
+  youtubeProfiles: () => http<{ profiles: string[] }>("/api/youtube/profiles"),
+  youtubeChannelInfo: (profile?: string) => {
+    const q = profile ? `?profile=${encodeURIComponent(profile)}` : "";
+    return http<YoutubeChannelInfo>(`/api/youtube/channel-info${q}`);
+  },
 
   // ─── Analytics queue (pending) replay ────────────
   analyticsPendingStatus: () =>

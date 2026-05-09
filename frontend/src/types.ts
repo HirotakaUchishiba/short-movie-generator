@@ -57,6 +57,15 @@ export interface PublishedPost {
   published_at: string;
 }
 
+export interface YoutubeChannelInfo {
+  profile: string;
+  aud?: string;
+  scopes?: string[];
+  title?: string;
+  channel_id?: string;
+  error?: string;
+}
+
 export interface StageStatus {
   generated_at: string | null;
   approved_at: string | null;

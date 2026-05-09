@@ -77,3 +77,50 @@ def test_confirm_publish_channel_non_tty_raises_runtimeerror(monkeypatch) -> Non
     monkeypatch.setattr("sys.stdin.isatty", lambda: False)
     with pytest.raises(RuntimeError, match="tty"):
         publish._confirm_publish_channel(skip=False)
+
+
+def test_profile_context_no_op_when_none(monkeypatch) -> None:
+    import os
+    from final_import.publish import _profile_context
+    monkeypatch.setenv("YOUTUBE_PROFILE", "ORIGINAL")
+    with _profile_context(None):
+        assert os.environ.get("YOUTUBE_PROFILE") == "ORIGINAL"
+    assert os.environ.get("YOUTUBE_PROFILE") == "ORIGINAL"
+
+
+def test_profile_context_overrides_and_restores(monkeypatch) -> None:
+    import os
+    from final_import.publish import _profile_context
+    monkeypatch.setenv("YOUTUBE_PROFILE", "ORIGINAL")
+    with _profile_context("brand"):
+        assert os.environ.get("YOUTUBE_PROFILE") == "BRAND"
+    assert os.environ.get("YOUTUBE_PROFILE") == "ORIGINAL"
+
+
+def test_profile_context_default_clears_env(monkeypatch) -> None:
+    import os
+    from final_import.publish import _profile_context
+    monkeypatch.setenv("YOUTUBE_PROFILE", "ORIGINAL")
+    with _profile_context("default"):
+        assert "YOUTUBE_PROFILE" not in os.environ
+    assert os.environ.get("YOUTUBE_PROFILE") == "ORIGINAL"
+
+
+def test_profile_context_restores_after_exception(monkeypatch) -> None:
+    import os
+    from final_import.publish import _profile_context
+    monkeypatch.setenv("YOUTUBE_PROFILE", "ORIGINAL")
+    with pytest.raises(RuntimeError):
+        with _profile_context("brand"):
+            assert os.environ.get("YOUTUBE_PROFILE") == "BRAND"
+            raise RuntimeError("boom")
+    assert os.environ.get("YOUTUBE_PROFILE") == "ORIGINAL"
+
+
+def test_profile_context_when_env_initially_unset(monkeypatch) -> None:
+    import os
+    from final_import.publish import _profile_context
+    monkeypatch.delenv("YOUTUBE_PROFILE", raising=False)
+    with _profile_context("brand"):
+        assert os.environ.get("YOUTUBE_PROFILE") == "BRAND"
+    assert "YOUTUBE_PROFILE" not in os.environ
