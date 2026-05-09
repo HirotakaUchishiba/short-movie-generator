@@ -42,13 +42,15 @@ jobs:
         run: |
           pip install -r requirements.txt
       - name: Run pytest
-        # 一部テストは API key を必要とするので env で stub 値を渡す
+        # 一部テストは preflight が空文字 reject する API key を要求する。
+        # 実 API は呼ばないテスト前提なので placeholder で十分。
         env:
           ANTHROPIC_API_KEY: dummy
           OPENAI_API_KEY: dummy
           ELEVENLABS_API_KEY: dummy
           GOOGLE_API_KEY: dummy
           FAL_API_KEY: dummy
+          SYNC_API_KEY: dummy
           SLACK_WEBHOOK_URL: ""
         run: pytest tests/ -q --maxfail=5
 
