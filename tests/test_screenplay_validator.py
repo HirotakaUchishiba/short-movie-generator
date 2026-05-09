@@ -635,3 +635,108 @@ def test_character_existence_skipped_when_directory_empty(monkeypatch) -> None:
     sp["featured_characters"] = ["literally_anything"]
     screenplay_validator.validate_screenplay(sp)
 
+
+
+# ───── Compositional Architecture: identity / annotation / scene_parts / global_parts ─────
+# 詳細: docs/plannings/2026-05-10_compositional-architecture.md §6.3
+
+
+def test_identity_optional_for_legacy_screenplay() -> None:
+    """旧スキーマ (= identity 無し) は引き続き valid。"""
+    screenplay_validator.validate_screenplay(_valid_screenplay())
+
+
+def test_identity_inline_form_passes() -> None:
+    """新スキーマ: identity を入れ子で持つ scene が valid。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1__office"],
+        "location_ref": "home_office",
+        "start_emotion": "中立",
+        "camera_distance": "medium-close",
+    }
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 5,
+        "motion_intensity": "low",
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_identity_missing_required_field_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        # start_emotion missing
+    }
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_identity_invalid_camera_distance_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        "start_emotion": "中立",
+        "camera_distance": "ultra-wide",  # invalid
+    }
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_annotation_invalid_duration_bucket_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 7,  # 5 / 10 のみ許可
+    }
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_annotation_invalid_motion_intensity_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "motion_intensity": "extreme",  # low/medium/high のみ
+    }
+    with pytest.raises(ValueError):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_scene_parts_optional_object_passes() -> None:
+    """scene_parts は任意 object でいったん受ける (Phase 4 で part_registry 整合性追加)。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "subtitle_style": {"id": "karaoke_bold", "params": {}},
+        "stickers": [{"id": "exclaim_red", "at": 0.5}],
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_override_fields_pass() -> None:
+    """_override_*  は novel intent 用 escape hatch なので validator は通る。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["_override_animation_prompt"] = "subject teleports"
+    sp["scenes"][0]["_override_background_prompt"] = None
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_global_parts_optional_passes() -> None:
+    sp = _valid_screenplay()
+    sp["global_parts"] = {
+        "filter_preset": {"id": "warm_cinematic", "params": {}},
+        "bgm": {"path": "assets/bgm/upbeat.mp3", "ducking": True},
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_legacy_alias_fields_pass() -> None:
+    """新スキーマの annotation / identity を入れ子で持たず、旧 alias で書いたケース。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["start_emotion"] = "中立"
+    sp["scenes"][0]["visual_intent_id"] = "talking_head_calm"
+    sp["scenes"][0]["duration_bucket"] = 5
+    sp["scenes"][0]["motion_intensity"] = "low"
+    screenplay_validator.validate_screenplay(sp)

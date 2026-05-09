@@ -30,6 +30,11 @@ assets/bgm/*.wav
 assets/bgm/*.mp3
 assets/reference_videos/
 
+# Layer 1 (Clip Library) のローカル cache。AI 生成物 (= bg.png + kling_clean.mp4) と
+# meta.json を <id>/ 単位で蓄える。生成にコストがかかるため commit せず、
+# 各環境で grow_clip_pool.py 等を介して個別に蓄積する。
+cache/clips/
+
 # frontend
 frontend/node_modules/
 frontend/dist/

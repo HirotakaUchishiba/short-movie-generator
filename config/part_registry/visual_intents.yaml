@@ -1,0 +1,86 @@
+# Layer 1 (Clip Library) で参照される visual_intent の SSOT。
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4.1, §4.2
+#
+# 各 entry は scene の annotation.visual_intent_id として screenplay から参照される。
+# `compatible_with` は cache lookup の degree match で「互換採用」される候補
+# (= clip_library._intent_compatible で参照)。
+#
+# Phase 1 では vocabulary の網羅性より「粒度の一貫性」を優先 (= 5 intent でスタート)。
+# 運用しながら追加する。
+
+version: 1
+parts:
+  - id: talking_head_calm
+    description: |
+      被写体が立位 / 座位で正面を向き、穏やかに喋る。体の動きは最小限。
+      lipsync friendly な「喋っているだけ」のシーンの基本形。
+    suggested_kling_template: |
+      A {character} {pose_modifier} in {location_decor},
+      {start_emotion_addon}, talking calmly to camera,
+      subtle ambient motion, lipsync friendly.
+    duration_buckets: [5, 10]
+    valid_start_emotions: [中立, 喜び, 満足, 困惑]
+    motion_intensity_bucket: low
+    pool_target_size: 10
+    compatible_with: [talking_head_listening, talking_head_explaining]
+    deprecated: false
+
+  - id: talking_head_animated
+    description: |
+      被写体が喋りながら身振り手振りを交える (= 説明的 / 強調的)。
+      体は腰から上が中心、表情は豊か。lipsync が必要なシーン。
+    suggested_kling_template: |
+      A {character} {pose_modifier} in {location_decor},
+      {start_emotion_addon}, talking with expressive gestures,
+      hands moving naturally, head tilts, engaging delivery.
+    duration_buckets: [5, 10]
+    valid_start_emotions: [中立, 喜び, 焦り, 困惑, 驚き]
+    motion_intensity_bucket: medium
+    pool_target_size: 10
+    compatible_with: [talking_head_calm, gesture_pointing]
+    deprecated: false
+
+  - id: reaction_surprise
+    description: |
+      喋らずに驚きの反応のみ。目を見開く、軽く息を呑む程度の動き。
+      lipsync は使わない (= reaction shot 専用)。
+    suggested_kling_template: |
+      A {character} in {location_decor},
+      eyes widening in surprise, slight intake of breath,
+      reaction shot, no speech.
+    duration_buckets: [5]
+    valid_start_emotions: [中立, 困惑]
+    motion_intensity_bucket: low
+    pool_target_size: 8
+    compatible_with: []
+    deprecated: false
+
+  - id: reaction_relief
+    description: |
+      安堵の反応。肩の力が抜ける、軽く息を吐く、微笑む。
+      lipsync は使わない。
+    suggested_kling_template: |
+      A {character} in {location_decor},
+      shoulders relaxing, exhaling with relief, slight smile,
+      reaction shot, no speech.
+    duration_buckets: [5]
+    valid_start_emotions: [焦り, 困惑]
+    motion_intensity_bucket: low
+    pool_target_size: 8
+    compatible_with: []
+    deprecated: false
+
+  - id: gesture_pointing
+    description: |
+      喋りながら指差す動作。固有名詞や対象物を指し示す瞬間に使う。
+      lipsync 必要。
+    suggested_kling_template: |
+      A {character} {pose_modifier} in {location_decor},
+      {start_emotion_addon}, talking and pointing toward something off-screen,
+      hand raises decisively, lipsync friendly.
+    duration_buckets: [5]
+    valid_start_emotions: [中立, 焦り, 喜び]
+    motion_intensity_bucket: medium
+    pool_target_size: 8
+    compatible_with: [talking_head_animated]
+    deprecated: false
