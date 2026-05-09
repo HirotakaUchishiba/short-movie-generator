@@ -72,11 +72,17 @@ jobs:
   secret-scan:
     runs-on: ubuntu-latest
     timeout-minutes: 5
-    # 履歴にコミットされた secret が無いか確認
+    # 履歴にコミットされた secret が無いか確認。
+    # gitleaks-action@v2 は organization ライセンスを要求するので、
+    # binary を直接 download して実行する (= public repo でも無料で動く)。
     steps:
       - uses: actions/checkout@v4
         with:
           fetch-depth: 0
-      - uses: gitleaks/gitleaks-action@v2
-        env:
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.18.4
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+      - name: Run gitleaks
+        run: gitleaks detect --source . --redact -v --exit-code 1
