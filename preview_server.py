@@ -44,15 +44,18 @@ _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
 
-# Blueprint 段階移行: /api/cost/* /api/analytics/* /api/config/* は routes/ 配下に
-# 切り出し済み。routes/__init__.py の roadmap に従って次は projects → ... の順。
+# Blueprint 段階移行: /api/cost/* /api/analytics/* /api/config/* /api/projects
+# は routes/ 配下に切り出し済み。routes/__init__.py の roadmap に従って
+# 次は stages (run-next/approve/reject/regen) → assets → final → publish の順。
 from routes.analytics import analytics_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
+from routes.projects import projects_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
 app.register_blueprint(analytics_bp)
 app.register_blueprint(config_bp)
+app.register_blueprint(projects_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -131,30 +134,9 @@ def _safe_join(base: str, *parts: str) -> str:
     return _route_helpers.safe_join(base, *parts)
 
 
-def _list_screenplays() -> list[str]:
-    if not os.path.isdir(SCREENPLAYS_DIR):
-        return []
-    return sorted(f for f in os.listdir(SCREENPLAYS_DIR) if f.endswith(".json"))
-
-
 def _load_screenplay_for_project(ts: str) -> tuple[dict, str]:
-    """temp_dir/screenplay.json (immutable snapshot) を読み込む。
-
-    台本は project 作成時に temp/<TS>/screenplay.json にコピーされ、
-    以後そのファイルだけが正となる。template (= screenplays/<name>.json)
-    が外部で書き換わっても進行中 project には影響しない。
-    """
-    meta = staged_pipeline.read_metadata(_ts_path(ts))
-    if not meta:
-        abort(404, "プロジェクトのmetadataがありません")
-    name = meta.get("screenplay_template_name") or meta.get("screenplay_name")
-    if not name:
-        abort(404, "metadataにscreenplay_template_name/nameがありません")
-    try:
-        sp = staged_pipeline.load_project_screenplay(_ts_path(ts))
-    except FileNotFoundError:
-        abort(404, "プロジェクトの screenplay.json snapshot が見つかりません")
-    return sp, name
+    """互換 shim: routes._helpers.load_screenplay_for_project に移管済み。"""
+    return _route_helpers.load_screenplay_for_project(ts, temp_dir=TEMP_DIR)
 
 
 def _ffprobe_duration(path: str) -> float:
@@ -169,145 +151,14 @@ def _ffprobe_duration(path: str) -> float:
         return 0.0
 
 
-# ───────────────── プロジェクト一覧 / 作成 ─────────────────
-
-def _split_caption(caption: str) -> tuple[str, str]:
-    """caption を「タイトル行」と「ハッシュタグ行」に分離する。
-
-    タイトル = 先頭の非空・非ハッシュタグ行。caption が空・None の場合は
-    両方空文字列を返す。プロジェクト一覧の friendly title 算出に使う。
-    """
-    if not caption:
-        return "", ""
-    title = ""
-    hashtags: list[str] = []
-    for raw in caption.splitlines():
-        line = raw.strip()
-        if not line:
-            continue
-        if line.startswith("#"):
-            hashtags.append(line)
-        elif not title:
-            title = line
-    return title, " ".join(hashtags)
-
-
-def _project_display_title(screenplay: dict | None, screenplay_name: str | None) -> str:
-    """プロジェクト一覧用の friendly title。caption 1 行目 → 整形済み filename の順。"""
-    if screenplay:
-        title, _ = _split_caption(str(screenplay.get("caption") or ""))
-        if title:
-            return title
-    if screenplay_name:
-        base = screenplay_name
-        if base.endswith(".json"):
-            base = base[:-5]
-        if base.startswith("auto_") and len(base) > 13:
-            base = "参考動画 " + base[5:13]
-        return base
-    return "(無題)"
-
-
-@app.route("/api/projects", methods=["GET"])
-def api_projects():
-    items = []
-    if not os.path.isdir(TEMP_DIR):
-        return jsonify({"projects": items, "screenplays": _list_screenplays()})
-
-    for ts in sorted(os.listdir(TEMP_DIR), reverse=True):
-        ts_path = _ts_path(ts)
-        if not os.path.isdir(ts_path):
-            continue
-        meta = staged_pipeline.read_metadata(ts_path)
-        if not meta:
-            continue
-        progress = progress_store.load(ts_path)
-
-        screenplay: dict | None = None
-        try:
-            screenplay = staged_pipeline.load_project_screenplay(ts_path)
-        except FileNotFoundError:
-            pass
-        except Exception as e:
-            logger.warning("project list: screenplay load failed for %s: %s", ts, e)
-
-        title = _project_display_title(screenplay, meta.get("screenplay_name"))
-        _, hashtags = _split_caption(
-            str((screenplay or {}).get("caption") or "")
-        )
-        scene_count = len((screenplay or {}).get("scenes") or [])
-        has_bg_thumbnail = os.path.exists(
-            os.path.join(ts_path, "bg_000.png")
-        )
-
-        items.append({
-            "timestamp": ts,
-            "screenplay_name": meta.get("screenplay_name"),
-            "display_title": title,
-            "caption_hashtags": hashtags,
-            "scene_count": scene_count,
-            "has_bg_thumbnail": has_bg_thumbnail,
-            "created_at": meta.get("created_at"),
-            "current_stage": progress_store.current_stage(ts_path),
-            "progress": progress,
-        })
-    return jsonify({"projects": items, "screenplays": _list_screenplays()})
-
-
-@app.route("/api/projects", methods=["POST"])
-def api_create_project():
-    """新規 project を作成する。
-
-    screenplays/<name>.json (template) を読み、temp/<TS>/screenplay.json
-    に immutable snapshot としてコピーする。以後の stage / UI 編集は
-    snapshot のみを対象とし、template が外部で書き換わっても影響を受けない。
-    """
-    data = request.get_json(force=True) or {}
-    name = data.get("screenplay_name")
-    if not name:
-        return jsonify({"error": "screenplay_name が必要です"}), 400
-    analyze_job_id = data.get("analyze_job_id") or None
-    if analyze_job_id and not _JOB_ID_RE.match(analyze_job_id):
-        return jsonify({"error": "invalid analyze_job_id"}), 400
-    try:
-        screenplay = staged_pipeline.load_template(name)
-    except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
-
-    from datetime import datetime
-    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
-    ts_path = _ts_path(ts)
-    os.makedirs(ts_path, exist_ok=True)
-
-    try:
-        staged_pipeline.run_script(
-            screenplay, name, ts_path, analyze_job_id=analyze_job_id,
-        )
-    except Exception as e:
-        logger.exception("script stage failed")
-        return jsonify({"error": str(e)}), 500
-
-    return jsonify({"timestamp": ts, "current_stage": "script"}), 201
-
-
-# ───────────────── プロジェクト詳細 / 進捗 ─────────────────
-
-@app.route("/api/projects/<ts>", methods=["GET"])
-def api_project_detail(ts):
-    _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    sp, name = _load_screenplay_for_project(ts)
-    progress = progress_store.load(_ts_path(ts))
-    meta = staged_pipeline.read_metadata(_ts_path(ts)) or {}
-    return jsonify({
-        "timestamp": ts,
-        "screenplay_name": name,
-        "screenplay": sp,
-        "progress": progress,
-        "current_stage": progress_store.current_stage(_ts_path(ts)),
-        "analyze_job_id": meta.get("analyze_job_id"),
-    })
+# /api/projects (= 一覧 + 作成 + 詳細) は routes/projects.py の Blueprint に
+# 移管済み。互換 shim で _list_screenplays / _split_caption /
+# _project_display_title を re-export し、既存テストを温存。
+from routes.projects import (  # noqa: E402, F401
+    _list_screenplays,
+    _project_display_title,
+    _split_caption,
+)
 
 
 # ElevenLabs に実際に送信される原文を返す。
