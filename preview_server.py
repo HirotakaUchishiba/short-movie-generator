@@ -49,11 +49,13 @@ _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
 app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
 
-# Blueprint 段階移行: /api/cost/* は routes/cost.py に切り出し済み。
-# routes/__init__.py の roadmap に従って次は analytics → projects → ... の順。
+# Blueprint 段階移行: /api/cost/* と /api/analytics/* は routes/ 配下に
+# 切り出し済み。routes/__init__.py の roadmap に従って次は projects → ... の順。
+from routes.analytics import analytics_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
+app.register_blueprint(analytics_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -2125,48 +2127,7 @@ def api_publish_history(ts):
     return jsonify({"published_posts": meta.get("published_posts") or []})
 
 
-# ───────────────── analytics queue (pending) ─────────────────
-
-@app.route("/api/analytics/pending", methods=["GET"])
-def api_analytics_pending_status():
-    """`data/analytics_pending.jsonl` に残っている件数 + 最古エントリの時刻。"""
-    from analytics import pending_queue
-    entries = pending_queue.read_all()
-    if not entries:
-        return jsonify({"count": 0, "oldest_at": None})
-    oldest = min(
-        (e.get("timestamp") for e in entries if e.get("timestamp")),
-        default=None,
-    )
-    return jsonify({
-        "count": len(entries),
-        "oldest_at": oldest,
-        "platforms": sorted({
-            e.get("platform") for e in entries if e.get("platform")
-        }),
-    })
-
-
-@app.route("/api/analytics/pending/sync", methods=["POST"])
-def api_analytics_pending_sync():
-    """queue を replay して、成功した ts は publish stage を generated にマーク。"""
-    from analytics import pending_queue
-    from final_import.publish import finalize_pending_publish
-
-    result = pending_queue.replay()
-    finalized: list[str] = []
-    for ts in result.get("synced_ts") or []:
-        try:
-            if finalize_pending_publish(ts):
-                finalized.append(ts)
-        except Exception as e:
-            logger.warning("[pending-sync] finalize_pending_publish(%s) 失敗: %s", ts, e)
-    return jsonify({
-        "success": result.get("success", 0),
-        "failed": result.get("failed", 0),
-        "synced_ts": result.get("synced_ts") or [],
-        "finalized_ts": finalized,
-    })
+# /api/analytics/pending(/sync) は routes/analytics.py の Blueprint に移管済み。
 
 
 # ───────────────── React 静的配信 ─────────────────
