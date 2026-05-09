@@ -1,5 +1,5 @@
 import { useOutletContext } from "react-router-dom";
-import { useState } from "react";
+import { useCallback, useState } from "react";
 import type { StageName } from "../types";
 import type { ReactNode } from "react";
 import RejectModal from "./RejectModal";
@@ -60,6 +60,11 @@ export default function StageGate({
 
   const [showReject, setShowReject] = useState(false);
   const [rejectFeedback, setRejectFeedback] = useState<string | null>(null);
+  const closeReject = useCallback(() => setShowReject(false), []);
+  const onRejectSubmitted = useCallback(
+    (id: number) => setRejectFeedback(`NG #${id} 記録済み`),
+    [],
+  );
 
   return (
     <div>
@@ -145,8 +150,8 @@ export default function StageGate({
         <RejectModal
           ts={ctx.detail.timestamp}
           stage={stage}
-          onClose={() => setShowReject(false)}
-          onSubmitted={(id) => setRejectFeedback(`NG #${id} 記録済み`)}
+          onClose={closeReject}
+          onSubmitted={onRejectSubmitted}
         />
       )}
     </div>

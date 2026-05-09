@@ -37,14 +37,21 @@ export default function SceneFieldEditor({
   const [locations, setLocations] = useState<string[]>([]);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const needsLocations = fields.includes("location_ref");
 
   useEffect(() => {
-    if (!fields.includes("location_ref")) return;
+    if (!needsLocations) return;
+    let cancelled = false;
     api
       .listLocations()
-      .then((d) => setLocations(d.locations.map((l) => l.id)))
+      .then((d) => {
+        if (!cancelled) setLocations(d.locations.map((l) => l.id));
+      })
       .catch(() => {});
-  }, [fields]);
+    return () => {
+      cancelled = true;
+    };
+  }, [needsLocations]);
 
   const onChange = async (field: EditableField, value: string | undefined) => {
     setSaving(true);

@@ -85,6 +85,8 @@ export interface SubtitleChunk {
   text: string;
   start?: number;
   end?: number;
+  // クライアント側で付与される React key 用 ID。API 送信時に strip される。
+  _uid?: string;
 }
 
 export interface Line {
@@ -103,6 +105,8 @@ export interface Line {
   speaker?: string;
   subtitles?: SubtitleChunk[];
   hidden?: boolean;
+  // クライアント側で付与される React key 用 ID。API 送信時に strip される。
+  _uid?: string;
 }
 
 export interface CharacterDef {
@@ -121,6 +125,8 @@ export interface Scene {
   camera_distance?: CameraDistance;
   lipsync?: boolean;
   lines?: Line[];
+  // クライアント側で付与される React key 用 ID。API 送信時に strip される。
+  _uid?: string;
 }
 
 export interface Screenplay {
@@ -322,6 +328,8 @@ export interface AbstractLine {
   speaker?: string;
   rate?: string;
   pronunciation_hints?: Record<string, string>;
+  // クライアント側で付与される React key 用 ID。API 送信時に strip される。
+  _uid?: string;
 }
 
 export interface AbstractScene {
@@ -335,6 +343,8 @@ export interface AbstractScene {
   camera_distance?: CameraDistance;
   location_ref?: string;
   animation_style?: "subtle" | "standard" | "expressive";
+  // クライアント側で付与される React key 用 ID。API 送信時に strip される。
+  _uid?: string;
 }
 
 export interface AbstractScreenplay {

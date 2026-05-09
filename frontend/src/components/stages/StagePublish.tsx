@@ -1,4 +1,4 @@
-import { useEffect, useState, useCallback } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api, finalVersionAssetUrl } from "../../api";
 import type { FinalVersion, PublishedPost } from "../../types";
@@ -22,6 +22,13 @@ export default function StagePublish() {
   const [error, setError] = useState<string | null>(null);
   const [busyPlatform, setBusyPlatform] = useState<Platform | null>(null);
   const [privacy, setPrivacy] = useState<Privacy>("private");
+  const abortRef = useRef<AbortController | null>(null);
+
+  useEffect(() => {
+    return () => {
+      abortRef.current?.abort();
+    };
+  }, []);
 
   const reload = useCallback(async () => {
     try {
@@ -41,6 +48,10 @@ export default function StagePublish() {
   }, [reload]);
 
   const doPublish = async (platform: Platform) => {
+    abortRef.current?.abort();
+    const controller = new AbortController();
+    abortRef.current = controller;
+    const { signal } = controller;
     setError(null);
     setBusyPlatform(platform);
     try {
@@ -48,23 +59,42 @@ export default function StagePublish() {
         platform,
         privacy: platform === "youtube" ? privacy : undefined,
       });
+      if (signal.aborted) return;
       // job ステータスをポーリング
-      let done = false;
-      while (!done) {
-        await new Promise((r) => setTimeout(r, 1500));
+      while (true) {
+        await new Promise<void>((resolve, reject) => {
+          const t = window.setTimeout(resolve, 1500);
+          signal.addEventListener(
+            "abort",
+            () => {
+              window.clearTimeout(t);
+              reject(new DOMException("aborted", "AbortError"));
+            },
+            { once: true },
+          );
+        });
+        if (signal.aborted) return;
         const j = await api.job(job.job_id);
-        if (j.status === "completed") {
-          done = true;
-        } else if (j.status === "failed") {
+        if (signal.aborted) return;
+        if (j.status === "completed") break;
+        if (j.status === "failed") {
           throw new Error(j.error || "publish failed");
         }
       }
       await reload();
+      if (signal.aborted) return;
       await ctx.reload();
     } catch (e) {
+      if (signal.aborted) return;
+      if (e instanceof DOMException && e.name === "AbortError") return;
       setError(String(e));
     } finally {
-      setBusyPlatform(null);
+      if (abortRef.current === controller) {
+        abortRef.current = null;
+      }
+      if (!signal.aborted) {
+        setBusyPlatform(null);
+      }
     }
   };
 
@@ -159,8 +189,8 @@ export default function StagePublish() {
                   </tr>
                 </thead>
                 <tbody>
-                  {history.map((p, i) => (
-                    <tr key={i}>
+                  {history.map((p) => (
+                    <tr key={`${p.platform}-${p.published_at}`}>
                       <td className="py-2">{p.platform}</td>
                       <td>{p.video_id || "—"}</td>
                       <td>

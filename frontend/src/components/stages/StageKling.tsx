@@ -187,7 +187,12 @@ function KlingResultsView() {
       <BulkKlingRegenBar totalCost={totalCost} />
       <div className="flex flex-col gap-3">
         {sp.scenes.map((scene, i) => (
-          <KlingResultCard key={i} scene={scene} sIdx={i} rate={klingRate} />
+          <KlingResultCard
+            key={scene._uid ?? i}
+            scene={scene}
+            sIdx={i}
+            rate={klingRate}
+          />
         ))}
       </div>
     </div>
@@ -280,10 +285,18 @@ function KlingResultCard({
   const [showAlt, setShowAlt] = useState(false);
 
   useEffect(() => {
+    let cancelled = false;
     api.klingCache
       .decisions(ts)
-      .then((s) => setDecision(s.scene_decisions[String(sIdx)] ?? null))
+      .then((s) => {
+        if (!cancelled) {
+          setDecision(s.scene_decisions[String(sIdx)] ?? null);
+        }
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [ts, sIdx, ctx.detail.progress.stages.kling.regen_count]);
 
   const cost = klingSceneCost(scene.duration, rate);

@@ -11,6 +11,7 @@ import type {
   AbstractScreenplay,
   AnalyzeJobDetail,
 } from "../../types";
+import { freshUid } from "../../uid";
 
 const EMOTIONS = [
   "驚き",
@@ -157,7 +158,10 @@ export default function ScriptEditPanel({
     // 空 text の line は schema (text.minLength=1) で reject されるため、
     // 新規シーンは lines:[] で開始し、ユーザーが「+ セリフ追加」してから
     // text を埋めて保存する流れにする。duration も Stage 2 が書き込む。
-    const newScene: AbstractScreenplay["scenes"][number] = { lines: [] };
+    const newScene: AbstractScreenplay["scenes"][number] = {
+      lines: [],
+      _uid: freshUid(),
+    };
     const scenes = [...abstract.scenes];
     const insertAt =
       afterIdx === undefined ? scenes.length : Math.max(0, afterIdx + 1);
@@ -395,7 +399,7 @@ export default function ScriptEditPanel({
         <div className="space-y-5">
           {abstract.scenes.map((scene, sIdx) => (
             <SceneEditor
-              key={sIdx}
+              key={scene._uid ?? sIdx}
               sIdx={sIdx}
               scene={scene}
               locationIds={locationIds}
@@ -626,7 +630,7 @@ function SceneEditor({
             const canMoveUp = lIdx === 0 && sIdx > 0;
             const canMoveDown = lIdx === lineCount - 1 && sIdx < sceneCount - 1;
             return (
-              <li key={lIdx}>
+              <li key={line._uid ?? lIdx}>
                 <div className="rounded-lg border border-slate-700 bg-slate-800/40">
                   <div className="p-3 space-y-3">
                     {/* ヘッダ: #N + ▲▼ + 削除 */}
@@ -766,6 +770,7 @@ function SceneEditor({
                   text: "",
                   start: 0,
                   emotion: "中立",
+                  _uid: freshUid(),
                 },
               ],
             }));
@@ -1668,8 +1673,8 @@ function CompletenessBanner({
         意図と違う結果になる可能性):
       </div>
       <ul className="list-disc list-inside space-y-0.5">
-        {issues.map((m, i) => (
-          <li key={i}>{m}</li>
+        {issues.map((m) => (
+          <li key={m}>{m}</li>
         ))}
       </ul>
     </div>
@@ -1694,6 +1699,9 @@ function BulkApplyBar({
     value: string | undefined,
   ) => void;
 }) {
+  const [locVal, setLocVal] = useState("");
+  const [camVal, setCamVal] = useState("");
+  const [animVal, setAnimVal] = useState("");
   return (
     <div className="border border-slate-700 rounded p-2 space-y-2 bg-slate-800/30">
       <span className="text-[11px] text-slate-400 block">
@@ -1704,11 +1712,11 @@ function BulkApplyBar({
           <span className="text-slate-500 shrink-0">背景</span>
           <select
             className="select text-xs"
-            defaultValue=""
+            value={locVal}
             onChange={(e) => {
               const v = e.target.value;
               if (v) onApply("location_ref", v);
-              e.currentTarget.value = "";
+              setLocVal("");
             }}
           >
             <option value="">(選んで適用)</option>
@@ -1723,11 +1731,11 @@ function BulkApplyBar({
           <span className="text-slate-500 shrink-0">カメラ距離</span>
           <select
             className="select text-xs"
-            defaultValue=""
+            value={camVal}
             onChange={(e) => {
               const v = e.target.value;
               if (v) onApply("camera_distance", v);
-              e.currentTarget.value = "";
+              setCamVal("");
             }}
           >
             <option value="">(選んで適用)</option>
@@ -1742,11 +1750,11 @@ function BulkApplyBar({
           <span className="text-slate-500 shrink-0">動き</span>
           <select
             className="select text-xs"
-            defaultValue=""
+            value={animVal}
             onChange={(e) => {
               const v = e.target.value;
               if (v) onApply("animation_style", v);
-              e.currentTarget.value = "";
+              setAnimVal("");
             }}
           >
             <option value="">(選んで適用)</option>

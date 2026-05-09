@@ -2,11 +2,12 @@ import { useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { overlayAssetUrl, api } from "../../api";
 import type { Screenplay, Line, SubtitleChunk } from "../../types";
+import { freshUid } from "../../uid";
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
-  const [draft, setDraft] = useState<Screenplay>(
+  const [draft, setDraft] = useState<Screenplay>(() =>
     JSON.parse(JSON.stringify(sp)),
   );
   const [saving, setSaving] = useState(false);
@@ -43,7 +44,7 @@ export default function StageOverlay() {
   const enableManual = (sIdx: number, lIdx: number) => {
     const line = draft.scenes[sIdx].lines![lIdx];
     // 初期: 1 chunk = line 全文 (時刻は未指定 = auto)
-    const initial: SubtitleChunk[] = [{ text: line.text }];
+    const initial: SubtitleChunk[] = [{ text: line.text, _uid: freshUid() }];
     updateLine(sIdx, lIdx, { subtitles: initial });
     setExpanded((e) => ({ ...e, [`${sIdx}-${lIdx}`]: true }));
   };
@@ -118,8 +119,14 @@ export default function StageOverlay() {
       const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
       const c = subs[cIdx];
       const midText = Math.max(1, Math.floor(c.text.length / 2));
-      const left: SubtitleChunk = { text: c.text.slice(0, midText) };
-      const right: SubtitleChunk = { text: c.text.slice(midText) };
+      const left: SubtitleChunk = {
+        text: c.text.slice(0, midText),
+        _uid: freshUid(),
+      };
+      const right: SubtitleChunk = {
+        text: c.text.slice(midText),
+        _uid: freshUid(),
+      };
       // 時刻が両方ある場合のみ中央分割で受け継ぐ。auto なら auto のまま。
       if (c.start !== undefined && c.end !== undefined) {
         const midTime = (c.start + c.end) / 2;
@@ -150,7 +157,7 @@ export default function StageOverlay() {
       const next = JSON.parse(JSON.stringify(d)) as Screenplay;
       const line = next.scenes[sIdx].lines![lIdx];
       const subs = line.subtitles ?? [];
-      subs.push({ text: "" });
+      subs.push({ text: "", _uid: freshUid() });
       line.subtitles = subs;
       return next;
     });
@@ -265,7 +272,7 @@ export default function StageOverlay() {
                 lines.length > 0 && lines.every((l) => l.hidden);
               const someHidden = lines.some((l) => l.hidden);
               return (
-                <div key={sIdx} className="space-y-1.5">
+                <div key={scene._uid ?? sIdx} className="space-y-1.5">
                   <div className="flex items-center gap-2 px-1 py-1 border-b border-slate-700/60">
                     <span className="text-[11px] font-semibold text-slate-300">
                       Scene {sIdx + 1}
@@ -486,7 +493,7 @@ function ManualChunksEditor({
         const isAuto = c.start === undefined && c.end === undefined;
         return (
           <div
-            key={cIdx}
+            key={c._uid ?? cIdx}
             className="border-t border-slate-800 py-1.5 flex flex-col gap-1"
           >
             <div className="flex items-center gap-2">

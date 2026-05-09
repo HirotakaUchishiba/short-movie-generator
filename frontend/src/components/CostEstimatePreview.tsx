@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useMemo, useState } from "react";
 import { api } from "../api";
 import type { CostEstimate, CostStage } from "../types";
 
@@ -26,6 +26,7 @@ const CONFIDENCE_COLOR: Record<CostEstimate["confidence"], string> = {
 export function CostEstimatePreview({ stage, params, disabled }: Props) {
   const [estimate, setEstimate] = useState<CostEstimate | null>(null);
   const [error, setError] = useState<string | null>(null);
+  const paramsKey = useMemo(() => JSON.stringify(params), [params]);
 
   useEffect(() => {
     if (disabled) {
@@ -34,7 +35,7 @@ export function CostEstimatePreview({ stage, params, disabled }: Props) {
     }
     let cancelled = false;
     api.cost
-      .estimate(stage, params)
+      .estimate(stage, JSON.parse(paramsKey) as Record<string, string | number>)
       .then((e) => {
         if (!cancelled) setEstimate(e);
       })
@@ -44,7 +45,7 @@ export function CostEstimatePreview({ stage, params, disabled }: Props) {
     return () => {
       cancelled = true;
     };
-  }, [stage, JSON.stringify(params), disabled]);
+  }, [stage, paramsKey, disabled]);
 
   if (disabled) return null;
   if (error) {

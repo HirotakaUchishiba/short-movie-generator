@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useSyncExternalStore } from "react";
 import { api } from "./api";
 
 export interface PresetData {
@@ -10,34 +10,48 @@ export interface PresetData {
 
 let cached: PresetData | null = null;
 let inflight: Promise<PresetData> | null = null;
+let lastError: string | null = null;
+const subs = new Set<() => void>();
 
-export function usePresets() {
-  const [data, setData] = useState<PresetData | null>(cached);
-  const [error, setError] = useState<string | null>(null);
+function notify(): void {
+  for (const cb of subs) cb();
+}
 
-  useEffect(() => {
-    if (cached) {
-      setData(cached);
-      return;
-    }
-    if (!inflight) {
-      inflight = api.presets().then((d) => {
-        cached = d as PresetData;
-        return cached;
-      });
-    }
-    let alive = true;
-    inflight
-      .then((d) => {
-        if (alive) setData(d);
-      })
-      .catch((e) => {
-        if (alive) setError(String(e));
-      });
-    return () => {
-      alive = false;
-    };
-  }, []);
+function ensureFetching(): void {
+  if (cached !== null || inflight !== null) return;
+  inflight = api
+    .presets()
+    .then((d) => {
+      cached = d as PresetData;
+      lastError = null;
+      return cached;
+    })
+    .catch((e) => {
+      lastError = String(e);
+      throw e;
+    })
+    .finally(() => {
+      inflight = null;
+      notify();
+    });
+}
 
-  return { data, error };
+function subscribe(cb: () => void): () => void {
+  subs.add(cb);
+  ensureFetching();
+  return () => {
+    subs.delete(cb);
+  };
+}
+
+function getSnapshot(): PresetData | null {
+  return cached;
+}
+
+export function usePresets(): {
+  data: PresetData | null;
+  error: string | null;
+} {
+  const data = useSyncExternalStore(subscribe, getSnapshot, getSnapshot);
+  return { data, error: lastError };
 }

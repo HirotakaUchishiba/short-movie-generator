@@ -150,7 +150,7 @@ function BgResultsView() {
       <BulkBGRegenBar totalCost={totalCost} sceneCount={sp.scenes.length} />
       <div className="flex flex-col gap-3">
         {sp.scenes.map((scene, i) => (
-          <BGResultCard key={i} scene={scene} sIdx={i} />
+          <BGResultCard key={scene._uid ?? i} scene={scene} sIdx={i} />
         ))}
       </div>
     </div>
@@ -240,10 +240,18 @@ function BGResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
   const [error, setError] = useState<string | null>(null);
 
   useEffect(() => {
+    let cancelled = false;
     api.bgCache
       .decisions(ts)
-      .then((s) => setDecision(s.scene_decisions[String(sIdx)] ?? null))
+      .then((s) => {
+        if (!cancelled) {
+          setDecision(s.scene_decisions[String(sIdx)] ?? null);
+        }
+      })
       .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
   }, [ts, sIdx, ctx.detail.progress.stages.bg.regen_count]);
 
   const isCached = decision?.decision === "cache";

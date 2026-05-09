@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
 import { api } from "../api";
 import type { AnalyzeJob, AnalyzeOptions, ReferenceVideo } from "../types";
@@ -19,7 +19,7 @@ export default function AnalyzePage() {
   const [creating, setCreating] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
-  const refresh = async () => {
+  const refresh = useCallback(async () => {
     try {
       const [v, j] = await Promise.all([
         api.listReferenceVideos(),
@@ -30,11 +30,11 @@ export default function AnalyzePage() {
     } catch (e) {
       setError(String(e));
     }
-  };
+  }, []);
 
   useEffect(() => {
-    refresh();
-  }, []);
+    void refresh();
+  }, [refresh]);
 
   const onFileSelected = async (file: File) => {
     const ext = "." + file.name.split(".").pop()?.toLowerCase();
@@ -220,10 +220,10 @@ export default function AnalyzePage() {
                       onChange={(e) => {
                         const sec = parseFloat(e.target.value);
                         if (!isNaN(sec) && sec >= 0.1) {
-                          setOptions({
-                            ...options,
+                          setOptions((prev) => ({
+                            ...prev,
                             fps: parseFloat((1 / sec).toFixed(3)),
-                          });
+                          }));
                         }
                       }}
                       className="bg-slate-800 px-2 py-1 rounded w-20"
@@ -249,10 +249,10 @@ export default function AnalyzePage() {
                     placeholder="例: TikTok UI は無視"
                     value={options.instructions ?? ""}
                     onChange={(e) =>
-                      setOptions({
-                        ...options,
+                      setOptions((prev) => ({
+                        ...prev,
                         instructions: e.target.value || null,
-                      })
+                      }))
                     }
                     className="bg-slate-800 px-2 py-1 rounded flex-1"
                   />
