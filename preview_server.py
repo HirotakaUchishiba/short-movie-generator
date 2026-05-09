@@ -153,7 +153,8 @@ def _ffprobe_duration(path: str) -> float:
             capture_output=True, text=True,
         )
         return float(json.loads(r.stdout)["format"]["duration"])
-    except Exception:
+    except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:
+        logger.warning("[ffprobe] duration 取得失敗 %s: %s", path, e)
         return 0.0
 
 
@@ -250,6 +251,7 @@ def api_save_screenplay(ts):
         with _screenplay_lock(ts):
             staged_pipeline.save_project_screenplay(_ts_path(ts), sp)
     except Exception as e:
+        logger.exception("PUT screenplay failed ts=%s", ts)
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
 
@@ -274,6 +276,9 @@ def api_bg_cache_info(ts, scene_idx):
     try:
         key = bg_cache.compute_bg_cache_key(scenes[scene_idx], sp)
     except Exception as e:
+        logger.exception(
+            "bg_cache key 計算失敗 ts=%s scene=%d", ts, scene_idx,
+        )
         return jsonify({"error": str(e)}), 500
     cached = bg_cache.lookup(key)
     info: dict = {"cache_key": key, "cached": cached is not None}
@@ -345,6 +350,10 @@ def api_patch_line(ts, scene_idx, line_idx):
                 return jsonify({"error": "validator失敗", "details": errors}), 400
             staged_pipeline.save_project_screenplay(ts_path, sp)
     except Exception as e:
+        logger.exception(
+            "PATCH line failed ts=%s scene=%d line=%d",
+            ts, scene_idx, line_idx,
+        )
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
 
@@ -391,6 +400,9 @@ def api_patch_scene(ts, scene_idx):
                 return jsonify({"error": "validator失敗", "details": errors}), 400
             staged_pipeline.save_project_screenplay(ts_path, sp)
     except Exception as e:
+        logger.exception(
+            "PATCH scene failed ts=%s scene=%d", ts, scene_idx,
+        )
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
 
@@ -425,6 +437,7 @@ def api_patch_screenplay_meta(ts):
                 return jsonify({"error": "validator失敗", "details": errors}), 400
             staged_pipeline.save_project_screenplay(ts_path, sp)
     except Exception as e:
+        logger.exception("PATCH screenplay-meta failed ts=%s", ts)
         return jsonify({"error": str(e)}), 500
     return jsonify({"ok": True})
 
@@ -1098,6 +1111,9 @@ def _stage_scene_rescan(ts: str, stage: str, scene_idx: int):
     try:
         decisions_all = handler.scan_fn(sp, _ts_path(ts))
     except Exception as e:
+        logger.exception(
+            "%s scene rescan failed ts=%s scene=%d", stage, ts, scene_idx,
+        )
         return jsonify({"error": str(e)}), 500
     new_rec = decisions_all.get(str(scene_idx)) or {}
     cur = progress_store.get_decisions(_ts_path(ts), stage)
@@ -1135,6 +1151,11 @@ def _stage_decisions_bulk(ts: str, stage: str):
                     rec["decided_at"] = _now_iso()
                     summary["adopted"] += 1
                 except Exception as e:
+                    logger.warning(
+                        "[stage-decisions] cache commit 失敗 "
+                        "stage=%s ts=%s scene=%d key=%s: %s",
+                        stage, ts, i, key, e,
+                    )
                     summary["errors"].append({"scene": i, "error": str(e)})
             elif rec.get("decision") != "fresh":
                 rec["decision"] = "fresh"
@@ -1238,7 +1259,11 @@ def _stage_cache_delete(stage: str, key: str):
             try:
                 os.remove(p)
                 is_deleted = True
-            except Exception as e:
+            except OSError as e:
+                logger.exception(
+                    "%s cache delete failed stage=%s key=%s path=%s",
+                    stage, stage, key, p,
+                )
                 return jsonify({"error": str(e)}), 500
     if not is_deleted:
         return jsonify({"error": "entry not found"}), 404

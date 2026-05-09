@@ -618,7 +618,12 @@ def read_post_caption_for_ts(ts: str) -> tuple[str, str, list[str]]:
 
     try:
         sp = staged_pipeline.load_project_screenplay(ts_path)
-    except Exception:
+    except (FileNotFoundError, OSError, ValueError) as e:
+        logger.warning(
+            "[publish] caption 用 screenplay 読込失敗 ts_path=%s: %s — "
+            "caption 空で公開します",
+            ts_path, e,
+        )
         sp = {}
     caption = (sp.get("caption") or "").strip()
     return parse_caption_md(f"# {title_base}\n\n{caption}\n")

@@ -823,6 +823,10 @@ def bg_scan_cache(screenplay: dict, temp_dir: str) -> dict:
         try:
             inputs = _scene_bg_inputs(i, scene, screenplay, temp_dir)
         except Exception as e:
+            logger.warning(
+                "[bg-scan] input build 失敗 scene=%d temp_dir=%s: %s",
+                i, temp_dir, e,
+            )
             rec["diagnostics"].append(f"input build failed: {e}")
             inputs = None
         if inputs is None:
@@ -853,6 +857,11 @@ def bg_scan_cache(screenplay: dict, temp_dir: str) -> dict:
                     for c in candidates
                 ]
             except Exception as e:
+                logger.warning(
+                    "[bg-scan] lookup_all_candidates 失敗 "
+                    "scene=%d cache_key=%s: %s",
+                    i, inputs.get("cache_key"), e,
+                )
                 rec["diagnostics"].append(f"lookup failed: {e}")
         if not rec["candidates"]:
             rec["decision"] = "fresh"
@@ -1950,6 +1959,10 @@ def kling_scan_cache(screenplay: dict, temp_dir: str) -> dict:
         try:
             inputs = _scene_kling_inputs(i, scene, screenplay, temp_dir)
         except Exception as e:
+            logger.warning(
+                "[kling-scan] input build 失敗 scene=%d temp_dir=%s: %s",
+                i, temp_dir, e,
+            )
             rec["diagnostics"].append(f"input build failed: {e}")
             inputs = None
         if inputs is None:
@@ -1982,6 +1995,11 @@ def kling_scan_cache(screenplay: dict, temp_dir: str) -> dict:
                     for c in candidates
                 ]
             except Exception as e:
+                logger.warning(
+                    "[kling-scan] lookup_all_candidates 失敗 "
+                    "scene=%d cache_key=%s: %s",
+                    i, inputs.get("cache_key"), e,
+                )
                 rec["diagnostics"].append(f"lookup failed: {e}")
         if not rec["candidates"]:
             # 候補なしは即 fresh 確定 (= ユーザ操作不要)

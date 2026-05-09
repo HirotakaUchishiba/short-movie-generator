@@ -53,7 +53,8 @@ def is_valid_png(path: str) -> bool:
         with Image.open(path) as img:
             img.verify()
         return True
-    except Exception:
+    except (OSError, ValueError, ImportError) as e:
+        logger.debug("[整合性] PNG 検証失敗 %s: %s", path, e)
         return False
 
 
@@ -69,7 +70,8 @@ def is_valid_mp4(path: str) -> bool:
         data = json.loads(r.stdout or "{}")
         dur = float((data.get("format") or {}).get("duration", 0) or 0)
         return dur > 0
-    except Exception:
+    except (OSError, ValueError, json.JSONDecodeError) as e:
+        logger.debug("[整合性] MP4 検証失敗 %s: %s", path, e)
         return False
 
 
@@ -90,7 +92,9 @@ def is_valid_audio(path: str, *, min_duration: float = 0.05) -> bool:
         data = json.loads(r.stdout or "{}")
         dur = float((data.get("format") or {}).get("duration", 0) or 0)
         return dur >= min_duration
-    except Exception:
+    except (OSError, ValueError, subprocess.TimeoutExpired,
+            json.JSONDecodeError) as e:
+        logger.debug("[整合性] audio 検証失敗 %s: %s", path, e)
         return False
 
 

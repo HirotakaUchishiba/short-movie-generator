@@ -102,8 +102,11 @@ def api_projects():
         try:
             screenplay = staged_pipeline.load_project_screenplay(project_path)
         except FileNotFoundError:
-            pass
-        except Exception as e:
+            logger.debug(
+                "project list: screenplay snapshot not found for %s "
+                "(= 旧 project / 中途取消)", ts,
+            )
+        except (OSError, ValueError) as e:
             logger.warning(
                 "project list: screenplay load failed for %s: %s", ts, e,
             )

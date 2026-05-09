@@ -32,7 +32,9 @@ def _ffprobe_duration(path: str) -> float | None:
             capture_output=True, text=True, check=True,
         )
         return float(json.loads(r.stdout)["format"]["duration"])
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, ValueError,
+            KeyError, json.JSONDecodeError) as e:
+        logger.warning("[ffprobe] duration 取得失敗 %s: %s", path, e)
         return None
 
 

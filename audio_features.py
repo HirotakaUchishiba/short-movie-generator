@@ -57,7 +57,12 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
             f0 = librosa.yin(y, fmin=80, fmax=500, sr=sr,
                              frame_length=1024, hop_length=256)
             f0 = f0[~np.isnan(f0)]
-        except Exception:
+        except (ValueError, RuntimeError, FloatingPointError) as e:
+            logger.debug(
+                "[acoustic] librosa.yin pitch 抽出失敗 %s: %s — "
+                "pitch_trend=flat / pitch_hz_max=0 で続行",
+                wav_path, e,
+            )
             f0 = np.array([])
 
         if len(f0) > 0:
