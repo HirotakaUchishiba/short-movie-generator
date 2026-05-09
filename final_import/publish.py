@@ -91,11 +91,21 @@ def publish(ts: str, platform: str, **opts) -> dict:
         preflight.check_publish_youtube()
         result = _publish_youtube(ts, video, title, description, tags, **opts)
     elif platform == "instagram":
-        preflight.check_publish_instagram()
-        result = _publish_semi_auto(
-            "instagram", ts, video, title, description, tags,
-        )
+        if _is_api_mode("INSTAGRAM_PUBLISH_MODE"):
+            result = _publish_instagram_api(
+                ts, video, title, description, tags,
+            )
+        else:
+            preflight.check_publish_instagram()
+            result = _publish_semi_auto(
+                "instagram", ts, video, title, description, tags,
+            )
     else:
+        if _is_api_mode("TIKTOK_PUBLISH_MODE"):
+            raise NotImplementedError(
+                "TIKTOK_PUBLISH_MODE=api は未実装 (= scope 申請後に "
+                "platform_clients/tiktok.py:upload_video を有効化)",
+            )
         preflight.check_publish_tiktok()
         result = _publish_semi_auto(
             "tiktok", ts, video, title, description, tags,
@@ -122,14 +132,58 @@ def publish(ts: str, platform: str, **opts) -> dict:
     return result
 
 
+def _is_api_mode(env_key: str) -> bool:
+    """``<PLATFORM>_PUBLISH_MODE=api`` のとき True。既定は ``semi`` (= 半自動)。"""
+    return (os.getenv(env_key) or "semi").strip().lower() == "api"
+
+
+def _publish_instagram_api(ts: str, video: Path, title: str, description: str,
+                           tags: list[str]) -> dict:
+    """IG Graph API 経由で Reels を公開する (= mode=api)。"""
+    from platform_clients import instagram
+
+    caption = description if description else title
+    if tags:
+        hashtag_block = " ".join(f"#{t}" for t in tags if t)
+        caption = f"{caption}\n\n{hashtag_block}".strip()
+
+    upload = instagram.upload_video(file_path=video, caption=caption)
+
+    posted_at = datetime.now().isoformat(timespec="seconds")
+    persisted = _record_analytics_with_retry(
+        ts=ts, video=video,
+        platform_post_id=upload["video_id"],
+        url=upload["url"],
+        posted_at=posted_at,
+        caption=caption,
+        hashtags=tags,
+        platform="instagram",
+    )
+
+    return {
+        "platform": "instagram",
+        "video_id": upload["video_id"],
+        "url": upload["url"],
+        "privacy": "public",  # IG は publish 時に privacy を選べない
+        "is_short": True,
+        "posted_at": posted_at,
+        "analytics_persisted": persisted,
+        "analytics_pending": not persisted,
+        "raw_response": upload.get("raw_response"),
+    }
+
+
 def _publish_youtube(ts: str, video: Path, title: str, description: str,
                      tags: list[str], privacy: str = "private",
                      is_short: bool = True, **_opts) -> dict:
     from platform_clients import youtube
+    import config as _cfg
 
+    state_path = Path(_cfg.TEMP_DIR) / ts / "upload_state_youtube.json"
     upload = youtube.upload_video(
         file_path=video, title=title, description=description,
         tags=tags, privacy=privacy, is_short=is_short,
+        state_path=state_path,
     )
 
     posted_at = datetime.now().isoformat(timespec="seconds")
@@ -154,11 +208,12 @@ def _publish_youtube(ts: str, video: Path, title: str, description: str,
 
 def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
                                  url: str, posted_at: str, caption: str,
-                                 hashtags: list[str]) -> bool:
+                                 hashtags: list[str],
+                                 platform: str = "youtube") -> bool:
     """analytics DB に register_post を試みる。成功で True、queue 落ち or 完全
-    失敗で False を返す。caller (= _publish_youtube) はこれを result の
-    ``analytics_persisted`` に流し、_record_publish が False の時は Stage 8 の
-    progress_store.mark_generated を保留する (= queue replay 完了後に立てる)。
+    失敗で False を返す。caller (= _publish_youtube / _publish_instagram_api)
+    はこれを result の ``analytics_persisted`` に流し、_record_publish が False
+    の時は Stage 8 の progress_store.mark_generated を保留する。
     """
     from analytics import db as analytics_db
     from analytics import pending_queue
@@ -169,7 +224,7 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
             analytics_db.init_db()
             _ensure_video_in_analytics(ts, video)
             analytics_db.register_post(
-                video_id=ts, platform="youtube",
+                video_id=ts, platform=platform,
                 platform_post_id=platform_post_id,
                 url=url, posted_at=posted_at,
                 caption=caption, hashtags=hashtags,
@@ -187,7 +242,7 @@ def _record_analytics_with_retry(*, ts: str, video: Path, platform_post_id: str,
     try:
         pending_queue.append({
             "ts": ts,
-            "platform": "youtube",
+            "platform": platform,
             "platform_post_id": platform_post_id,
             "url": url,
             "posted_at": posted_at,
