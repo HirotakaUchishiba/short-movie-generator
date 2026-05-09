@@ -1,6 +1,5 @@
 """GET /api/analytics/pending と POST /api/analytics/pending/sync のテスト。"""
 import json
-import os
 
 import pytest
 

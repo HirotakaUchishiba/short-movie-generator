@@ -6,7 +6,6 @@ Phase 1 までは半自動 (= caption をクリップボードにコピー + ア
 テーブルにも書き込み、register_post を別途叩かなくて良いようにする。
 """
 
-import json
 import logging
 import os
 import re

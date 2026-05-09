@@ -3,7 +3,6 @@ from __future__ import annotations
 
 from unittest.mock import MagicMock, patch
 
-import pytest
 
 
 def test_notify_skipped_when_webhook_empty(monkeypatch, caplog):

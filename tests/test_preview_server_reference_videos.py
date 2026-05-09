@@ -1,6 +1,5 @@
 """POST/GET/DELETE /api/reference_videos の API テスト。"""
 import io
-import os
 
 import pytest
 

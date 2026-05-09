@@ -1,4 +1,3 @@
-import re
 
 from jsonschema import Draft202012Validator
 

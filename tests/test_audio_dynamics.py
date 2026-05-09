@@ -1,7 +1,5 @@
 """audio_dynamics の単体テスト (ffmpeg/librosa は mock)。"""
-from unittest.mock import patch
 
-import pytest
 
 import audio_dynamics
 

@@ -1,7 +1,4 @@
 """analyze.cache の単体テスト (content-addressed cache)。"""
-import json
-import os
-from pathlib import Path
 
 import pytest
 

@@ -8,10 +8,8 @@
 実 ElevenLabs / ffmpeg は使わず、_build_audios_from_full を mock してファイル
 作成だけ確認する。
 """
-import json
 import logging
 import os
-from unittest.mock import MagicMock
 
 import pytest
 

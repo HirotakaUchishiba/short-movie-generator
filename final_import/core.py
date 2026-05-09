@@ -20,7 +20,6 @@ import io_utils
 import preflight
 import progress_store
 import project_state
-import staged_pipeline
 
 logger = logging.getLogger(__name__)
 

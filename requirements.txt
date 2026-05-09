@@ -4,6 +4,7 @@ pillow>=10.0.0
 requests>=2.31.0
 fal-client>=0.13.0
 flask>=3.0.0
+flask-cors>=4.0.0  # preview_server の CORS (Vite dev からの cross-origin)
 jsonschema>=4.20.0
 pytest>=8.0.0
 ruff>=0.6.0  # コード整形 / lint (PostToolUse hook で発火)

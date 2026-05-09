@@ -4,7 +4,6 @@
 ``.tmp`` 系ファイルが残る。次の resume が同じ stage を再実行する前に
 ``_cleanup_partial_artifacts`` で破棄しておく。
 """
-import os
 from pathlib import Path
 
 import pytest

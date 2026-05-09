@@ -641,7 +641,7 @@ def _build_scene_audio(tts_paths: list[tuple[str, float]], scene_duration: float
     if not tts_paths:
         cmd = [
             "ffmpeg", "-y",
-            "-f", "lavfi", "-i", f"anullsrc=r=44100:cl=stereo",
+            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
             "-t", f"{scene_duration:.3f}",
             "-c:a", "aac", "-b:a", "192k",
             output_path,

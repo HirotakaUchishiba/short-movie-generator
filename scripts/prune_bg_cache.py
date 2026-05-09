@@ -13,7 +13,6 @@ cron 推奨運用 (毎日 4:00 に 50GB 制限):
 from __future__ import annotations
 
 import argparse
-import os
 import re
 import sys
 from pathlib import Path

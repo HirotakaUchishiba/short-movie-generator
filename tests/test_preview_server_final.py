@@ -1,6 +1,5 @@
 """Stage 7 (final import) と Stage 8 (publish) HTTP routes の単体テスト。"""
 
-import io
 import json
 import shutil
 import subprocess
@@ -36,7 +35,6 @@ def app(tmp_path, monkeypatch):
     monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "ref")
 
     import preview_server
-    import staged_pipeline
     import progress_store
     import config
 

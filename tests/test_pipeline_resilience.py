@@ -9,14 +9,12 @@ PR #52〜#57 で塞いだ穴 (timeout / partial output / disk space / 整合性)
     - run_overlay の途中失敗で merged / overlaid / output 残骸が残らない
     - preflight.check_disk_space が空き不足で PreflightError を投げる
 """
-import os
 import subprocess
 from collections import namedtuple
 from unittest.mock import MagicMock
 
 import pytest
 
-import compositor
 import config
 import preflight
 import progress_store

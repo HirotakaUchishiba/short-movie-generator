@@ -187,7 +187,7 @@ def main() -> int:
             print(f"  - {c}")
         if args.apply:
             _atomic_write(path, new_sp)
-            print(f"  ✓ 書き戻し完了")
+            print("  ✓ 書き戻し完了")
 
     print(
         f"\n対象 snapshot: {len(paths)} 件 / 変更あり: {touched} 件 / "

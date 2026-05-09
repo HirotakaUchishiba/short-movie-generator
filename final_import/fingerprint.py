@@ -89,7 +89,6 @@ def _extract_audio_to_wav(video: Path) -> str:
 
 def _best_match_correlation(ref_mfcc, cand_mfcc) -> float:
     """ref_mfcc を cand_mfcc 上でスライドさせ、最大 NCC を返す。"""
-    import numpy as np
     n_ref = ref_mfcc.shape[1]
     n_cand = cand_mfcc.shape[1]
     if n_ref == 0 or n_cand == 0:
