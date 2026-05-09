@@ -19,8 +19,11 @@ from __future__ import annotations
 import argparse
 import json
 import logging
+import re
+import shutil
 import sys
-from datetime import datetime, timezone
+import tarfile
+from datetime import datetime, timedelta, timezone
 from pathlib import Path
 
 SCRIPT_DIR = Path(__file__).resolve().parent
@@ -103,20 +106,111 @@ def default_out_dir() -> Path:
     return Path(config.BASE_DIR) / "data" / "audit_freezes" / ts
 
 
+_FREEZE_DIR_RE = re.compile(r"^(\d{4})-(\d{2})-(\d{2})_(\d{2})(\d{2})(\d{2})$")
+
+
+def _parse_freeze_dir_date(name: str) -> datetime | None:
+    """Freeze ディレクトリ名 ``YYYY-MM-DD_HHMMSS`` から datetime を返す。"""
+    m = _FREEZE_DIR_RE.match(name)
+    if not m:
+        return None
+    try:
+        return datetime(int(m[1]), int(m[2]), int(m[3]),
+                        int(m[4]), int(m[5]), int(m[6]),
+                        tzinfo=timezone.utc)
+    except ValueError:
+        return None
+
+
+def rotate_old_freezes(base_dir: Path | None = None, *,
+                       rotate_after_days: int,
+                       now: datetime | None = None) -> dict[str, int]:
+    """``rotate_after_days`` 日経過した freeze を月別 tar.gz に固めて元 dir を削除。
+
+    アーカイブ先: ``<base_dir>/_archive/<YYYY-MM>.tar.gz``。同月の追加は append 不可
+    なので、新たに固めるべき freeze がある場合は既存 tar.gz の中身を一旦展開して
+    再 tar することはせず、月別に **複数の tar.gz** が積まれる設計
+    (= ``2026-05.tar.gz`` ``2026-05_2.tar.gz`` …)。十分シンプル + idempotent。
+
+    Returns:
+        ``{"archived": N, "deleted": N, "skipped": N}``
+    """
+    base = Path(base_dir) if base_dir else (
+        Path(config.BASE_DIR) / "data" / "audit_freezes"
+    )
+    if not base.exists():
+        return {"archived": 0, "deleted": 0, "skipped": 0}
+    cutoff = (now or datetime.now(timezone.utc)) - timedelta(
+        days=int(rotate_after_days),
+    )
+    archive_dir = base / "_archive"
+    archive_dir.mkdir(parents=True, exist_ok=True)
+
+    by_month: dict[str, list[Path]] = {}
+    skipped = 0
+    for child in sorted(base.iterdir()):
+        if not child.is_dir() or child.name == "_archive":
+            continue
+        d = _parse_freeze_dir_date(child.name)
+        if d is None:
+            skipped += 1
+            continue
+        if d > cutoff:
+            continue
+        key = d.strftime("%Y-%m")
+        by_month.setdefault(key, []).append(child)
+
+    archived = 0
+    deleted = 0
+    for month, dirs in sorted(by_month.items()):
+        target = archive_dir / f"{month}.tar.gz"
+        suffix = 2
+        while target.exists():
+            target = archive_dir / f"{month}_{suffix}.tar.gz"
+            suffix += 1
+        with tarfile.open(target, "w:gz") as tf:
+            for d in dirs:
+                tf.add(d, arcname=d.name)
+                archived += 1
+        for d in dirs:
+            shutil.rmtree(d)
+            deleted += 1
+        logger.info("[audit-freeze] rotated %d freezes → %s",
+                    len(dirs), target.name)
+    return {"archived": archived, "deleted": deleted, "skipped": skipped}
+
+
 def main() -> int:
     log_setup.setup()
     parser = argparse.ArgumentParser(prog="audit_freeze")
     parser.add_argument("--since", help="YYYY-MM-DD 以降の行のみ凍結")
     parser.add_argument("--out-dir",
                         help="既定: data/audit_freezes/<YYYY-MM-DD_HHMMSS>/")
+    parser.add_argument(
+        "--rotate-after-days", type=int, default=0,
+        help="N 日以上経過した既存 freeze を月別 tar.gz に固めて元 dir を削除 "
+             "(0 = ローテーションしない、既定)。新規 freeze は --skip-freeze 指定時を除き並行実行される。",
+    )
+    parser.add_argument(
+        "--skip-freeze", action="store_true",
+        help="新規 freeze を作らずローテーションのみ実行する (= cron 専用モード)",
+    )
     args = parser.parse_args()
 
-    out_dir = Path(args.out_dir) if args.out_dir else default_out_dir()
-    counts = freeze_tables(out_dir, since=args.since)
+    if not args.skip_freeze:
+        out_dir = Path(args.out_dir) if args.out_dir else default_out_dir()
+        counts = freeze_tables(out_dir, since=args.since)
+        print(f"[audit-freeze] dir: {out_dir}")
+        for table, n in counts.items():
+            print(f"  {table}: {n}")
 
-    print(f"[audit-freeze] dir: {out_dir}")
-    for table, n in counts.items():
-        print(f"  {table}: {n}")
+    if args.rotate_after_days > 0:
+        result = rotate_old_freezes(rotate_after_days=args.rotate_after_days)
+        print(
+            f"[audit-freeze] rotate (>{args.rotate_after_days} days): "
+            f"archived={result['archived']} deleted={result['deleted']} "
+            f"skipped={result['skipped']}",
+        )
     return 0
 
 
