@@ -1,7 +1,6 @@
 """映像が TTS 尺に届かない場合の slow_mo 延長 (Kling 5/10s 上限対策) のテスト。"""
 
 import os
-import subprocess
 from unittest.mock import MagicMock
 
 import pytest

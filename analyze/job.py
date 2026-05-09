@@ -13,7 +13,6 @@ started_at / finished_at / duration_ms / cost_usd / error を蓄積する。
 """
 import json
 import logging
-import os
 import sqlite3
 import uuid
 from dataclasses import dataclass

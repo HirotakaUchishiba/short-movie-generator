@@ -4,7 +4,6 @@
 ジョブ管理 API の挙動だけを検証する。
 """
 import io
-import json
 
 import pytest
 

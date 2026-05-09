@@ -1,7 +1,6 @@
 """Phase 3: prompt_injector の文字列組み立てテスト。"""
 from __future__ import annotations
 
-import pytest
 
 
 def test_baseline_returns_base_unchanged(monkeypatch):

@@ -175,6 +175,16 @@ def test_run_next_stage_advances_step_by_step(
         staged_pipeline.scene_gen, "assemble_scene_videos",
         lambda screenplay, td: [],
     )
+    # TTS one-shot は実 ElevenLabs API を叩くので CI / dummy key 環境では
+    # 401 になる。本テストは dispatcher の進行検証なので no-op スタブで十分。
+    monkeypatch.setattr(
+        staged_pipeline.scene_gen, "generate_screenplay_tts_one_shot",
+        lambda screenplay, ts_path: None,
+    )
+    monkeypatch.setattr(
+        staged_pipeline.scene_gen, "generate_tts_for_screenplay",
+        lambda screenplay, td: None,
+    )
     executed = staged_pipeline.run_next_stage(sp, "demo", ts_path)
     assert executed == "script"
     assert progress_store.next_stage(ts_path) is None  # 未承認でブロック

@@ -5,7 +5,6 @@ Phase 0 の計測基盤として、`run_next_stage` のフックは pipeline 自
 動作には影響を与えてはならない (= analytics DB エラーは warn だけで握りつぶす)。
 """
 import json
-import os
 
 import pytest
 

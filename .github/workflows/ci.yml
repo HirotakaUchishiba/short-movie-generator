@@ -1,0 +1,92 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install ruff
+      # NOTE: 既存コードベースは ruff format に揃っていない (= 218 files)。
+      # 整形コミットは独立 PR で行うため、ここでは lint rule (= ruff check) のみ
+      # gate する。pre-commit (.pre-commit-config.yaml) では format も走る。
+      - run: ruff check .
+
+  test-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # ffmpeg は test_final_import / test_compositor 等で必要
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install Python deps
+        run: |
+          pip install -r requirements.txt
+      - name: Run pytest
+        # 一部テストは preflight が空文字 reject する API key を要求する。
+        # 実 API は呼ばないテスト前提なので placeholder で十分。
+        env:
+          ANTHROPIC_API_KEY: dummy
+          OPENAI_API_KEY: dummy
+          ELEVENLABS_API_KEY: dummy
+          GOOGLE_API_KEY: dummy
+          FAL_API_KEY: dummy
+          SYNC_API_KEY: dummy
+          SLACK_WEBHOOK_URL: ""
+        run: pytest tests/ -q --maxfail=5
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run test:ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 履歴にコミットされた secret が無いか確認。
+    # gitleaks-action@v2 は organization ライセンスを要求するので、
+    # binary を直接 download して実行する (= public repo でも無料で動く)。
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - name: Install gitleaks
+        run: |
+          GITLEAKS_VERSION=8.18.4
+          curl -sSL "https://github.com/gitleaks/gitleaks/releases/download/v${GITLEAKS_VERSION}/gitleaks_${GITLEAKS_VERSION}_linux_x64.tar.gz" \
+            | sudo tar -xz -C /usr/local/bin gitleaks
+      - name: Run gitleaks
+        run: gitleaks detect --source . --redact -v --exit-code 1

@@ -54,7 +54,7 @@ def main() -> int:
     print(f"total size: {_fmt_bytes(total_size)}")
     print(f"total hits: {total_hits}")
     by_loc = Counter(e["location_ref"] or "_unscoped" for e in entries)
-    print(f"\nlocation 分布:")
+    print("\nlocation 分布:")
     for loc, n in by_loc.most_common():
         print(f"  {loc:<30s} {n}")
 

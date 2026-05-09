@@ -1,0 +1,64 @@
+# ruff / mypy / pytest 設定の集約。
+# 依存管理は requirements.txt が SSOT (= [project.dependencies] は使わない)。
+
+[tool.ruff]
+line-length = 100
+target-version = "py312"
+extend-exclude = [
+    "frontend",
+    "data",
+    "temp",
+    "output",
+    "drafts",
+    "screenplays",
+]
+
+[tool.ruff.lint]
+# 段階的有効化: 最初は F (pyflakes) のみ enforce。
+# 既存コード 218 ファイルが E/W/I/B/UP に揃っていないので、整形 PR + 段階的拡張で
+# select を増やしていく予定 (= 後続 PR `chore: ruff lint expansion`)。
+select = ["F"]
+ignore = [
+    "E501",  # line length は format で管理
+    "B008",  # Flask 等で default factory に function call が入る
+    "F841",  # unused local variable は debug print 等で意図的に残ることがある
+]
+
+[tool.ruff.format]
+quote-style = "double"
+
+[tool.mypy]
+python_version = "3.12"
+files = [
+    "staged_pipeline.py",
+    "scene_gen.py",
+    "progress_store.py",
+    "io_utils.py",
+    "log_setup.py",
+    "preflight.py",
+    "config.py",
+    "final_import",
+    "analytics",
+    "improvement",
+    "qa",
+    "cost_tracking",
+]
+# 段階的導入: warn 中心、strict はコア modules で個別に上げる。
+warn_return_any = true
+warn_unused_configs = true
+warn_redundant_casts = true
+warn_unused_ignores = true
+no_implicit_optional = true
+check_untyped_defs = true
+disallow_incomplete_defs = false   # 既存コードを段階的に整備
+disallow_untyped_defs = false
+ignore_missing_imports = true       # google.genai / fal_client 等は stub 無し
+
+[[tool.mypy.overrides]]
+module = ["tests.*"]
+ignore_errors = true
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+python_files = ["test_*.py"]
+addopts = "-q"

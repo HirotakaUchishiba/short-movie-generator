@@ -1,7 +1,6 @@
 """Phase 1: YouTube upload の AUTO_LOOP_ALLOW_PUBLIC gate のテスト。"""
 from __future__ import annotations
 
-import pytest
 
 from platform_clients.youtube import _resolve_privacy
 

@@ -1,0 +1,33 @@
+# Local pre-commit hooks (= 既存 .claude/settings.json の PostToolUse hook と
+# 内容を揃える)。インストール手順:
+#   pip install pre-commit
+#   pre-commit install
+# 強制実行:
+#   pre-commit run --all-files
+repos:
+  - repo: https://github.com/astral-sh/ruff-pre-commit
+    rev: v0.6.9
+    hooks:
+      - id: ruff
+        args: [--fix]
+      - id: ruff-format
+
+  - repo: https://github.com/pre-commit/pre-commit-hooks
+    rev: v4.6.0
+    hooks:
+      - id: trailing-whitespace
+        exclude: ^(data/|temp/|output/|drafts/|frontend/dist/)
+      - id: end-of-file-fixer
+        exclude: ^(data/|temp/|output/|drafts/|frontend/dist/)
+      - id: check-yaml
+        exclude: ^ops/launchd/.*\.plist$
+      - id: check-added-large-files
+        args: ["--maxkb=2000"]
+      - id: check-json
+        exclude: ^(data/|temp/|output/|drafts/|frontend/)
+      - id: check-merge-conflict
+
+  - repo: https://github.com/gitleaks/gitleaks
+    rev: v8.18.4
+    hooks:
+      - id: gitleaks

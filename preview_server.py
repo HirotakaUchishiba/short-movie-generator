@@ -3,7 +3,6 @@
 
 各 stage の生成・確認・承認・再生成 API を提供する。フロントは frontend/ の React を使用。
 """
-import glob
 import json
 import logging
 import os

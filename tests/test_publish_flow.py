@@ -718,7 +718,7 @@ def test_publish_concurrent_queue_writes_are_complete_json(
     """連続 publish 2 回が両方 DB 失敗 → queue に 2 件、それぞれ完整な JSON."""
     import json as _json
     from final_import.publish import publish
-    from analytics import pending_queue, db as analytics_db
+    from analytics import db as analytics_db
 
     monkeypatch.setenv(
         "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),

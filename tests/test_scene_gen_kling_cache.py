@@ -3,7 +3,6 @@
 FAL / ffmpeg を mock して、cache lookup → copy / store → fresh 生成の
 パスを検証する。
 """
-import os
 from pathlib import Path
 
 import pytest

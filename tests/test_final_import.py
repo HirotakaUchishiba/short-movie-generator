@@ -1,5 +1,4 @@
 import json
-import os
 import shutil
 import subprocess
 from pathlib import Path
@@ -8,7 +7,6 @@ import pytest
 
 import config
 import progress_store
-import staged_pipeline
 from final_import import core as fi
 
 

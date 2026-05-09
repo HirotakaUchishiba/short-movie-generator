@@ -16,7 +16,6 @@ import subprocess
 
 import pytest
 
-import compositor
 import config
 import progress_store
 import scene_gen

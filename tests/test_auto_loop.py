@@ -305,7 +305,7 @@ def test_validator_failure_triggers_retry_and_aborts_after_max(
     """tts validator が常に NG → retry 上限まで試みて abort。"""
     al, _ = stub_pipeline
     _, db = auto_loop_env
-    from qa.validators.base import ValidationResult, failed_result
+    from qa.validators.base import failed_result
 
     def _always_fail(ts, stage):
         if stage == "tts":

@@ -10,9 +10,9 @@ import io_utils
 import preflight
 import progress_store
 import scene_gen
-from compositor import compose_video, _apply_overlays, _merge_scenes
+from compositor import _apply_overlays, _merge_scenes, compose_video  # noqa: F401
 from post_captions_gen import generate_post_captions
-from project_state import read_metadata, screenplay_lock
+from project_state import read_metadata, screenplay_lock  # noqa: F401
 from screenplay_validator import validate_screenplay
 
 logger = logging.getLogger(__name__)

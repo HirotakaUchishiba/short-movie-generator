@@ -1,6 +1,5 @@
 """platform_clients.youtube.upload_video の単体テスト (network mock)。"""
 
-import io
 from pathlib import Path
 
 import pytest

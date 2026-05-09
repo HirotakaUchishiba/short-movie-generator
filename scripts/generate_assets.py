@@ -256,7 +256,7 @@ def cmd_characters(apply: bool, force: bool) -> None:
 
 def cmd_locations(apply: bool, force: bool) -> None:
     from analyze import location as loc_mod
-    print(f"\n== ロケプレビュー生成 ==")
+    print("\n== ロケプレビュー生成 ==")
     for loc_id in loc_mod.list_locations():
         loc = loc_mod.load_location(loc_id)
         out = loc_mod.preview_path(loc_id)
@@ -274,8 +274,8 @@ def cmd_locations(apply: bool, force: bool) -> None:
 def cmd_camera(apply: bool, force: bool) -> None:
     out_dir = ROOT / "frontend" / "public" / "camera-distance"
     base_path = out_dir / "_base.png"
-    print(f"\n== カメラ距離プレビュー生成 ==")
-    print(f"\n--- _base (元写真) ---")
+    print("\n== カメラ距離プレビュー生成 ==")
+    print("\n--- _base (元写真) ---")
     print(CAMERA_BASE_PROMPT)
     if apply and (not base_path.exists() or force):
         out_dir.mkdir(parents=True, exist_ok=True)
