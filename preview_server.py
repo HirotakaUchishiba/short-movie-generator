@@ -47,9 +47,45 @@ logger = logging.getLogger(__name__)
 _analytics_db.init_db()
 
 app = Flask(__name__, static_folder=None)
-# 動画アップロード上限 (1GB、analyze 用 reference video)。
-app.config["MAX_CONTENT_LENGTH"] = 1024 * 1024 * 1024
+# 動画アップロード上限。既定 2GB、PREVIEW_MAX_UPLOAD_MB env で上書き可能。
+_max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
+app.config["MAX_CONTENT_LENGTH"] = _max_upload_mb * 1024 * 1024
 CORS(app)
+
+
+_AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
+# CORS preflight (OPTIONS) と asset / index 配信は <video>, <img> の直叩きで
+# Authorization ヘッダを付けられないので bypass。Tailscale が外側を守っている前提
+_AUTH_BYPASS_PREFIXES = ("/asset/", "/static/")
+
+
+@app.before_request
+def _check_auth_token():
+    if _AUTH_TOKEN is None:
+        return None
+    if request.method == "OPTIONS":
+        return None
+    p = request.path or ""
+    if any(p.startswith(prefix) for prefix in _AUTH_BYPASS_PREFIXES):
+        return None
+    if p in ("/", "/healthz"):
+        return None
+    auth = request.headers.get("Authorization", "")
+    if auth == f"Bearer {_AUTH_TOKEN}":
+        return None
+    return jsonify({"error": "unauthorized"}), 401
+
+
+@app.before_request
+def _assign_request_id() -> None:
+    incoming = request.headers.get("X-Request-ID")
+    log_setup.set_request_id(incoming or None)
+
+
+@app.after_request
+def _emit_request_id_header(resp: Response) -> Response:
+    resp.headers["X-Request-ID"] = log_setup.get_request_id()
+    return resp
 
 TEMP_DIR = config.TEMP_DIR
 SCREENPLAYS_DIR = config.SCREENPLAYS_DIR
@@ -2163,6 +2199,50 @@ def api_publish_history(ts):
     _validate_ts(ts)
     meta = staged_pipeline.read_metadata(_ts_path(ts)) or {}
     return jsonify({"published_posts": meta.get("published_posts") or []})
+
+
+# ───────────────── analytics queue (pending) ─────────────────
+
+@app.route("/api/analytics/pending", methods=["GET"])
+def api_analytics_pending_status():
+    """`data/analytics_pending.jsonl` に残っている件数 + 最古エントリの時刻。"""
+    from analytics import pending_queue
+    entries = pending_queue.read_all()
+    if not entries:
+        return jsonify({"count": 0, "oldest_at": None})
+    oldest = min(
+        (e.get("timestamp") for e in entries if e.get("timestamp")),
+        default=None,
+    )
+    return jsonify({
+        "count": len(entries),
+        "oldest_at": oldest,
+        "platforms": sorted({
+            e.get("platform") for e in entries if e.get("platform")
+        }),
+    })
+
+
+@app.route("/api/analytics/pending/sync", methods=["POST"])
+def api_analytics_pending_sync():
+    """queue を replay して、成功した ts は publish stage を generated にマーク。"""
+    from analytics import pending_queue
+    from final_import.publish import finalize_pending_publish
+
+    result = pending_queue.replay()
+    finalized: list[str] = []
+    for ts in result.get("synced_ts") or []:
+        try:
+            if finalize_pending_publish(ts):
+                finalized.append(ts)
+        except Exception as e:
+            logger.warning("[pending-sync] finalize_pending_publish(%s) 失敗: %s", ts, e)
+    return jsonify({
+        "success": result.get("success", 0),
+        "failed": result.get("failed", 0),
+        "synced_ts": result.get("synced_ts") or [],
+        "finalized_ts": finalized,
+    })
 
 
 # ───────────────── React 静的配信 ─────────────────

@@ -104,6 +104,30 @@ def test_import_final_rejects_unknown_extension(project, tmp_path):
         fi.import_final(ts, src, skip_fingerprint=True)
 
 
+def test_import_final_rejects_text_renamed_to_mp4(project, tmp_path):
+    """拡張子だけ .mp4 にしたテキストは ftyp atom が無いので reject される。"""
+    ts, _ = project
+    src = tmp_path / "fake.mp4"
+    src.write_bytes(b"this is not a real video file")
+    with pytest.raises(ValueError, match="ftyp atom missing"):
+        fi.import_final(ts, src, skip_fingerprint=True)
+
+
+def test_has_mp4_ftyp_atom_recognizes_mp4(tmp_path):
+    src = tmp_path / "ok.mp4"
+    # 最小の ftyp box header (size=20, type='ftyp', major='isom', minor=0)
+    src.write_bytes(
+        bytes.fromhex("00000020") + b"ftyp" + b"isom" + bytes(8)
+    )
+    assert fi.has_mp4_ftyp_atom(src) is True
+
+
+def test_has_mp4_ftyp_atom_rejects_non_mp4(tmp_path):
+    src = tmp_path / "no.mp4"
+    src.write_bytes(b"PNG\x89random")
+    assert fi.has_mp4_ftyp_atom(src) is False
+
+
 def test_import_final_multiple_versions_canonical_is_latest(project, tmp_path):
     ts, ts_path = project
     src1 = tmp_path / "a.mp4"

@@ -161,6 +161,7 @@ export default function ProjectList() {
           <p className="text-sm text-slate-400">
             段階的ゲート方式で動画を生成。各stageで人間が確認・承認してから次に進めます。
           </p>
+          <PendingAnalyticsBadge />
         </div>
         <Link to="/analyze" className="btn-ghost whitespace-nowrap text-sm">
           参考動画から台本を生成 →
@@ -219,6 +220,61 @@ export default function ProjectList() {
           </div>
         )}
       </section>
+    </div>
+  );
+}
+
+function PendingAnalyticsBadge() {
+  const [count, setCount] = useState<number | null>(null);
+  const [syncing, setSyncing] = useState(false);
+  const [lastResult, setLastResult] = useState<string | null>(null);
+
+  const reload = async () => {
+    try {
+      const r = await api.analyticsPendingStatus();
+      setCount(r.count);
+    } catch {
+      setCount(null);
+    }
+  };
+
+  useEffect(() => {
+    void reload();
+    const t = window.setInterval(() => void reload(), 30_000);
+    return () => window.clearInterval(t);
+  }, []);
+
+  if (count === null || count === 0) return null;
+
+  const onSync = async () => {
+    if (syncing) return;
+    setSyncing(true);
+    setLastResult(null);
+    try {
+      const r = await api.analyticsPendingSync();
+      setLastResult(`同期完了: ${r.success} 件成功 / ${r.failed} 件失敗`);
+      await reload();
+    } catch (e) {
+      setLastResult(`同期失敗: ${String(e)}`);
+    } finally {
+      setSyncing(false);
+    }
+  };
+
+  return (
+    <div className="mt-3 flex items-center gap-2 text-xs">
+      <span className="rounded bg-amber-700/40 px-2 py-1 text-amber-100">
+        analytics 同期保留 {count} 件
+      </span>
+      <button
+        type="button"
+        className="btn-ghost text-xs"
+        disabled={syncing}
+        onClick={onSync}
+      >
+        {syncing ? "同期中…" : "今すぐ同期"}
+      </button>
+      {lastResult && <span className="text-slate-400">{lastResult}</span>}
     </div>
   );
 }

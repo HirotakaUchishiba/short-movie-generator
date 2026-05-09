@@ -260,6 +260,44 @@ short_movie_generator/
 
 **本番デプロイは無い** (= ローカル実行のみ)。Phase 4 で実験用 SNS アカウント運用 → 本番アカウント移行を検討する。
 
+### 8.1 Tailscale 経由でモバイル等から触る
+
+ローカル Mac で動かす preview_server を、外出先のスマホ / 別 PC から Tailscale (または Cloudflare Tunnel / WireGuard) 経由で触る運用を想定。**VPS には乗せない**。Tailscale が L4 で暗号化 + デバイス認証 + ネットワーク隔離を担うので、本体 server の auth/CORS/HTTPS は最低限で済む。
+
+#### 起動手順
+
+```bash
+# 1. Tailscale で割り当てられた 100.x.x.x の IPv4 を取得
+export FLASK_HOST=$(tailscale ip -4 | head -1)
+
+# 2. (任意) 同 LAN の他デバイス誤爆防止に bearer token を設定
+export PREVIEW_AUTH_TOKEN=$(openssl rand -hex 16)
+
+# 3. server 起動
+python3 preview_server.py
+```
+
+#### Vite (frontend dev) からも token を送る
+
+`frontend/.env.local` を作って以下を入れる:
+
+```
+VITE_PREVIEW_TOKEN=<= preview_server で設定したのと同じ値>
+```
+
+`frontend/src/api.ts` の fetch wrapper が自動で `Authorization: Bearer <token>` を付与する。
+
+#### Auth bypass の例外
+
+`<video src="/asset/...">` / `<img>` 系の asset GET と OPTIONS preflight は Authorization ヘッダを付けられないので **token check を bypass** する。Tailscale で守る前提なので問題にならない。`/api/*` のミューテーションは全て token 必須。
+
+#### 強度の根拠
+
+- **第一防衛**: Tailscale (= 暗号化 + デバイス認証 + 100.64.0.0/10 隔離)
+- **第二防衛**: `PREVIEW_AUTH_TOKEN` (= 「ホテル WiFi で他端末が偶然 100.x.x.x:5555 を叩く」程度の事故防止)
+
+公開 URL を作らない以上、SSO/OAuth/WAF は不要。
+
 ---
 
 ## 9. 関連ドキュメント
@@ -273,4 +311,4 @@ short_movie_generator/
 
 ---
 
-最終更新: 2026-05-07
+最終更新: 2026-05-09
