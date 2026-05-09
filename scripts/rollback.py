@@ -92,6 +92,8 @@ def rollback_video(video_id: str, *,
         try:
             if plat == "youtube":
                 rollback_youtube(p["platform_post_id"])
+                if post_id:
+                    db.mark_post_rolled_back(post_id, reason="cli_rollback_youtube")
                 notify_slack(
                     "warning",
                     f"rollback youtube: {p.get('url') or post_id}",
@@ -99,7 +101,10 @@ def rollback_video(video_id: str, *,
                 )
                 results[plat] = {"post_id": post_id, "status": "private"}
             else:
-                # IG / TikTok は API 削除を実装していない (= Phase 4 範囲外)
+                # IG / TikTok は API 削除を実装していない (= Phase 4 範囲外)。
+                # 通知は出すが、posts.rollback_at は **手動削除を確認できないので
+                # 触らない**。運用者が Studio で消したら scripts/register_post.py
+                # を再実行するか、analytics db を直接 UPDATE する。
                 notify_slack(
                     "warning",
                     f"manual rollback required for {plat}: "

@@ -90,3 +90,48 @@ def test_rollback_filter_by_platform(isolated):
         results = rb.rollback_video("vmix", platform="youtube")
     assert "youtube" in results
     assert "tiktok" not in results
+
+
+def test_rollback_youtube_marks_post_in_db(isolated):
+    """YouTube rollback 成功で posts.rollback_at が埋まり v_active_posts から消える。"""
+    db = isolated
+    _seed(db, video_id="vid_yt_marked", platform="youtube",
+          platform_post_id="abc456")
+    # 取り下げ前は v_active_posts に存在
+    assert any(p["video_id"] == "vid_yt_marked"
+               for p in db.list_active_posts(platform="youtube"))
+
+    from scripts import rollback as rb
+    with patch.object(rb, "rollback_youtube", return_value={"id": "abc456"}):
+        rb.rollback_video("vid_yt_marked")
+
+    # 取り下げ後は v_active_posts から消える
+    assert not any(p["video_id"] == "vid_yt_marked"
+                   for p in db.list_active_posts(platform="youtube"))
+    # ただし posts table 直接 select すると残っている (= soft delete)
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT rollback_at, rollback_reason FROM posts "
+            "WHERE video_id = ?",
+            ("vid_yt_marked",),
+        ).fetchone()
+    assert row["rollback_at"] is not None
+    assert row["rollback_reason"] == "cli_rollback_youtube"
+
+
+def test_rollback_instagram_does_not_mark_db(isolated):
+    """IG/TikTok は手動削除なので posts.rollback_at は触らない。"""
+    db = isolated
+    _seed(db, video_id="vid_ig_unmark", platform="instagram",
+          platform_post_id="ig_99")
+    from scripts import rollback as rb
+    rb.rollback_video("vid_ig_unmark")
+    with db.get_connection() as conn:
+        row = conn.execute(
+            "SELECT rollback_at FROM posts WHERE video_id = ?",
+            ("vid_ig_unmark",),
+        ).fetchone()
+    assert row["rollback_at"] is None  # DB は触られていない
+    # かつ v_active_posts には残っている
+    assert any(p["video_id"] == "vid_ig_unmark"
+               for p in db.list_active_posts())
