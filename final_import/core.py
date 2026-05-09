@@ -156,8 +156,12 @@ def import_final(
             if existing.samefile(src):
                 logger.info("既に取り込み済み (samefile): %s", v.filename)
                 return v
-        except OSError:
-            pass
+        except OSError as e:
+            logger.debug(
+                "[取込] samefile 比較失敗 (= 別ファイル扱いで続行) "
+                "existing=%s src=%s: %s",
+                existing, src, e,
+            )
 
     # 経路に依らず安全な一意名 (HHMMSS[.MICRO].<ext>) にリネーム / コピーする。
     # 元ファイル名が unsafe (= 空白や記号入り) でも API regex `^[\w\.\-]+$` を必ず通過し、
@@ -341,5 +345,7 @@ def _ffprobe_duration(path: Path) -> float | None:
             capture_output=True, text=True, check=True,
         )
         return float(json.loads(r.stdout)["format"]["duration"])
-    except Exception:
+    except (subprocess.CalledProcessError, OSError, ValueError,
+            KeyError, json.JSONDecodeError) as e:
+        logger.warning("[ffprobe] final 動画の duration 取得失敗 %s: %s", path, e)
         return None

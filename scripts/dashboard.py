@@ -159,7 +159,8 @@ def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
     st.markdown("### Raw JSON")
     try:
         st.json(json.loads(sp_row["raw_json"]))
-    except Exception:
+    except (json.JSONDecodeError, TypeError) as e:
+        st.warning(f"raw_json の JSON パースに失敗しました: {e}")
         st.text(sp_row.get("raw_json") or "")
 
 
