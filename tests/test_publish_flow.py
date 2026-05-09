@@ -67,11 +67,11 @@ def project(tmp_path, monkeypatch):
     cap_md = Path(config.POST_CAPTIONS_DIR) / "demo.md"
     cap_md.write_text("# demo\n\n本文テスト\n#hello #world\n\n## 動画ファイル\n- `/x.mp4`\n")
 
-    # CapCut 出力相当のファイルを Stage 7 取込
-    src = tmp_path / "capcut.mp4"
+    # pipeline raw 相当のファイルを Stage 7 取込
+    src = tmp_path / "raw.mp4"
     _make_dummy_mp4(src, duration=2.0)
     from final_import import core as fi
-    fi.import_final(ts, src, source="cli", skip_fingerprint=True)
+    fi.import_final(ts, src)
     progress_store.mark_approved(str(ts_path), "final_import")
     return ts, str(ts_path)
 

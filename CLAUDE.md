@@ -40,14 +40,12 @@
 ```
 [1.台本] → [2.TTS] → [3.背景] → [4.Kling] → [5.音声/リップシンク合成] → [6.字幕 (= pipeline raw)]
                                                                                 ↓
-                                                                       [CapCut 等で手動編集]
-                                                                                ↓
-                                                                   [7.取込] → [8.公開 (YouTube/IG/TikTok)]
+                                                                  [7.取込 (= raw → canonical)] → [8.公開 (YouTube/IG/TikTok)]
 ```
 
 各stageの成果物は `temp/<TS>/tmp/` に保存され、進捗は `tmp-progress.json` で管理する。プレビューUIで承認するまで次stageは実行できない。
 
-**Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7 / 8** はユーザの外部アクション (= CapCut で編集 → ドロップ、プラットフォームに公開) が起点で、`run-next` では自動起動しない。
+**Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7** は auto_loop が pipeline raw を canonical 化する内部経路 (= `_import_raw_as_final()`)。**Stage 8** はユーザの公開アクションが起点で、`run-next` では自動起動しない。
 
 **Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の voice_overrides が自動推論される。手書き台本プロジェクト (analyze_job_id 無し) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
 
@@ -75,7 +73,7 @@ python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 | 4. kling        | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`                            | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
 | 5. scene        | `tmp/scene_<S>.mp4`                                                       | 音声 / リップシンク合成済みの完成シーン動画                                                                                                                         |
 | 6. overlay      | `tmp/overlaid.mp4` + `output/reels_<TS>.mp4` + `post_captions/<title>.md` | 字幕の表示位置・タイミング・視認性。生成時に pipeline raw (`reels_<TS>.mp4`) と SNS キャプションも同時に書き出される                                                |
-| 7. final_import | `temp/<TS>/final/<HHMMSS>.mp4` (複数バージョン)                           | CapCut 編集後の動画。watchdog が `final/` への drop を自動検知 + 音声指紋で誤投入を検出。canonical を選んで承認すると Stage 8 へ                                    |
+| 7. final_import | `temp/<TS>/final/<HHMMSS>.mp4`                                            | auto_loop が pipeline raw を取り込み canonical 化する。複数 final が存在する場合は UI または CLI で canonical を切替えて Stage 8 の対象を選択する                   |
 | 8. publish      | `metadata.json.published_posts[]` + analytics DB                          | YouTube は Data API resumable upload で自動投稿、IG/TikTok は半自動 (caption をクリップボードへ + アプリ起動)。成功時に `posts` テーブルに登録される                |
 
 ### 個別シーンの再生成
@@ -358,21 +356,15 @@ Sync.so 公式 API (`lipsync-2`) のみ。`.env` に `SYNC_API_KEY=<key>` を入
 
 - multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
 
-## Stage 7 取込 + Stage 8 公開 (CapCut → SNS の自動化)
+## Stage 7 取込 + Stage 8 公開
 
-Stage 6 で生成された `output/reels_<TS>.mp4` を CapCut 等で手動編集し、編集後の動画を pipeline に戻して analytics + 公開につなげるためのフェーズ。
+Stage 6 で生成された `output/reels_<TS>.mp4` (= pipeline raw) を canonical 化し、analytics + 公開につなげるためのフェーズ。
 
-### Stage 7: final import の発火 3 経路
+### Stage 7: final import
 
-| 経路                     | 入口                                                                            | TS 同定                |
-| ------------------------ | ------------------------------------------------------------------------------- | ---------------------- |
-| **A. watchdog** (既定)   | `temp/<TS>/final/*.mp4` にドロップ → size 安定 3 秒で自動取込                   | パスから抽出           |
-| **B. UI ドロップゾーン** | `/api/projects/<TS>/final` (multipart upload) または Stage 7 ページの drag&drop | エンドポイントから取得 |
-| **C. CLI**               | `python3 main.py --resume <TS> --import-final <path>`                           | 引数で明示             |
+`scripts/auto_loop.py:_import_raw_as_final()` が pipeline raw を `final_import.import_final(ts, src)` 経由で `temp/<TS>/final/<HHMMSS>.mp4` に取り込み、`metadata.json.final_versions[]` に登録する。これが唯一の取込経路。
 
-3 経路は `final_import.import_final(ts, src, source)` 共通ハンドラに集約。受信時に音声指紋検証 (`final_import.fingerprint.compute_match_score`) で「pipeline 出力の TTS 音声がこの動画にも残っているか」を [0, 1] で記録。閾値 (0.6) 未満は UI で警告のみ表示し、取込は続行する。
-
-`temp/<TS>/final/<HHMMSS>.mp4` に複数バージョンを保管できる。`metadata.json.final_versions[]` で is_canonical を管理し、analytics / publish の正本は canonical なファイルが指される。`DISABLE_FINAL_WATCHER=1` で watchdog を無効化可能。
+複数バージョンを保管できる (= 同じ TS で複数の raw がある場合)。`is_canonical` フラグで「analytics / publish の正本」を管理し、UI または CLI (`--canonical <FILENAME>`) で切替可能。
 
 ### Stage 8: 公開フロー
 
@@ -385,8 +377,7 @@ Stage 6 で生成された `output/reels_<TS>.mp4` を CapCut 等で手動編集
 YouTube は upload 成功時に `analytics.posts` に自動登録 (= `register_post.py` を叩かなくて良い)。IG/TikTok は半自動なので、アップロード完了後にユーザが URL を `register_post.py` で投入する。`fetch_metrics.py` は YouTube/IG/TikTok の 3 platform に対応 (= IG/TikTok は env 設定後に有効)。
 
 ```bash
-# Stage 7 (CapCut 出力の取込)
-python3 main.py --resume 20260506_120000 --import-final ~/Desktop/edited.mp4
+# Stage 7 (final 一覧 / canonical 切替)
 python3 main.py --resume 20260506_120000 --list-finals
 python3 main.py --resume 20260506_120000 --canonical 142233.mp4   # canonical 切替
 

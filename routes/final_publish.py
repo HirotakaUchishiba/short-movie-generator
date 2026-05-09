@@ -9,7 +9,6 @@ from __future__ import annotations
 import logging
 import os
 import re
-import uuid
 from dataclasses import asdict
 
 from flask import Blueprint, abort, jsonify, request, send_file
@@ -41,43 +40,6 @@ def api_list_finals(ts):
     from final_import import core as fi
     versions = [asdict(v) for v in fi.list_final_versions(project_path)]
     return jsonify({"final_versions": versions})
-
-
-@final_publish_bp.route("/api/projects/<ts>/final", methods=["POST"])
-def api_upload_final(ts):
-    validate_ts(ts)
-    project_path = ts_path(ts)
-    if not os.path.isdir(project_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    f = request.files.get("file")
-    if not f:
-        return jsonify({"error": "file required (multipart 'file' field)"}), 400
-    skip_fp = request.args.get("no_fingerprint", "").lower() in ("1", "true", "yes")
-
-    from final_import import core as fi
-    fi.ensure_final_dir(project_path)
-    name = os.path.basename(f.filename or "upload.mp4")
-    ext = os.path.splitext(name)[1].lower()
-    if ext not in fi.ALLOWED_EXTS:
-        return jsonify({"error": f"unsupported extension: {ext}"}), 400
-
-    # 一旦 ts_path 直下の中間 staging に置く (final_d の外なので import_final が
-    # ちゃんと HHMMSS.mp4 にリネームコピーする)。
-    staging_dir = os.path.join(project_path, ".final_upload")
-    os.makedirs(staging_dir, exist_ok=True)
-    tmp = os.path.join(staging_dir, f"upload_{uuid.uuid4().hex}{ext}")
-    try:
-        f.save(tmp)
-        v = fi.import_final(ts, tmp, source="ui", skip_fingerprint=skip_fp)
-        return jsonify({"final_version": asdict(v)}), 201
-    except (FileNotFoundError, ValueError, RuntimeError) as e:
-        return jsonify({"error": str(e)}), 400
-    finally:
-        try:
-            if os.path.exists(tmp):
-                os.unlink(tmp)
-        except OSError as e:
-            logger.warning("[final-upload] tmp %s unlink 失敗: %s", tmp, e)
 
 
 @final_publish_bp.route(

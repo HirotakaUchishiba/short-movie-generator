@@ -70,7 +70,7 @@ def test_import_final_creates_canonical(project, tmp_path):
     src = tmp_path / "capcut.mp4"
     _make_dummy_mp4(src, duration=2.0)
 
-    v = fi.import_final(ts, src, source="cli", skip_fingerprint=True)
+    v = fi.import_final(ts, src)
     assert v.is_canonical is True
     assert v.size_bytes > 0
     assert v.duration_sec is not None and v.duration_sec > 0
@@ -91,7 +91,7 @@ def test_import_final_requires_overlay_approval(tmp_path, monkeypatch):
     src = tmp_path / "x.mp4"
     _make_dummy_mp4(src, duration=1.0)
     with pytest.raises(RuntimeError, match="字幕"):
-        fi.import_final(ts, src, skip_fingerprint=True)
+        fi.import_final(ts, src)
 
 
 def test_import_final_rejects_unknown_extension(project, tmp_path):
@@ -99,7 +99,7 @@ def test_import_final_rejects_unknown_extension(project, tmp_path):
     src = tmp_path / "weird.mkv"
     src.write_bytes(b"x")
     with pytest.raises(ValueError, match="unsupported"):
-        fi.import_final(ts, src, skip_fingerprint=True)
+        fi.import_final(ts, src)
 
 
 def test_import_final_rejects_text_renamed_to_mp4(project, tmp_path):
@@ -108,7 +108,7 @@ def test_import_final_rejects_text_renamed_to_mp4(project, tmp_path):
     src = tmp_path / "fake.mp4"
     src.write_bytes(b"this is not a real video file")
     with pytest.raises(ValueError, match="ftyp atom missing"):
-        fi.import_final(ts, src, skip_fingerprint=True)
+        fi.import_final(ts, src)
 
 
 def test_has_mp4_ftyp_atom_recognizes_mp4(tmp_path):
@@ -133,8 +133,8 @@ def test_import_final_multiple_versions_canonical_is_latest(project, tmp_path):
     _make_dummy_mp4(src1, duration=1.0)
     _make_dummy_mp4(src2, duration=2.0)
 
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)
     assert v1.filename != v2.filename
 
     versions = fi.list_final_versions(ts_path)
@@ -147,13 +147,13 @@ def test_import_final_resets_approval_on_new_version(project, tmp_path):
     ts, ts_path = project
     src1 = tmp_path / "a.mp4"
     _make_dummy_mp4(src1, duration=1.0)
-    fi.import_final(ts, src1, skip_fingerprint=True)
+    fi.import_final(ts, src1)
     progress_store.mark_approved(ts_path, "final_import")
     assert progress_store.is_approved(ts_path, "final_import")
 
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src2, duration=2.0)
-    fi.import_final(ts, src2, skip_fingerprint=True)
+    fi.import_final(ts, src2)
     assert not progress_store.is_approved(ts_path, "final_import")
 
 
@@ -163,8 +163,8 @@ def test_set_canonical_final(project, tmp_path):
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src1)
     _make_dummy_mp4(src2)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    fi.import_final(ts, src2)
 
     fi.set_canonical_final(ts_path, v1.filename)
     canonical = [v for v in fi.list_final_versions(ts_path) if v.is_canonical]
@@ -178,8 +178,8 @@ def test_delete_canonical_promotes_latest_remaining(project, tmp_path):
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src1)
     _make_dummy_mp4(src2)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)
     assert v2.is_canonical
 
     fi.delete_final_version(ts_path, v2.filename)
@@ -193,7 +193,7 @@ def test_delete_all_resets_progress(project, tmp_path):
     ts, ts_path = project
     src = tmp_path / "a.mp4"
     _make_dummy_mp4(src)
-    v = fi.import_final(ts, src, skip_fingerprint=True)
+    v = fi.import_final(ts, src)
     assert progress_store.is_generated(ts_path, "final_import")
 
     fi.delete_final_version(ts_path, v.filename)
@@ -214,7 +214,7 @@ def test_resolve_canonical_prefers_final(project, tmp_path):
     raw.write_bytes(b"fake")
     src = tmp_path / "capcut.mp4"
     _make_dummy_mp4(src)
-    v = fi.import_final(ts, src, skip_fingerprint=True)
+    v = fi.import_final(ts, src)
     resolved = fi.resolve_canonical_video(ts_path)
     assert resolved.name == v.filename
     assert resolved.parent == fi.final_dir(ts_path)
@@ -229,14 +229,14 @@ def test_imported_filenames_are_safe_for_api_regex(project, tmp_path):
     ts, ts_path = project
     src = tmp_path / "My Final Cut Pro Export.mov"
     _make_dummy_mp4(src)
-    v = fi.import_final(ts, src, skip_fingerprint=True)
+    v = fi.import_final(ts, src)
     assert _re.match(r"^[\w\.\-]+$", v.filename), v.filename
     # 拡張子は元と一致 (.mov)
     assert v.filename.endswith(".mov")
 
 
-def test_watchdog_path_is_renamed_in_place(project, tmp_path):
-    """final/ 内に既にあるファイル (= watchdog ドロップ) も safe name にリネームされる."""
+def test_existing_final_path_is_renamed_in_place(project, tmp_path):
+    """final/ 内に既にあるファイルは safe name に in-place rename される."""
     import re as _re
     ts, ts_path = project
     final_d = fi.ensure_final_dir(ts_path)
@@ -244,7 +244,7 @@ def test_watchdog_path_is_renamed_in_place(project, tmp_path):
     src = tmp_path / "raw.mp4"
     _make_dummy_mp4(src)
     shutil.copyfile(src, drop)
-    v = fi.import_final(ts, drop, source="watch", skip_fingerprint=True)
+    v = fi.import_final(ts, drop)
     assert _re.match(r"^[\w\.\-]+$", v.filename)
     assert (final_d / v.filename).exists()
     # 元の "out with space.mp4" は in-place rename で消えている
@@ -259,8 +259,8 @@ def test_dropping_same_filename_creates_distinct_versions(project, tmp_path):
     src2.parent.mkdir()
     _make_dummy_mp4(src1, duration=1.0)
     _make_dummy_mp4(src2, duration=2.0)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)
     assert v1.filename != v2.filename
     versions = fi.list_final_versions(ts_path)
     filenames = [v.filename for v in versions]
@@ -274,8 +274,8 @@ def test_set_canonical_resets_publish_progress(project, tmp_path):
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src1)
     _make_dummy_mp4(src2)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)
     # 両 stage を承認 + publish 履歴にも 1 件足す
     progress_store.mark_approved(ts_path, "final_import")
     progress_store.mark_generated(ts_path, "publish")
@@ -293,7 +293,7 @@ def test_set_canonical_noop_keeps_progress(project, tmp_path):
     ts, ts_path = project
     src = tmp_path / "a.mp4"
     _make_dummy_mp4(src)
-    v = fi.import_final(ts, src, skip_fingerprint=True)
+    v = fi.import_final(ts, src)
     progress_store.mark_approved(ts_path, "final_import")
 
     fi.set_canonical_final(ts_path, v.filename)
@@ -308,8 +308,8 @@ def test_delete_canonical_resets_publish(project, tmp_path):
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src1)
     _make_dummy_mp4(src2)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)
     progress_store.mark_approved(ts_path, "final_import")
     progress_store.mark_generated(ts_path, "publish")
     progress_store.mark_approved(ts_path, "publish")
@@ -327,8 +327,8 @@ def test_delete_non_canonical_keeps_progress(project, tmp_path):
     src2 = tmp_path / "b.mp4"
     _make_dummy_mp4(src1)
     _make_dummy_mp4(src2)
-    v1 = fi.import_final(ts, src1, skip_fingerprint=True)
-    v2 = fi.import_final(ts, src2, skip_fingerprint=True)  # canonical
+    v1 = fi.import_final(ts, src1)
+    v2 = fi.import_final(ts, src2)  # canonical
     progress_store.mark_approved(ts_path, "final_import")
     progress_store.mark_generated(ts_path, "publish")
     progress_store.mark_approved(ts_path, "publish")

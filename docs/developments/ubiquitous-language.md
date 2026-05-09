@@ -87,13 +87,11 @@
 
 ## 8. 取込 (Stage 8)
 
-| 用語          | コード                                         | 説明                                                                           |
-| ------------- | ---------------------------------------------- | ------------------------------------------------------------------------------ |
-| final import  | `final_import.import_final()`                  | CapCut 編集後 (or raw のまま) の動画を取り込む処理                             |
-| watchdog      | `temp/<TS>/final/*.mp4` 監視                   | size 安定 3 秒で自動取込発火                                                   |
-| final version | `metadata.json.final_versions[]`               | 取り込まれた final 動画のバージョン履歴                                        |
-| canonical     | `final_versions[].is_canonical`                | analytics と publish が指す正本 (= 1 プロジェクトに 1 本)                      |
-| 音声指紋      | `final_import.fingerprint.compute_match_score` | TTS 音声が final にも残っているかを `[0, 1]` で判定。閾値 `0.6` 未満は warning |
+| 用語          | コード                           | 説明                                                      |
+| ------------- | -------------------------------- | --------------------------------------------------------- |
+| final import  | `final_import.import_final()`    | CapCut 編集後 (or raw のまま) の動画を取り込む処理        |
+| final version | `metadata.json.final_versions[]` | 取り込まれた final 動画のバージョン履歴                   |
+| canonical     | `final_versions[].is_canonical`  | analytics と publish が指す正本 (= 1 プロジェクトに 1 本) |
 
 ## 9. 配信 (Stage 8 / SNS)
 

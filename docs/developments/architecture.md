@@ -203,8 +203,7 @@ project 作成後に template が外部で書き換わっても、進行中 proj
 |                  | `TIKTOK_ACCESS_TOKEN` / `TIKTOK_OPEN_ID`                            | TikTok metrics 時 | Display API                                                                                          |
 | analytics        | `ANALYTICS_DB_PATH`                                                 | 任意              | 既定 `data/analytics.db`                                                                             |
 | 観測             | `LOG_LEVEL` / `LOG_FILE`                                            | 任意              | logging モジュール                                                                                   |
-| 運用 gate        | `DISABLE_FINAL_WATCHER`                                             | 任意              | Stage 8 watchdog 停止                                                                                |
-|                  | `ARTIFACT_INTEGRITY_AUTO_DELETE`                                    | 任意              | 整合性 NG の自動削除                                                                                 |
+| 運用 gate        | `ARTIFACT_INTEGRITY_AUTO_DELETE`                                    | 任意              | 整合性 NG の自動削除                                                                                 |
 | (Phase 1+ 予定)  | `DISABLE_AUTO_LOOP` / `DAILY_COST_CAP_USD` / `SLACK_WEBHOOK_URL` 他 | 任意              | フルオートループの安全装置 (`docs/plannings/2026-05-07_full-automation-implementation-plan.md` 参照) |
 
 ---

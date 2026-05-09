@@ -338,38 +338,6 @@ export const api = {
   // ─── Stage 8 final import / Stage 9 publish ──────────
   listFinals: (ts: string) =>
     http<{ final_versions: FinalVersion[] }>(`/api/projects/${ts}/final`),
-  uploadFinal: (
-    ts: string,
-    file: File,
-    opts?: { skipFingerprint?: boolean; onProgress?: (pct: number) => void },
-  ): Promise<{ final_version: FinalVersion }> => {
-    return new Promise((resolve, reject) => {
-      const xhr = new XMLHttpRequest();
-      const fd = new FormData();
-      fd.append("file", file);
-      const q = opts?.skipFingerprint ? "?no_fingerprint=true" : "";
-      xhr.upload.onprogress = (e) => {
-        if (e.lengthComputable && opts?.onProgress) {
-          opts.onProgress(e.loaded / e.total);
-        }
-      };
-      xhr.onload = () => {
-        if (xhr.status >= 200 && xhr.status < 300) {
-          try {
-            resolve(JSON.parse(xhr.responseText));
-          } catch (e) {
-            reject(e instanceof Error ? e : new Error(String(e)));
-          }
-        } else {
-          reject(new Error(`${xhr.status}: ${xhr.responseText}`));
-        }
-      };
-      xhr.onerror = () => reject(new Error("network error"));
-      xhr.open("POST", `${API_BASE}/api/projects/${ts}/final${q}`);
-      applyAuthToXhr(xhr);
-      xhr.send(fd);
-    });
-  },
   setCanonicalFinal: (ts: string, filename: string) =>
     http<{ final_version: FinalVersion }>(
       `/api/projects/${ts}/final/${encodeURIComponent(filename)}/canonical`,

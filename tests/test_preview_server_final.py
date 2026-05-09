@@ -28,7 +28,6 @@ def _make_dummy_mp4(path: Path, duration: float = 1.0) -> None:
 
 @pytest.fixture
 def app(tmp_path, monkeypatch):
-    monkeypatch.setenv("DISABLE_FINAL_WATCHER", "1")
     monkeypatch.setenv("ANALYTICS_DB_PATH", str(tmp_path / "analytics.db"))
     monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "id")
     monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "sec")
@@ -70,30 +69,21 @@ def app(tmp_path, monkeypatch):
     return preview_server.app, ts, str(ts_path)
 
 
-def test_upload_and_list_finals(app, tmp_path):
+def test_list_finals_via_route(app, tmp_path):
     flask_app, ts, ts_path = app
     client = flask_app.test_client()
+    from final_import import core as fi
 
-    src = tmp_path / "capcut.mp4"
+    src = tmp_path / "raw.mp4"
     _make_dummy_mp4(src, duration=1.5)
-
-    with open(src, "rb") as f:
-        r = client.post(
-            f"/api/projects/{ts}/final?no_fingerprint=true",
-            data={"file": (f, "capcut.mp4")},
-            content_type="multipart/form-data",
-        )
-    assert r.status_code == 201
-    body = r.get_json()
-    assert body["final_version"]["is_canonical"] is True
-    fname = body["final_version"]["filename"]
+    v = fi.import_final(ts, src)
 
     r2 = client.get(f"/api/projects/{ts}/final")
     versions = r2.get_json()["final_versions"]
-    assert any(v["filename"] == fname for v in versions)
+    assert any(item["filename"] == v.filename for item in versions)
 
     # asset 配信
-    r3 = client.get(f"/asset/{ts}/final-version/{fname}")
+    r3 = client.get(f"/asset/{ts}/final-version/{v.filename}")
     assert r3.status_code == 200
     assert r3.mimetype == "video/mp4"
 
@@ -101,17 +91,12 @@ def test_upload_and_list_finals(app, tmp_path):
 def test_set_canonical_via_route(app, tmp_path):
     flask_app, ts, ts_path = app
     client = flask_app.test_client()
+    from final_import import core as fi
 
     for label in ("a.mp4", "b.mp4"):
         p = tmp_path / label
         _make_dummy_mp4(p)
-        with open(p, "rb") as f:
-            r = client.post(
-                f"/api/projects/{ts}/final?no_fingerprint=true",
-                data={"file": (f, label)},
-                content_type="multipart/form-data",
-            )
-        assert r.status_code == 201
+        fi.import_final(ts, p)
 
     versions = client.get(f"/api/projects/{ts}/final").get_json()["final_versions"]
     first = versions[0]["filename"]
@@ -126,18 +111,13 @@ def test_set_canonical_via_route(app, tmp_path):
 def test_delete_final_via_route(app, tmp_path):
     flask_app, ts, ts_path = app
     client = flask_app.test_client()
+    from final_import import core as fi
 
     src = tmp_path / "v.mp4"
     _make_dummy_mp4(src)
-    with open(src, "rb") as f:
-        r = client.post(
-            f"/api/projects/{ts}/final?no_fingerprint=true",
-            data={"file": (f, "v.mp4")},
-            content_type="multipart/form-data",
-        )
-    fname = r.get_json()["final_version"]["filename"]
+    v = fi.import_final(ts, src)
 
-    r2 = client.delete(f"/api/projects/{ts}/final/{fname}")
+    r2 = client.delete(f"/api/projects/{ts}/final/{v.filename}")
     assert r2.status_code == 200
     versions = client.get(f"/api/projects/{ts}/final").get_json()["final_versions"]
     assert versions == []
@@ -147,15 +127,11 @@ def test_publish_route_returns_job(app, tmp_path, monkeypatch):
     flask_app, ts, ts_path = app
     client = flask_app.test_client()
     import progress_store
+    from final_import import core as fi
 
     src = tmp_path / "v.mp4"
     _make_dummy_mp4(src)
-    with open(src, "rb") as f:
-        client.post(
-            f"/api/projects/{ts}/final?no_fingerprint=true",
-            data={"file": (f, "v.mp4")},
-            content_type="multipart/form-data",
-        )
+    fi.import_final(ts, src)
 
     progress_store.mark_approved(ts_path, "final_import")
 
