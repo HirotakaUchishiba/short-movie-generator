@@ -32,6 +32,50 @@ logger = logging.getLogger(__name__)
 _HASHTAG_RE = re.compile(r"#([^\s#]+)")
 
 
+def _confirm_publish_channel(skip: bool) -> None:
+    """publish 直前に投稿先 YouTube チャンネル情報を表示し、ユーザー確認を取る。
+
+    ``skip=True`` (= ``--yes`` 指定 / 非対話呼び出し) なら何もしない。
+    stdin が tty じゃない (= cron / launchd / subprocess) のに skip 指定が
+    無いとエラーにする (= 確認不能のまま進めない)。
+    """
+    if skip:
+        return
+
+    from platform_clients import youtube as _yt
+    info = _yt._resolve_channel_label()
+
+    print("[公開] 投稿先チャンネル:", file=sys.stderr)
+    print(f"  profile     : {info.get('profile')}", file=sys.stderr)
+    if info.get("title") and info.get("channel_id"):
+        print(
+            f"  channel     : {info['title']} ({info['channel_id']})",
+            file=sys.stderr,
+        )
+    if info.get("aud"):
+        print(f"  client_id   : {info['aud']}", file=sys.stderr)
+    if "scopes" in info:
+        print(f"  scopes      : {info['scopes']}", file=sys.stderr)
+    if info.get("error"):
+        print(f"  error       : {info['error']}", file=sys.stderr)
+    if not (info.get("title") and info.get("channel_id")):
+        print(
+            "  ※ チャンネル名取得には refresh_token に "
+            "youtube.readonly scope が必要 (= 上の client_id だけは確認可)",
+            file=sys.stderr,
+        )
+
+    if not sys.stdin.isatty():
+        raise RuntimeError(
+            "[公開] stdin が tty ではないため確認できません — "
+            "自動実行から呼ぶ場合は confirm_channel=False (CLI なら --yes) を指定",
+        )
+
+    ans = input("[公開] 続行しますか? [y/N]: ").strip().lower()
+    if ans not in ("y", "yes"):
+        raise SystemExit("[公開] ユーザーキャンセル")
+
+
 def publish(ts: str, platform: str, **opts) -> dict:
     """canonical な final を指定 platform に公開し、analytics DB に登録する。
 
@@ -64,6 +108,7 @@ def publish(ts: str, platform: str, **opts) -> dict:
         )
 
     force_republish = bool(opts.pop("force_republish", False))
+    confirm_channel = bool(opts.pop("confirm_channel", False))
     existing = _existing_successful_publish(ts_path, platform)
     if existing and not force_republish:
         logger.warning(
@@ -87,6 +132,7 @@ def publish(ts: str, platform: str, **opts) -> dict:
     )
 
     if platform == "youtube":
+        _confirm_publish_channel(skip=not confirm_channel)
         preflight.check_publish_youtube()
         result = _publish_youtube(ts, video, title, description, tags, **opts)
     elif platform == "instagram":

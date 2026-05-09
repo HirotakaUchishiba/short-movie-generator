@@ -6,6 +6,11 @@
     YOUTUBE_OAUTH_CLIENT_SECRET
     YOUTUBE_REFRESH_TOKEN            初回認可後に取得、.env保存推奨
                                      (upload を使うなら youtube.upload scope 同意必須)
+    YOUTUBE_PROFILE                  (任意) 投稿先チャンネル切替用の profile 名。
+                                     設定すると同名 suffix の env を優先する
+                                     (例: YOUTUBE_PROFILE=BRAND →
+                                      YOUTUBE_OAUTH_CLIENT_ID_BRAND を読む)。
+                                     未設定なら従来通り suffix なし env を読む。
 """
 import json
 import logging
@@ -111,6 +116,93 @@ def fetch_public_stats(video_id: str, api_key: str | None = None) -> dict:
     }
 
 
+def _resolve_oauth_env() -> tuple[str | None, str | None, str | None]:
+    """OAuth 3 値を env から解決する (= profile 切替対応)。
+
+    ``YOUTUBE_PROFILE`` が設定されていれば suffix 付き env を優先する
+    (例: profile=BRAND → YOUTUBE_OAUTH_CLIENT_ID_BRAND を読む)。
+    suffix 付き env が空 / 未設定なら suffix なし env (= 従来動作) を返す。
+
+    Returns: ``(client_id, client_secret, refresh_token)`` — いずれも
+    ``None`` の可能性があり、呼び出し側で ``all()`` チェックする。
+    """
+    profile = (os.environ.get("YOUTUBE_PROFILE") or "").strip().upper()
+
+    def _get(name: str) -> str | None:
+        if profile:
+            v = os.environ.get(f"YOUTUBE_{name}_{profile}")
+            if v:
+                return v
+        return os.environ.get(f"YOUTUBE_{name}")
+
+    return _get("OAUTH_CLIENT_ID"), _get("OAUTH_CLIENT_SECRET"), _get("REFRESH_TOKEN")
+
+
+def _resolve_channel_label() -> dict:
+    """投稿先チャンネルの診断情報を返す (= channel guard / debug 用)。
+
+    取得可能な範囲で ``profile`` / ``aud`` / ``scopes`` / ``title`` /
+    ``channel_id`` / ``error`` を返す。``title`` と ``channel_id`` は
+    ``youtube.readonly`` (もしくは ``youtube`` / ``youtube.force-ssl``)
+    scope が同意済みのときだけ取れる。
+    """
+    import requests
+
+    profile_raw = (os.environ.get("YOUTUBE_PROFILE") or "").strip()
+    info: dict = {"profile": profile_raw or "(default)"}
+
+    cid, csec, rtok = _resolve_oauth_env()
+    if not all([cid, csec, rtok]):
+        info["error"] = "OAuth env (CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN) 未設定"
+        return info
+
+    try:
+        token = _oauth_access_token(cid, csec, rtok)
+    except Exception as e:
+        info["error"] = f"oauth token 取得失敗: {e}"
+        return info
+
+    try:
+        r = requests.get(
+            "https://oauth2.googleapis.com/tokeninfo",
+            params={"access_token": token},
+            timeout=10,
+        )
+        if r.ok:
+            d = r.json()
+            info["aud"] = d.get("aud")
+            info["scopes"] = (d.get("scope") or "").split()
+    except Exception as e:
+        logger.warning("[youtube] tokeninfo 取得失敗: %s", e)
+
+    has_read = any(
+        s in info.get("scopes", [])
+        for s in (
+            "https://www.googleapis.com/auth/youtube.readonly",
+            "https://www.googleapis.com/auth/youtube",
+            "https://www.googleapis.com/auth/youtube.force-ssl",
+        )
+    )
+    if has_read:
+        try:
+            r = requests.get(
+                f"{DATA_API_BASE}/channels",
+                params={"part": "snippet", "mine": "true"},
+                headers={"Authorization": f"Bearer {token}"},
+                timeout=10,
+            )
+            if r.ok:
+                items = r.json().get("items", [])
+                if items:
+                    sn = items[0].get("snippet", {})
+                    info["title"] = sn.get("title")
+                    info["channel_id"] = items[0].get("id")
+        except Exception as e:
+            logger.warning("[youtube] channels?mine=true 取得失敗: %s", e)
+
+    return info
+
+
 def _oauth_access_token(client_id: str, client_secret: str,
                         refresh_token: str) -> str:
     """refresh_token から access_token を取得。
@@ -167,9 +259,7 @@ def fetch_analytics(video_id: str,
     """YouTube Analytics API で詳細メトリクスを取得（要OAuth、自チャンネル動画のみ）。"""
     import requests
 
-    client_id = os.getenv("YOUTUBE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET")
-    refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
+    client_id, client_secret, refresh_token = _resolve_oauth_env()
     if not all([client_id, client_secret, refresh_token]):
         raise RuntimeError(
             "YouTube Analytics認証情報が未設定 "
@@ -310,9 +400,7 @@ def upload_video(
 
     privacy = _resolve_privacy(privacy)
 
-    client_id = os.getenv("YOUTUBE_OAUTH_CLIENT_ID")
-    client_secret = os.getenv("YOUTUBE_OAUTH_CLIENT_SECRET")
-    refresh_token = os.getenv("YOUTUBE_REFRESH_TOKEN")
+    client_id, client_secret, refresh_token = _resolve_oauth_env()
     if not all([client_id, client_secret, refresh_token]):
         raise RuntimeError(
             "YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN が必要 "
