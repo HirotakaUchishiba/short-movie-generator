@@ -8,6 +8,7 @@ import ComposedPromptPreview from "../ComposedPromptPreview";
 import SceneTtsRow from "../SceneTtsRow";
 import SceneFieldEditor from "../SceneFieldEditor";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
+import { CostEstimatePreview } from "../CostEstimatePreview";
 import type { CachePresenter, SceneContext } from "../cache/types";
 import type {
   CostMedianRate,
@@ -420,31 +421,42 @@ function KlingResultCard({
             )}
           </div>
         )}
-        <div className="flex justify-end gap-2">
-          {!confirming ? (
-            <button
-              className="btn-secondary text-xs"
-              onClick={() => setConfirming(true)}
-            >
-              再生成 ({_formatCost(cost)})
-            </button>
-          ) : (
-            <>
-              <button
-                className="btn-ghost text-xs"
-                onClick={() => setConfirming(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-danger text-xs"
-                disabled={saving}
-                onClick={onRegen}
-              >
-                {saving ? "実行中..." : `本当に ${_formatCost(cost)} 使う`}
-              </button>
-            </>
+        <div className="flex flex-col items-end gap-1">
+          {confirming && (
+            <CostEstimatePreview
+              stage="kling"
+              params={{
+                duration_sec: scene.duration ?? 0,
+                model: "fal-ai/kling-video/v3/standard/image-to-video",
+              }}
+            />
           )}
+          <div className="flex justify-end gap-2">
+            {!confirming ? (
+              <button
+                className="btn-secondary text-xs"
+                onClick={() => setConfirming(true)}
+              >
+                再生成 ({_formatCost(cost)})
+              </button>
+            ) : (
+              <>
+                <button
+                  className="btn-ghost text-xs"
+                  onClick={() => setConfirming(false)}
+                >
+                  キャンセル
+                </button>
+                <button
+                  className="btn-danger text-xs"
+                  disabled={saving}
+                  onClick={onRegen}
+                >
+                  {saving ? "実行中..." : `本当に ${_formatCost(cost)} 使う`}
+                </button>
+              </>
+            )}
+          </div>
         </div>
       </div>
     </div>

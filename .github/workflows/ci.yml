@@ -1,0 +1,82 @@
+name: CI
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+concurrency:
+  group: ci-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  lint:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      - run: pip install ruff
+      - run: ruff format --check .
+      - run: ruff check .
+
+  test-backend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 15
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with:
+          python-version: "3.12"
+          cache: pip
+      # ffmpeg は test_final_import / test_compositor 等で必要
+      - name: Install ffmpeg
+        run: sudo apt-get update && sudo apt-get install -y ffmpeg
+      - name: Install Python deps
+        run: |
+          pip install -r requirements.txt
+      - name: Run pytest
+        # 一部テストは API key を必要とするので env で stub 値を渡す
+        env:
+          ANTHROPIC_API_KEY: dummy
+          OPENAI_API_KEY: dummy
+          ELEVENLABS_API_KEY: dummy
+          GOOGLE_API_KEY: dummy
+          FAL_API_KEY: dummy
+          SLACK_WEBHOOK_URL: ""
+        run: pytest tests/ -q --maxfail=5
+
+  test-frontend:
+    runs-on: ubuntu-latest
+    timeout-minutes: 10
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "20"
+          cache: npm
+          cache-dependency-path: frontend/package-lock.json
+      - run: npm ci
+        working-directory: frontend
+      - run: npx tsc --noEmit
+        working-directory: frontend
+      - run: npm run test:ci
+        working-directory: frontend
+      - run: npm run build
+        working-directory: frontend
+
+  secret-scan:
+    runs-on: ubuntu-latest
+    timeout-minutes: 5
+    # 履歴にコミットされた secret が無いか確認
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+      - uses: gitleaks/gitleaks-action@v2
+        env:
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
