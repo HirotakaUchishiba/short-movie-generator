@@ -56,11 +56,19 @@ CREATE TABLE IF NOT EXISTS posts (
     caption TEXT,
     hashtags TEXT,
     registered_at TEXT NOT NULL,
+    rollback_at TEXT,
+    rollback_reason TEXT,
     UNIQUE(platform, platform_post_id)
 );
 
 CREATE INDEX IF NOT EXISTS idx_posts_video ON posts(video_id);
 CREATE INDEX IF NOT EXISTS idx_posts_platform ON posts(platform);
+
+-- schema v9: rollback されていない post だけを返す view。
+-- dashboard / fetch_metrics / v_strategy_performance はこの view を読むことで
+-- 取り下げ済 post の metrics polling や reward 集計を自動的に止める。
+CREATE VIEW IF NOT EXISTS v_active_posts AS
+SELECT * FROM posts WHERE rollback_at IS NULL;
 
 CREATE TABLE IF NOT EXISTS post_metrics (
     id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -79,6 +87,7 @@ CREATE TABLE IF NOT EXISTS post_metrics (
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_post_time ON post_metrics(post_id, fetched_at);
+CREATE UNIQUE INDEX IF NOT EXISTS uq_metrics_post_fetched ON post_metrics(post_id, fetched_at);
 
 -- Latest metrics view
 CREATE VIEW IF NOT EXISTS v_latest_metrics AS
@@ -289,6 +298,32 @@ WHERE m.fetched_at IS NOT NULL
   AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
   AND s.theme IS NOT NULL
 GROUP BY s.theme;
+
+-- schema v9 (Phase 3.5 / 4.5): strategy × axis 別パフォーマンス view。
+-- experiment_assignments.strategy ("baseline" / "shadow_*" / "active_*") ごとに
+-- reward を分離するため、軸別 view と join せず experiment_assignments を直接読む。
+-- baseline と active で生成方法が違うので reward を混ぜない (= A/B 検定の正確性)。
+-- v_active_posts を使うので rollback 済 post は自動除外。
+-- experiment_assignments.video_id は schema v6 で TEXT (FK 無し) なので、ts と
+-- videos.id の両方に対応するため LEFT JOIN で video が見つからなかったケースも
+-- 拾える設計。ingest_video の backfill で ts → videos.id 置換が起きるまで両方走る。
+CREATE VIEW IF NOT EXISTS v_strategy_performance AS
+SELECT
+    e.strategy,
+    e.axis,
+    e.selected_value,
+    COUNT(*) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.saves) AS avg_save
+FROM experiment_assignments e
+LEFT JOIN videos v ON v.id = e.video_id
+JOIN v_active_posts p ON p.video_id = COALESCE(v.id, e.video_id)
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+GROUP BY e.strategy, e.axis, e.selected_value;
 
 -- Performance summary (screenplay × platform latest metrics)
 CREATE VIEW IF NOT EXISTS v_performance AS

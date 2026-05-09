@@ -12,12 +12,13 @@ def isolated_db(tmp_path, monkeypatch):
     return _db
 
 
-def test_schema_version_is_8(isolated_db):
+def test_schema_version_is_current(isolated_db):
+    """schema_version は CURRENT_SCHEMA_VERSION (= 9, posts.rollback_at + v_strategy_performance) と一致する。"""
     with isolated_db.get_connection() as conn:
         row = conn.execute(
             "SELECT MAX(version) AS v FROM schema_version"
         ).fetchone()
-    assert row["v"] == 8
+    assert row["v"] == isolated_db.CURRENT_SCHEMA_VERSION
 
 
 def test_experiment_assignments_has_phase_x1_columns(isolated_db):
