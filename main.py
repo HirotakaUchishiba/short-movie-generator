@@ -52,6 +52,13 @@ def _build_parser() -> argparse.ArgumentParser:
     g.add_argument("--force-republish", action="store_true",
                    help="既存の成功済み投稿があっても再投稿する "
                         "(= 二重 upload ガードを bypass)")
+    g.add_argument("--channel", metavar="PROFILE",
+                   help="--publish youtube の投稿先チャンネル profile (= "
+                        "YOUTUBE_PROFILE 環境変数を override する。"
+                        ".env で YOUTUBE_OAUTH_CLIENT_ID_<PROFILE> 等の "
+                        "suffix 付き env を別途用意する必要あり)")
+    g.add_argument("--yes", "-y", dest="yes", action="store_true",
+                   help="--publish 実行時の channel guard 確認プロンプトを skip")
     return p
 
 
@@ -210,12 +217,15 @@ def _run_stage8_9(args: argparse.Namespace, ts: str) -> None:
         return
 
     if args.publish:
+        if args.channel:
+            os.environ["YOUTUBE_PROFILE"] = args.channel.upper()
         from final_import.publish import publish
         try:
             result = publish(
                 ts, args.publish,
                 privacy=args.privacy,
                 force_republish=args.force_republish,
+                confirm_channel=(args.publish == "youtube" and not args.yes),
             )
         except Exception as e:
             logger.exception("公開失敗: %s", e)

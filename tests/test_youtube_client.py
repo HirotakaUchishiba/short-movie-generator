@@ -63,3 +63,113 @@ def test_fetch_metrics_for_post_falls_back_to_public(monkeypatch) -> None:
     with patch("requests.get", return_value=mock_resp):
         m = youtube.fetch_metrics_for_post({"platform_post_id": "abc"})
     assert m["views"] == 100
+
+
+def test_resolve_oauth_env_no_profile_reads_default(monkeypatch) -> None:
+    monkeypatch.delenv("YOUTUBE_PROFILE", raising=False)
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "csec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "rtok")
+    assert youtube._resolve_oauth_env() == ("cid", "csec", "rtok")
+
+
+def test_resolve_oauth_env_with_profile_uses_suffix(monkeypatch) -> None:
+    monkeypatch.setenv("YOUTUBE_PROFILE", "brand")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "default-cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID_BRAND", "brand-cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET_BRAND", "brand-sec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN_BRAND", "brand-rtok")
+    cid, csec, rtok = youtube._resolve_oauth_env()
+    assert (cid, csec, rtok) == ("brand-cid", "brand-sec", "brand-rtok")
+
+
+def test_resolve_oauth_env_profile_falls_back_when_suffix_missing(monkeypatch) -> None:
+    monkeypatch.setenv("YOUTUBE_PROFILE", "brand")
+    monkeypatch.delenv("YOUTUBE_OAUTH_CLIENT_ID_BRAND", raising=False)
+    monkeypatch.delenv("YOUTUBE_OAUTH_CLIENT_SECRET_BRAND", raising=False)
+    monkeypatch.delenv("YOUTUBE_REFRESH_TOKEN_BRAND", raising=False)
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "default-cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "default-sec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "default-rtok")
+    assert youtube._resolve_oauth_env() == ("default-cid", "default-sec", "default-rtok")
+
+
+def test_resolve_oauth_env_profile_lowercase_normalized(monkeypatch) -> None:
+    monkeypatch.setenv("YOUTUBE_PROFILE", "Brand")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID_BRAND", "brand-cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET_BRAND", "brand-sec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN_BRAND", "brand-rtok")
+    cid, _csec, _rtok = youtube._resolve_oauth_env()
+    assert cid == "brand-cid"
+
+
+def test_resolve_channel_label_with_readonly_returns_full_info(monkeypatch) -> None:
+    monkeypatch.delenv("YOUTUBE_PROFILE", raising=False)
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID", "cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET", "csec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN", "rtok")
+    monkeypatch.setattr(youtube, "_oauth_access_token", lambda *a, **k: "tok")
+
+    def _fake_get(url, **_kw):
+        resp = MagicMock()
+        resp.ok = True
+        if "tokeninfo" in url:
+            resp.json.return_value = {
+                "aud": "client.example.com",
+                "scope": (
+                    "https://www.googleapis.com/auth/youtube.upload "
+                    "https://www.googleapis.com/auth/youtube.readonly"
+                ),
+            }
+        else:
+            resp.json.return_value = {
+                "items": [{"id": "UCabc", "snippet": {"title": "Test Channel"}}],
+            }
+        return resp
+
+    with patch("requests.get", side_effect=_fake_get):
+        info = youtube._resolve_channel_label()
+
+    assert info["profile"] == "(default)"
+    assert info["aud"] == "client.example.com"
+    assert info["title"] == "Test Channel"
+    assert info["channel_id"] == "UCabc"
+
+
+def test_resolve_channel_label_without_readonly_omits_channel(monkeypatch) -> None:
+    monkeypatch.setenv("YOUTUBE_PROFILE", "BRAND")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_ID_BRAND", "cid")
+    monkeypatch.setenv("YOUTUBE_OAUTH_CLIENT_SECRET_BRAND", "csec")
+    monkeypatch.setenv("YOUTUBE_REFRESH_TOKEN_BRAND", "rtok")
+    monkeypatch.setattr(youtube, "_oauth_access_token", lambda *a, **k: "tok")
+
+    def _fake_get(url, **_kw):
+        resp = MagicMock()
+        resp.ok = True
+        if "tokeninfo" in url:
+            resp.json.return_value = {
+                "aud": "x.example.com",
+                "scope": "https://www.googleapis.com/auth/youtube.upload",
+            }
+            return resp
+        raise AssertionError(
+            "channels?mine=true should not be called without youtube.readonly",
+        )
+
+    with patch("requests.get", side_effect=_fake_get):
+        info = youtube._resolve_channel_label()
+
+    assert info["profile"] == "BRAND"
+    assert info["aud"] == "x.example.com"
+    assert "title" not in info
+    assert "channel_id" not in info
+
+
+def test_resolve_channel_label_missing_oauth_env_returns_error(monkeypatch) -> None:
+    monkeypatch.delenv("YOUTUBE_PROFILE", raising=False)
+    monkeypatch.delenv("YOUTUBE_OAUTH_CLIENT_ID", raising=False)
+    monkeypatch.delenv("YOUTUBE_OAUTH_CLIENT_SECRET", raising=False)
+    monkeypatch.delenv("YOUTUBE_REFRESH_TOKEN", raising=False)
+    info = youtube._resolve_channel_label()
+    assert "error" in info
+    assert "OAuth env" in info["error"]
