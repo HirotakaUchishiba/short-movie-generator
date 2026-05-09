@@ -7,11 +7,19 @@
     YOUTUBE_REFRESH_TOKEN            初回認可後に取得、.env保存推奨
                                      (upload を使うなら youtube.upload scope 同意必須)
 """
+import json
 import logging
 import os
 import time
-from datetime import date, timedelta
+from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+
+import io_utils
+
+# resumable upload state を保存する JSON のキー (= temp/<TS>/upload_state_youtube.json)。
+# YouTube の resumable upload URL 公式 TTL は 7 日だが、unstable network での
+# stale link を避けるため 24h で破棄する保守設定。
+UPLOAD_STATE_TTL_SEC = 24 * 3600
 
 logger = logging.getLogger(__name__)
 
@@ -220,6 +228,56 @@ def fetch_analytics(video_id: str,
     }
 
 
+def _load_upload_state(state_path: Path | None,
+                       file_size: int) -> dict | None:
+    """state file が valid (= 24h 以内 + file_size 一致) なら読んで返す。"""
+    if state_path is None or not state_path.exists():
+        return None
+    try:
+        with state_path.open("r", encoding="utf-8") as f:
+            data = json.load(f)
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("[youtube] upload_state 読込失敗 (%s): %s",
+                       state_path, e)
+        return None
+    started_at_iso = data.get("started_at")
+    if not started_at_iso:
+        return None
+    try:
+        started_at = datetime.fromisoformat(started_at_iso)
+    except ValueError:
+        return None
+    age = (datetime.now(timezone.utc) - started_at).total_seconds()
+    if age > UPLOAD_STATE_TTL_SEC:
+        logger.info("[youtube] upload_state が %.0fs 経過 → 破棄して新規 upload", age)
+        return None
+    if data.get("file_size") != file_size:
+        logger.info("[youtube] upload_state.file_size mismatch (%s vs %s) → 破棄",
+                    data.get("file_size"), file_size)
+        return None
+    if not data.get("upload_url"):
+        return None
+    return data
+
+
+def _save_upload_state(state_path: Path | None, state: dict) -> None:
+    if state_path is None:
+        return
+    state_path.parent.mkdir(parents=True, exist_ok=True)
+    io_utils.atomic_write_json(str(state_path), state)
+
+
+def _clear_upload_state(state_path: Path | None) -> None:
+    if state_path is None:
+        return
+    try:
+        state_path.unlink()
+    except FileNotFoundError:
+        pass
+    except OSError as e:
+        logger.warning("[youtube] upload_state 削除失敗 (%s): %s", state_path, e)
+
+
 def upload_video(
     file_path: Path | str,
     title: str,
@@ -230,6 +288,7 @@ def upload_video(
     category_id: str = DEFAULT_CATEGORY_ID,
     chunk_size: int = DEFAULT_UPLOAD_CHUNK_SIZE,
     made_for_kids: bool = False,
+    state_path: Path | str | None = None,
 ) -> dict:
     """Resumable upload で YouTube に動画をアップロード、video_id と URL を返す。
 
@@ -290,26 +349,61 @@ def upload_video(
             timeout=30,
         )
 
-    init_resp = _do_init(token)
-    if init_resp.status_code in (401, 403):
-        logger.info("youtube upload init: %d → access_token 失効と判断して refresh",
-                    init_resp.status_code)
-        token = _oauth_access_token(client_id, client_secret, refresh_token)
+    state_p: Path | None = Path(state_path) if state_path is not None else None
+    resumed_state = _load_upload_state(state_p, file_size)
+
+    if resumed_state is not None:
+        upload_url = resumed_state["upload_url"]
+        logger.info("[youtube] resume 既存 upload (%s, started_at=%s)",
+                    file_path.name, resumed_state.get("started_at"))
+    else:
         init_resp = _do_init(token)
-    transient_retries = 0
-    while 500 <= init_resp.status_code < 600 and transient_retries < 2:
-        time.sleep(2 ** transient_retries)
-        transient_retries += 1
-        logger.warning("youtube upload init 5xx (retry %d/2): %d",
-                       transient_retries, init_resp.status_code)
-        init_resp = _do_init(token)
-    init_resp.raise_for_status()
-    upload_url = init_resp.headers.get("Location")
-    if not upload_url:
-        raise RuntimeError("resumable upload init で Location header が返らなかった")
+        if init_resp.status_code in (401, 403):
+            logger.info("youtube upload init: %d → access_token 失効と判断して refresh",
+                        init_resp.status_code)
+            token = _oauth_access_token(client_id, client_secret, refresh_token)
+            init_resp = _do_init(token)
+        transient_retries = 0
+        while 500 <= init_resp.status_code < 600 and transient_retries < 2:
+            time.sleep(2 ** transient_retries)
+            transient_retries += 1
+            logger.warning("youtube upload init 5xx (retry %d/2): %d",
+                           transient_retries, init_resp.status_code)
+            init_resp = _do_init(token)
+        init_resp.raise_for_status()
+        upload_url = init_resp.headers.get("Location")
+        if not upload_url:
+            raise RuntimeError("resumable upload init で Location header が返らなかった")
+        if state_p is not None:
+            _save_upload_state(state_p, {
+                "upload_url": upload_url,
+                "file_size": file_size,
+                "bytes_uploaded": 0,
+                "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                "file_path": str(file_path),
+            })
 
     with open(file_path, "rb") as f:
-        offset = 0
+        # resume の場合、サーバーから現在の受領済 offset を問い合わせる
+        if resumed_state is not None:
+            queried = _query_resumable_offset(upload_url, file_size)
+            if queried == "complete":
+                # サーバはもう完了している (= 前回 PUT は届いていたが client 側で
+                # response を受け取れずに落ちた)。state を消して return 同等の経路
+                # に乗せたいが、upload 結果 (video_id) を再取得する経路はないので
+                # state を破棄して新規 upload を init し直す
+                logger.info("[youtube] resume 試行で server は complete 状態 — state 破棄して再 init")
+                _clear_upload_state(state_p)
+                # raise すると caller が再実行 (= 新規 init) してくれる
+                raise RuntimeError(
+                    "previous upload appears complete on server but client lost "
+                    "the video_id response; retry will start fresh",
+                )
+            offset = queried if isinstance(queried, int) else 0
+            logger.info("[youtube] resume offset=%d / %d (%.1f%%)",
+                        offset, file_size, offset / max(file_size, 1) * 100)
+        else:
+            offset = 0
         last_response_data: dict = {}
         unknown_range_retries = 0
         max_unknown_range_retries = 5
@@ -343,6 +437,17 @@ def upload_video(
                         "youtube upload: %d / %d bytes (%.0f%%)",
                         offset, file_size, offset / file_size * 100,
                     )
+                    if state_p is not None:
+                        _save_upload_state(state_p, {
+                            "upload_url": upload_url,
+                            "file_size": file_size,
+                            "bytes_uploaded": offset,
+                            "started_at": (resumed_state or {}).get(
+                                "started_at",
+                                datetime.now(timezone.utc).isoformat(timespec="seconds"),
+                            ),
+                            "file_path": str(file_path),
+                        })
                     continue
                 # Range が無い 308 は server がどこまで受領したか不明 →
                 # 楽観的に offset を進めると byte gap で upload が壊れる。
@@ -386,6 +491,7 @@ def upload_video(
         )
     url = (f"https://youtube.com/shorts/{video_id}" if is_short
            else f"https://youtu.be/{video_id}")
+    _clear_upload_state(state_p)
     return {
         "video_id": video_id,
         "url": url,

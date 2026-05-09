@@ -87,6 +87,9 @@ def _is_already_imported(ts: str, path: Path) -> bool:
     return False
 
 
+SLOW_WRITE_WARN_SEC = 5.0
+
+
 def handle_event(path: Path) -> None:
     """イベント発生時に呼ぶ。pending 表に登録 (or 既存エントリを更新) する。"""
     res = _is_final_file(path)
@@ -103,10 +106,13 @@ def handle_event(path: Path) -> None:
         return
     with _pending_lock:
         rec = _pending.get(str(resolved)) or {}
+        now = time.time()
         rec.update({
             "ts": ts, "path": resolved,
-            "size": size, "last_seen": time.time(),
+            "size": size, "last_seen": now,
         })
+        rec.setdefault("first_seen", now)
+        rec.setdefault("warned_slow", False)
         _pending[str(resolved)] = rec
 
 
@@ -185,7 +191,19 @@ def _poll_pending() -> None:
                     continue
                 if now - rec["last_seen"] >= STABLE_WINDOW_SEC:
                     if not _is_ready_for_import(rec["path"]):
-                        # まだ書込中 / moov 未確定 — last_seen を更新して再待機
+                        # まだ書込中 / moov 未確定 — last_seen を更新して再待機。
+                        # ただし first_seen から SLOW_WRITE_WARN_SEC 経って取り込めない
+                        # 場合は 1 度だけ WARN ログを出す (= ネットワーク drag stall や
+                        # 巨大ファイルのコピーが詰まっているサイン)。
+                        first_seen = rec.get("first_seen", now)
+                        if (not rec.get("warned_slow")
+                                and now - first_seen >= SLOW_WRITE_WARN_SEC):
+                            logger.warning(
+                                "[取込] %s が %ds 経過しても import 可になりません "
+                                "(slow write / moov 未確定の可能性)",
+                                rec["path"].name, int(now - first_seen),
+                            )
+                            rec["warned_slow"] = True
                         rec["last_seen"] = now
                         continue
                     ready.append(rec)
@@ -251,8 +269,8 @@ def stop_watcher() -> None:
             try:
                 _observer.stop()
                 _observer.join(timeout=2)
-            except Exception:
-                pass
+            except Exception as e:
+                logger.warning("[取込] watchdog 停止時に例外: %s", e)
             _observer = None
     _poller_stop.set()
     if _poller_thread is not None:

@@ -36,11 +36,12 @@ def _ok_response():
     return r
 
 
-def _err_response(status: int, body: str = ""):
+def _err_response(status: int, body: str = "", retry_after: str | None = None):
     r = MagicMock(spec=requests.Response)
     r.ok = False
     r.status_code = status
     r.text = body
+    r.headers = {"Retry-After": retry_after} if retry_after is not None else {}
     return r
 
 
@@ -91,6 +92,25 @@ def test_post_with_retry_retries_on_5xx_then_succeeds(monkeypatch):
     resp = elevenlabs_client._post_with_retry("u", {}, {})
     assert resp.ok
     assert len(calls) == 3
+
+
+def test_post_with_retry_honors_retry_after_header(monkeypatch):
+    """429 with Retry-After ヘッダ → そのヘッダ値で待つ。"""
+    sequence = [_err_response(429, "rate limit", retry_after="2"),
+                _ok_response()]
+    sleep_calls: list[float] = []
+
+    def fake_post(url, headers=None, json=None, timeout=None):
+        return sequence.pop(0)
+
+    monkeypatch.setattr(elevenlabs_client.requests, "post", fake_post)
+    monkeypatch.setattr(elevenlabs_client.time, "sleep",
+                        lambda s: sleep_calls.append(s))
+    monkeypatch.setattr(elevenlabs_client.io_utils.random,
+                        "uniform", lambda _a, _b: 0.0)  # disable jitter
+    resp = elevenlabs_client._post_with_retry("u", {}, {})
+    assert resp.ok
+    assert sleep_calls == [2.0]  # Retry-After=2 を使用
 
 
 def test_post_with_retry_fails_immediately_on_4xx(monkeypatch):

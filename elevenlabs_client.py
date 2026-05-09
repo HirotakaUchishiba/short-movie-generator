@@ -4,6 +4,7 @@ import time
 
 import requests
 import config
+import io_utils
 from cost_tracking import pricebook as _pricebook
 
 logger = logging.getLogger(__name__)
@@ -58,9 +59,9 @@ def _post_with_retry(url: str, headers: dict, json_body: dict,
             last_exc = exc
             if attempt >= MAX_RETRIES - 1:
                 break
-            wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+            wait = io_utils.next_backoff_seconds(attempt, BACKOFF_SECONDS)
             logger.warning(
-                "ElevenLabs 接続エラー (%d回目/%d): %s — %d秒後にリトライ",
+                "ElevenLabs 接続エラー (%d回目/%d): %s — %.1f秒後にリトライ",
                 attempt + 1, MAX_RETRIES, exc, wait,
             )
             time.sleep(wait)
@@ -79,10 +80,14 @@ def _post_with_retry(url: str, headers: dict, json_body: dict,
             )
         if attempt >= MAX_RETRIES - 1:
             break
-        wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+        retry_after = io_utils.parse_retry_after(resp.headers.get("Retry-After"))
+        wait = io_utils.next_backoff_seconds(
+            attempt, BACKOFF_SECONDS, retry_after=retry_after
+        )
         logger.warning(
-            "ElevenLabs %s (%d回目/%d) — %d秒後にリトライ: %s",
+            "ElevenLabs %s (%d回目/%d) — %.1f秒後にリトライ%s: %s",
             resp.status_code, attempt + 1, MAX_RETRIES, wait,
+            " (Retry-After 由来)" if retry_after is not None else "",
             last_body[:200],
         )
         time.sleep(wait)
