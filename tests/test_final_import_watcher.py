@@ -207,3 +207,37 @@ def test_stable_window_env_override(monkeypatch):
     monkeypatch.delenv("FINAL_WATCHER_STABLE_SEC", raising=False)
     importlib.reload(w)
     assert w.STABLE_WINDOW_SEC == 3.0
+
+
+def test_slow_write_emits_warning_once(project, tmp_path, monkeypatch, caplog):
+    """import 不可な状態が SLOW_WRITE_WARN_SEC 以上続くと WARN を 1 回出す。"""
+    import logging as _logging
+    from final_import import watcher as w
+
+    ts, ts_path = project
+    final_dir = Path(ts_path) / "final"
+    src = final_dir / "broken.mp4"
+    src.write_bytes(b"\x00" * 1024)  # ffprobe 不可なダミー → _is_ready_for_import False
+
+    monkeypatch.setattr(w, "STABLE_WINDOW_SEC", 0.0)
+    monkeypatch.setattr(w, "SLOW_WRITE_WARN_SEC", 0.05)
+
+    w.handle_event(src)
+    # first_seen を 1 秒前にずらす (= SLOW_WRITE_WARN_SEC を確実に超えさせる)
+    with w._pending_lock:
+        for rec in w._pending.values():
+            rec["first_seen"] -= 1.0
+
+    caplog.set_level(_logging.WARNING, logger="final_import.watcher")
+    w._poller_stop.clear()
+    poll_thread = __import__("threading").Thread(target=w._poll_pending, daemon=True)
+    poll_thread.start()
+    time.sleep(1.5 * w.POLL_INTERVAL_SEC + 0.3)
+    w._poller_stop.set()
+    poll_thread.join(timeout=1)
+
+    matching = [
+        r for r in caplog.records
+        if "import 可になりません" in r.getMessage()
+    ]
+    assert len(matching) == 1  # 同じ rec から 2 回 WARN は出ない

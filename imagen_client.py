@@ -1,4 +1,5 @@
 import logging
+import time
 
 from PIL import Image
 from google import genai
@@ -12,6 +13,7 @@ logger = logging.getLogger(__name__)
 MODEL = "gemini-3-pro-image-preview"
 REQUEST_TIMEOUT_SEC = 120
 MAX_RETRIES = 2
+BACKOFF_SECONDS = (5, 15)
 
 
 def _is_portrait(image_path: str) -> bool:
@@ -66,8 +68,12 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
         except Exception as e:
             last_err = e
             if attempt < MAX_RETRIES:
-                logger.warning("imagen API失敗 (attempt %d): %s → retry",
-                               attempt + 1, str(e)[:120])
+                wait = io_utils.next_backoff_seconds(attempt, list(BACKOFF_SECONDS))
+                logger.warning(
+                    "imagen API失敗 (attempt %d): %s → %.1f秒後 retry",
+                    attempt + 1, str(e)[:120], wait,
+                )
+                time.sleep(wait)
             else:
                 raise RuntimeError(f"imagen API failed after {MAX_RETRIES + 1} attempts: {e}") from e
 

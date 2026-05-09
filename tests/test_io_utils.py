@@ -91,3 +91,57 @@ def test_atomic_write_bytes_does_not_leak_tmp_on_write_failure(tmp_path):
 
     assert not os.path.exists(p)
     assert not os.path.exists(p + ".tmp")
+
+
+# ─── retry helpers ────────────────────────────────────────────
+
+
+def test_parse_retry_after_seconds():
+    assert io_utils.parse_retry_after("30") == 30.0
+    assert io_utils.parse_retry_after("  10.5  ") == 10.5
+    assert io_utils.parse_retry_after("0") == 0.0
+
+
+def test_parse_retry_after_invalid():
+    assert io_utils.parse_retry_after(None) is None
+    assert io_utils.parse_retry_after("") is None
+    assert io_utils.parse_retry_after("Wed, 21 Oct 2015") is None
+    assert io_utils.parse_retry_after("xx") is None
+
+
+def test_parse_retry_after_negative_clamps_to_zero():
+    assert io_utils.parse_retry_after("-5") == 0.0
+
+
+def test_next_backoff_uses_schedule_index():
+    schedule = [10.0, 20.0, 40.0]
+    assert io_utils.next_backoff_seconds(0, schedule, jitter=0) == 10.0
+    assert io_utils.next_backoff_seconds(1, schedule, jitter=0) == 20.0
+    assert io_utils.next_backoff_seconds(2, schedule, jitter=0) == 40.0
+    # 範囲外は最後の値で saturate
+    assert io_utils.next_backoff_seconds(10, schedule, jitter=0) == 40.0
+
+
+def test_next_backoff_jitter_within_range():
+    base = 100.0
+    schedule = [base]
+    for _ in range(50):
+        v = io_utils.next_backoff_seconds(0, schedule, jitter=0.3)
+        assert 70.0 <= v <= 130.0
+
+
+def test_next_backoff_retry_after_overrides_schedule():
+    """Retry-After 値があればスケジュールを無視。"""
+    schedule = [10.0, 20.0, 40.0]
+    v = io_utils.next_backoff_seconds(
+        2, schedule, jitter=0, retry_after=5.0,
+    )
+    assert v == 5.0
+
+
+def test_next_backoff_no_negative():
+    """大きな jitter でもマイナス秒にはならない。"""
+    schedule = [1.0]
+    for _ in range(20):
+        v = io_utils.next_backoff_seconds(0, schedule, jitter=2.0)
+        assert v >= 0.0

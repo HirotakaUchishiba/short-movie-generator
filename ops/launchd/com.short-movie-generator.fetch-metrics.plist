@@ -1,0 +1,60 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<!--
+  YouTube / Instagram / TikTok の post_metrics を 1 時間に 1 回取得する launchd job。
+
+  setup:
+    1. <PROJECT_ROOT> と <PYTHON> を絶対パスに置換
+       例: <PROJECT_ROOT> → /Users/hirotaka/Projects/short_movie_generator
+       例: <PYTHON>       → /usr/local/bin/python3 (= which python3 結果)
+    2. .env のパス (= EnvironmentVariables.DOTENV_PATH) を必要なら調整
+    3. このファイルを ~/Library/LaunchAgents/ にコピー
+    4. launchctl bootstrap gui/$UID ~/Library/LaunchAgents/com.short-movie-generator.fetch-metrics.plist
+    5. launchctl kickstart gui/$UID/com.short-movie-generator.fetch-metrics  # 即実行確認
+
+  停止: launchctl bootout gui/$UID ~/Library/LaunchAgents/com.short-movie-generator.fetch-metrics.plist
+  ログ: tail -f <PROJECT_ROOT>/data/launchd_fetch-metrics.log
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.short-movie-generator.fetch-metrics</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string><PYTHON></string>
+        <string><PROJECT_ROOT>/scripts/fetch_metrics.py</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string><PROJECT_ROOT></string>
+
+    <!-- 1 時間ごとに実行 (= 3600 秒) -->
+    <key>StartInterval</key>
+    <integer>3600</integer>
+
+    <!-- システム再起動直後にも 1 回走らせる (= 寝起きの metrics catch-up) -->
+    <key>RunAtLoad</key>
+    <true/>
+
+    <key>StandardOutPath</key>
+    <string><PROJECT_ROOT>/data/launchd_fetch-metrics.log</string>
+    <key>StandardErrorPath</key>
+    <string><PROJECT_ROOT>/data/launchd_fetch-metrics.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <!-- .env を auto load する場合は dotenv の DOTENV_PATH を指す。
+             API key 等は .env で管理し、ここには直接書かない。 -->
+        <key>DOTENV_PATH</key>
+        <string><PROJECT_ROOT>/.env</string>
+    </dict>
+
+    <!-- 異常終了でも自動再起動はしない (1h 後の StartInterval まで待つ) -->
+    <key>KeepAlive</key>
+    <false/>
+</dict>
+</plist>

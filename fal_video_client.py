@@ -108,10 +108,20 @@ def generate_video(image_path: str, prompt: str, output_path: str,
             if attempt >= MAX_RETRIES - 1:
                 break
 
-            wait = BACKOFF_SECONDS[min(attempt, len(BACKOFF_SECONDS) - 1)]
+            # 例外に response があれば Retry-After ヘッダを尊重する
+            retry_after_hdr = None
+            resp_obj = getattr(exc, "response", None)
+            if resp_obj is not None:
+                hdrs = getattr(resp_obj, "headers", None)
+                if hdrs is not None:
+                    retry_after_hdr = io_utils.parse_retry_after(hdrs.get("Retry-After"))
+            wait = io_utils.next_backoff_seconds(
+                attempt, BACKOFF_SECONDS, retry_after=retry_after_hdr
+            )
             logger.warning(
-                "fal.ai エラー (%s回目/%s): %s — %s秒後にリトライ",
+                "fal.ai エラー (%s回目/%s): %s — %.1f秒後にリトライ%s",
                 attempt + 1, MAX_RETRIES, exc, wait,
+                " (Retry-After 由来)" if retry_after_hdr is not None else "",
             )
             time.sleep(wait)
 

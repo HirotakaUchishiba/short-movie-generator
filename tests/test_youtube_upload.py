@@ -388,3 +388,162 @@ def test_upload_video_retries_on_5xx_init(monkeypatch, fake_video):
     result = youtube.upload_video(fake_video, "T", "D")
     assert result["video_id"] == "vid_after_5xx"
     assert state["init"] == 3
+
+
+# ─── resume token 永続化 ──────────────
+
+
+def test_upload_persists_state_and_clears_on_success(monkeypatch, fake_video, tmp_path):
+    """state_path 指定で upload 中に state が書かれ、成功後に消える。"""
+    from platform_clients import youtube
+
+    state_path = tmp_path / "upload_state.json"
+    file_size = fake_video.stat().st_size
+    state = {"offset": 0}
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        return _MockResp(200, headers={"Location": "https://up/abc"})
+
+    def fake_put(url, **kw):
+        chunk_len = len(kw.get("data") or b"")
+        state["offset"] += chunk_len
+        if state["offset"] >= file_size:
+            return _MockResp(200, json_data={"id": "vid"})
+        return _MockResp(308, headers={"Range": f"bytes=0-{state['offset'] - 1}"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    youtube.upload_video(
+        fake_video, "T", "D", chunk_size=file_size // 4,
+        state_path=state_path,
+    )
+    assert not state_path.exists()  # 成功で消える
+
+
+def test_upload_resumes_from_persisted_state(monkeypatch, fake_video, tmp_path):
+    """既存 state があれば server に offset 問い合わせて resume する。"""
+    import json
+    from datetime import datetime, timezone
+    from platform_clients import youtube
+
+    state_path = tmp_path / "upload_state.json"
+    file_size = fake_video.stat().st_size
+    half = file_size // 2
+
+    state_path.write_text(json.dumps({
+        "upload_url": "https://up/resume",
+        "file_size": file_size,
+        "bytes_uploaded": half,
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "file_path": str(fake_video),
+    }))
+
+    init_calls: list[str] = []
+    put_offsets: list[int] = []
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        init_calls.append(url)
+        return _MockResp(200, headers={"Location": "https://up/SHOULD_NOT_BE_USED"})
+
+    def fake_put(url, **kw):
+        body = kw.get("data") or b""
+        if len(body) == 0:
+            # status query (= resume の最初の呼出し): server は half まで受領済みと応答
+            return _MockResp(308, headers={"Range": f"bytes=0-{half - 1}"})
+        # 通常 chunk
+        cr = (kw.get("headers") or {}).get("Content-Range", "")
+        if cr.startswith("bytes "):
+            offset = int(cr.split(" ", 1)[1].split("-", 1)[0])
+            put_offsets.append(offset)
+        return _MockResp(200, json_data={"id": "resumed_vid"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = youtube.upload_video(
+        fake_video, "T", "D", chunk_size=file_size,
+        state_path=state_path,
+    )
+    assert result["video_id"] == "resumed_vid"
+    # init は呼ばれない (= resume だから)
+    assert init_calls == []
+    # 中断時の offset (half) から再開している
+    assert put_offsets and put_offsets[0] >= half
+    assert not state_path.exists()  # 成功で消える
+
+
+def test_upload_state_discarded_when_too_old(monkeypatch, fake_video, tmp_path):
+    """24h 以上古い state は破棄して新規 upload。"""
+    import json
+    from datetime import datetime, timezone, timedelta
+    from platform_clients import youtube
+
+    state_path = tmp_path / "upload_state.json"
+    file_size = fake_video.stat().st_size
+    old = (datetime.now(timezone.utc) - timedelta(hours=48)).isoformat(timespec="seconds")
+    state_path.write_text(json.dumps({
+        "upload_url": "https://up/STALE",
+        "file_size": file_size,
+        "bytes_uploaded": 0,
+        "started_at": old,
+        "file_path": str(fake_video),
+    }))
+
+    init_calls: list[str] = []
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        init_calls.append(url)
+        return _MockResp(200, headers={"Location": "https://up/fresh"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "fresh"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    result = youtube.upload_video(
+        fake_video, "T", "D", state_path=state_path,
+    )
+    assert result["video_id"] == "fresh"
+    # init が呼ばれている (= stale state は破棄された)
+    assert len(init_calls) == 1
+
+
+def test_upload_state_discarded_when_size_mismatch(monkeypatch, fake_video, tmp_path):
+    """file_size 不一致の state は破棄。"""
+    import json
+    from datetime import datetime, timezone
+    from platform_clients import youtube
+
+    state_path = tmp_path / "upload_state.json"
+    state_path.write_text(json.dumps({
+        "upload_url": "https://up/STALE",
+        "file_size": 999999,  # 違うサイズ
+        "bytes_uploaded": 0,
+        "started_at": datetime.now(timezone.utc).isoformat(timespec="seconds"),
+        "file_path": str(fake_video),
+    }))
+
+    init_calls: list[str] = []
+
+    def fake_post(url, **kw):
+        if "oauth2.googleapis.com" in url:
+            return _MockResp(200, json_data={"access_token": "tok"})
+        init_calls.append(url)
+        return _MockResp(200, headers={"Location": "https://up/fresh"})
+
+    def fake_put(url, **kw):
+        return _MockResp(200, json_data={"id": "fresh"})
+
+    monkeypatch.setattr("requests.post", fake_post)
+    monkeypatch.setattr("requests.put", fake_put)
+
+    youtube.upload_video(fake_video, "T", "D", state_path=state_path)
+    assert len(init_calls) == 1

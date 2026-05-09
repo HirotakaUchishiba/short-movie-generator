@@ -1,0 +1,76 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyLists-1.0.dtd">
+<!--
+  auto_loop.py を queue から URL を取り出して実行する launchd job。
+
+  auto_loop は 1 invocation = 1 URL を受ける CLI なので、cron で直接呼ぶには
+  URL の供給源が要る。ops/launchd/auto_loop_queue.sh を呼び出す形式にして、
+  data/auto_loop_queue.txt から FIFO で 1 件取り出して実行する想定。
+
+  setup:
+    1. <PROJECT_ROOT> と <PYTHON> を絶対パスに置換
+    2. data/auto_loop_queue.txt を作って 1 行 1 URL を書く (例: yt-dlp 対応 URL)
+    3. ~/Library/LaunchAgents/ にコピー、launchctl bootstrap で登録
+    4. 1 日 3 回 (8:00 / 14:00 / 20:00 JST = launchd は local time 解釈) 実行
+
+  停止: launchctl bootout gui/$UID ~/Library/LaunchAgents/com.short-movie-generator.auto-loop.plist
+-->
+<plist version="1.0">
+<dict>
+    <key>Label</key>
+    <string>com.short-movie-generator.auto-loop</string>
+
+    <key>ProgramArguments</key>
+    <array>
+        <string>/bin/bash</string>
+        <string><PROJECT_ROOT>/ops/launchd/auto_loop_queue.sh</string>
+    </array>
+
+    <key>WorkingDirectory</key>
+    <string><PROJECT_ROOT></string>
+
+    <!-- 1 日 3 回 (8:00 / 14:00 / 20:00 local time) -->
+    <key>StartCalendarInterval</key>
+    <array>
+        <dict>
+            <key>Hour</key>
+            <integer>8</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>14</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+        <dict>
+            <key>Hour</key>
+            <integer>20</integer>
+            <key>Minute</key>
+            <integer>0</integer>
+        </dict>
+    </array>
+
+    <!-- スリープ等で予定時刻を逃したら起動直後に 1 回だけ catch-up -->
+    <key>RunAtLoad</key>
+    <false/>
+
+    <key>StandardOutPath</key>
+    <string><PROJECT_ROOT>/data/launchd_auto-loop.log</string>
+    <key>StandardErrorPath</key>
+    <string><PROJECT_ROOT>/data/launchd_auto-loop.log</string>
+
+    <key>EnvironmentVariables</key>
+    <dict>
+        <key>PATH</key>
+        <string>/usr/local/bin:/usr/bin:/bin</string>
+        <key>DOTENV_PATH</key>
+        <string><PROJECT_ROOT>/.env</string>
+        <!-- 本番アカウントに切り替えたら 1 にする (= youtube._resolve_privacy 経由) -->
+        <key>AUTO_LOOP_ALLOW_PUBLIC</key>
+        <string>0</string>
+    </dict>
+</dict>
+</plist>
