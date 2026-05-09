@@ -34,7 +34,8 @@ describe("fetchQaTags", () => {
   });
 
   it("並行呼出しは inflight Promise を共有して 1 回だけ fetch する", async () => {
-    let resolveQa: ((v: typeof SAMPLE) => void) | null = null;
+    type Resolver = (v: typeof SAMPLE) => void;
+    let resolveQa: Resolver | undefined;
     mockQaTags.mockImplementation(
       () =>
         new Promise<typeof SAMPLE>((res) => {
@@ -43,7 +44,10 @@ describe("fetchQaTags", () => {
     );
     const p1 = fetchQaTags();
     const p2 = fetchQaTags();
-    if (resolveQa) resolveQa(SAMPLE);
+    // mockImplementation で渡した Promise の executor は同期実行されるので
+    // ここに到達した時点で resolveQa は必ず set 済み。TS narrowing が
+    // closure を超えて伝播しないので明示的に assert する。
+    (resolveQa as Resolver)(SAMPLE);
     const [r1, r2] = await Promise.all([p1, p2]);
     expect(r1).toBe(r2);
     expect(mockQaTags).toHaveBeenCalledTimes(1);

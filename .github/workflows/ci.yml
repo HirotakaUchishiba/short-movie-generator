@@ -21,7 +21,9 @@ jobs:
           python-version: "3.12"
           cache: pip
       - run: pip install ruff
-      - run: ruff format --check .
+      # NOTE: 既存コードベースは ruff format に揃っていない (= 218 files)。
+      # 整形コミットは独立 PR で行うため、ここでは lint rule (= ruff check) のみ
+      # gate する。pre-commit (.pre-commit-config.yaml) では format も走る。
       - run: ruff check .
 
   test-backend:

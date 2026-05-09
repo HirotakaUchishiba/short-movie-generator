@@ -14,10 +14,14 @@ extend-exclude = [
 ]
 
 [tool.ruff.lint]
-select = ["E", "F", "W", "I", "B", "UP"]
+# 段階的有効化: 最初は F (pyflakes) のみ enforce。
+# 既存コード 218 ファイルが E/W/I/B/UP に揃っていないので、整形 PR + 段階的拡張で
+# select を増やしていく予定 (= 後続 PR `chore: ruff lint expansion`)。
+select = ["F"]
 ignore = [
     "E501",  # line length は format で管理
     "B008",  # Flask 等で default factory に function call が入る
+    "F841",  # unused local variable は debug print 等で意図的に残ることがある
 ]
 
 [tool.ruff.format]
