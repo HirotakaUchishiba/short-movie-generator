@@ -38,3 +38,30 @@ def safe_join(base: str, *parts: str) -> str:
     ):
         abort(400, "不正なパス")
     return p
+
+
+def load_screenplay_for_project(
+    ts: str, *, temp_dir: str | None = None,
+) -> tuple[dict, str]:
+    """temp_dir/<TS>/screenplay.json (= immutable snapshot) を読み込む。
+
+    台本は project 作成時に temp/<TS>/screenplay.json にコピーされ、
+    以後そのファイルだけが正となる。template (= screenplays/<name>.json)
+    が外部で書き換わっても進行中 project には影響しない。
+
+    Returns: (screenplay dict, original template name)
+    """
+    import staged_pipeline
+
+    project_path = ts_path(ts, temp_dir=temp_dir)
+    meta = staged_pipeline.read_metadata(project_path)
+    if not meta:
+        abort(404, "プロジェクトのmetadataがありません")
+    name = meta.get("screenplay_template_name") or meta.get("screenplay_name")
+    if not name:
+        abort(404, "metadataにscreenplay_template_name/nameがありません")
+    try:
+        sp = staged_pipeline.load_project_screenplay(project_path)
+    except FileNotFoundError:
+        abort(404, "プロジェクトの screenplay.json snapshot が見つかりません")
+    return sp, name
