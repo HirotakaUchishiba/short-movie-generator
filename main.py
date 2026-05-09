@@ -126,8 +126,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
             return
         if cur in progress_store.EXTERNAL_ACTION_STAGES:
             logger.info(
-                "stage '%s' はユーザの外部アクション待ちです — "
-                "`--publish` を使ってください",
+                "stage '%s' は manual main.py の対象外です — "
+                "Stage 7 (取込) は `scripts/auto_loop.py` 経由で実行されます。"
+                "Stage 8 (公開) は `--publish` を使ってください",
                 cur,
             )
             return
@@ -140,8 +141,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
 
     if nxt in progress_store.EXTERNAL_ACTION_STAGES:
         logger.info(
-            "次 stage '%s' はユーザの外部アクション待ちです — "
-            "`--publish` を使ってください",
+            "次 stage '%s' は manual main.py の対象外です — "
+            "Stage 7 (取込) は `scripts/auto_loop.py` 経由で実行されます。"
+            "Stage 8 (公開) は `--publish` を使ってください",
             nxt,
         )
         return
@@ -155,8 +157,9 @@ def _run_pipeline(screenplay_name: str, resume_ts: str | None) -> None:
 
     if executed == "overlay":
         logger.info(
-            "字幕焼き込み + pipeline raw 出力完了。auto_loop が次に取込 "
-            "(= raw → canonical) を実行します。プレビューUIで確認: %s",
+            "字幕焼き込み + pipeline raw 出力完了 (= manual main.py はここまで)。"
+            "Stage 7 以降は `scripts/auto_loop.py` 経由でのみ進行します。"
+            "プレビューUIで確認: %s",
             _ui_url(ts),
         )
     else:

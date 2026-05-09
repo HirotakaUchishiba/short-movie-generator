@@ -58,10 +58,12 @@ cd frontend && npm run dev           # http://localhost:5173 (フロント開発
 # または `npm run build` 後はサーバが /frontend/dist を配信
 
 # UIで「プロジェクト作成」 → Stage 1完了。承認すると次stageが自動起動
-# CLIから手動で進めることも可:
+# CLIから手動で進めることも可 (= Stage 1-6 まで。Stage 7+ は auto_loop 経由のみ):
 python3 main.py <台本>                # 新規TS生成 + Stage 1実行
 python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 ```
+
+`python3 main.py --resume <TS>` は **Stage 6 (overlay) まで** を手送りする経路。Stage 7 (取込) は `scripts/auto_loop.py` の URL 起点フルラン経路に統合されており、manual main.py からは進行しない。`--list-finals` / `--canonical` / `--publish` は auto_loop が canonical を作った後の再選択 / 再公開のための補助コマンドとして残してある。
 
 ### ステージ別の成果物
 
