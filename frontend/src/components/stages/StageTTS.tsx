@@ -162,8 +162,11 @@ function PricingBanner({
           <Stat label="(円換算)" value={_formatJpy(totalCost.jpy)} />
         </div>
       </div>
-      <SpeedControl pricing={pricing} />
-      <SilenceControl pricing={pricing} />
+      <SpeedControl key={pricing.global_speed} pricing={pricing} />
+      <SilenceControl
+        key={`${pricing.trim_silences}|${pricing.max_silence_ms}`}
+        pricing={pricing}
+      />
     </div>
   );
 }
@@ -172,10 +175,6 @@ function SpeedControl({ pricing }: { pricing: TtsPricing }) {
   const ctx = useShellCtx();
   const [draft, setDraft] = useState(pricing.global_speed);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setDraft(pricing.global_speed);
-  }, [pricing.global_speed]);
 
   const native = Math.max(0.7, Math.min(1.2, draft));
   const atempo = draft / native;
@@ -248,11 +247,6 @@ function SilenceControl({ pricing }: { pricing: TtsPricing }) {
   const [enabled, setEnabled] = useState(pricing.trim_silences);
   const [draftMs, setDraftMs] = useState(pricing.max_silence_ms);
   const [saving, setSaving] = useState(false);
-
-  useEffect(() => {
-    setEnabled(pricing.trim_silences);
-    setDraftMs(pricing.max_silence_ms);
-  }, [pricing.trim_silences, pricing.max_silence_ms]);
 
   const commit = async (next: { enabled?: boolean; max_ms?: number }) => {
     setSaving(true);
@@ -750,7 +744,9 @@ function LineTTSRow({
           </button>
         </div>
       </div>
-      {editing && <LineTextEditor line={line} sIdx={sIdx} lIdx={lIdx} />}
+      {editing && (
+        <LineTextEditor key={line.text} line={line} sIdx={sIdx} lIdx={lIdx} />
+      )}
     </div>
   );
 }
@@ -768,10 +764,6 @@ function LineTextEditor({
   const [draft, setDraft] = useState(line.text);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-
-  useEffect(() => {
-    setDraft(line.text);
-  }, [line.text]);
 
   const onSave = async (alsoRegen: boolean) => {
     setSaving(true);
