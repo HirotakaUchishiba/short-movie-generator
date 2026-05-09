@@ -125,9 +125,14 @@ def test_run_next_returns_409_when_already_running(monkeypatch, tmp_path):
         return "tts"
 
     monkeypatch.setattr("staged_pipeline.run_next_stage", slow_runner)
+    # routes/stages.py が `from routes._helpers import load_screenplay_for_project`
+    # しているので、import サイト (= routes.stages) で monkeypatch する。
+    import routes.stages
     monkeypatch.setattr(
-        preview_server, "_load_screenplay_for_project",
-        lambda ts: ({"caption": "c", "scenes": []}, "demo.json"),
+        routes.stages, "load_screenplay_for_project",
+        lambda ts, *, temp_dir=None: (
+            {"caption": "c", "scenes": []}, "demo.json",
+        ),
     )
 
     preview_server.app.config["TESTING"] = True
