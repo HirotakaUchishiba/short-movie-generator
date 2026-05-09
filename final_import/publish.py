@@ -12,6 +12,7 @@ import re
 import subprocess
 import sys
 import time
+from contextlib import contextmanager
 from datetime import datetime
 from pathlib import Path
 
@@ -30,6 +31,35 @@ ANALYTICS_RETRY_BACKOFF_SEC = (1.0, 2.0, 4.0)
 logger = logging.getLogger(__name__)
 
 _HASHTAG_RE = re.compile(r"#([^\s#]+)")
+
+
+@contextmanager
+def _profile_context(profile: str | None):
+    """``YOUTUBE_PROFILE`` env を request scope 内で一時 override する。
+
+    ``profile`` が ``None`` か空文字なら何もしない (= 既存 env をそのまま使う)。
+    ``"default"`` (case-insensitive) なら ``YOUTUBE_PROFILE`` を一時的に削除して
+    suffix なし env を読ませる。それ以外なら ``YOUTUBE_PROFILE=<profile.upper()>``
+    を立てる。``finally`` で必ず元の値に戻すので、preview_server の concurrent
+    request で互いに env を奪い合う事故を防ぐ (= 同時 publish は spawn_job が
+    1 ジョブに直列化しているので race にはならないが、念のため)。
+    """
+    if not profile:
+        yield
+        return
+
+    saved = os.environ.get("YOUTUBE_PROFILE")
+    try:
+        if profile.strip().lower() == "default":
+            os.environ.pop("YOUTUBE_PROFILE", None)
+        else:
+            os.environ["YOUTUBE_PROFILE"] = profile.strip().upper()
+        yield
+    finally:
+        if saved is None:
+            os.environ.pop("YOUTUBE_PROFILE", None)
+        else:
+            os.environ["YOUTUBE_PROFILE"] = saved
 
 
 def _confirm_publish_channel(skip: bool) -> None:
@@ -109,6 +139,7 @@ def publish(ts: str, platform: str, **opts) -> dict:
 
     force_republish = bool(opts.pop("force_republish", False))
     confirm_channel = bool(opts.pop("confirm_channel", False))
+    profile = opts.pop("profile", None)
     existing = _existing_successful_publish(ts_path, platform)
     if existing and not force_republish:
         logger.warning(
@@ -132,9 +163,12 @@ def publish(ts: str, platform: str, **opts) -> dict:
     )
 
     if platform == "youtube":
-        _confirm_publish_channel(skip=not confirm_channel)
-        preflight.check_publish_youtube()
-        result = _publish_youtube(ts, video, title, description, tags, **opts)
+        with _profile_context(profile):
+            _confirm_publish_channel(skip=not confirm_channel)
+            preflight.check_publish_youtube()
+            result = _publish_youtube(
+                ts, video, title, description, tags, **opts,
+            )
     elif platform == "instagram":
         if _is_api_mode("INSTAGRAM_PUBLISH_MODE"):
             result = _publish_instagram_api(

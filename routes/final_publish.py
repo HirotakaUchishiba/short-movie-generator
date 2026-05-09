@@ -137,10 +137,11 @@ def api_publish(ts):
     privacy = data.get("privacy", "private")
     if privacy not in ("private", "unlisted", "public"):
         return jsonify({"error": f"invalid privacy: {privacy}"}), 400
+    channel = (data.get("channel") or "").strip() or None
 
     def _do_publish():
         from final_import.publish import publish
-        return publish(ts, platform, privacy=privacy)
+        return publish(ts, platform, privacy=privacy, profile=channel)
 
     try:
         job_id = spawn_job(_do_publish, kind=f"publish-{platform}", ts=ts)
@@ -154,3 +155,53 @@ def api_publish_history(ts):
     validate_ts(ts)
     meta = staged_pipeline.read_metadata(ts_path(ts)) or {}
     return jsonify({"published_posts": meta.get("published_posts") or []})
+
+
+# ───────────────── YouTube channel info ─────────────────
+
+@final_publish_bp.route("/api/youtube/profiles", methods=["GET"])
+def api_youtube_profiles():
+    """``.env`` 内に存在する YOUTUBE_PROFILE 候補を列挙する。
+
+    ``YOUTUBE_OAUTH_CLIENT_ID_<NAME>`` 形式の env を scan して ``<NAME>`` を返す。
+    suffix なし env が揃っていれば ``"default"`` も先頭に含める。UI の selector
+    が「現在の .env でどの profile が選択可能か」を判断するのに使う。
+    """
+    profiles: list[str] = []
+    if all(os.environ.get(k) for k in (
+        "YOUTUBE_OAUTH_CLIENT_ID",
+        "YOUTUBE_OAUTH_CLIENT_SECRET",
+        "YOUTUBE_REFRESH_TOKEN",
+    )):
+        profiles.append("default")
+
+    for k in os.environ:
+        if not k.startswith("YOUTUBE_OAUTH_CLIENT_ID_"):
+            continue
+        name = k[len("YOUTUBE_OAUTH_CLIENT_ID_"):]
+        if not name or name in profiles:
+            continue
+        # client_secret と refresh_token も揃っていなければ「使える profile」ではない
+        if not os.environ.get(f"YOUTUBE_OAUTH_CLIENT_SECRET_{name}"):
+            continue
+        if not os.environ.get(f"YOUTUBE_REFRESH_TOKEN_{name}"):
+            continue
+        profiles.append(name)
+    return jsonify({"profiles": profiles})
+
+
+@final_publish_bp.route("/api/youtube/channel-info", methods=["GET"])
+def api_youtube_channel_info():
+    """指定 profile での投稿先 channel info を返す (= UI の事前表示用)。
+
+    ``profile`` クエリパラメータが指定されていれば一時的に env を override し、
+    ``_resolve_channel_label`` で profile / aud / scopes / title / channel_id /
+    error を取得して返す。
+    """
+    from final_import.publish import _profile_context
+    from platform_clients import youtube
+
+    profile = (request.args.get("profile") or "").strip() or None
+    with _profile_context(profile):
+        info = youtube._resolve_channel_label()
+    return jsonify(info)

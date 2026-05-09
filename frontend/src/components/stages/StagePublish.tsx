@@ -1,7 +1,11 @@
 import { useEffect, useState, useCallback } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api, finalVersionAssetUrl } from "../../api";
-import type { FinalVersion, PublishedPost } from "../../types";
+import type {
+  FinalVersion,
+  PublishedPost,
+  YoutubeChannelInfo,
+} from "../../types";
 
 type Platform = "youtube" | "instagram" | "tiktok";
 type Privacy = "private" | "unlisted" | "public";
@@ -11,6 +15,23 @@ const PLATFORM_LABELS: Record<Platform, string> = {
   instagram: "Instagram Reels",
   tiktok: "TikTok",
 };
+
+const PRIVACY_LABELS: Record<Privacy, string> = {
+  private: "private (テスト)",
+  unlisted: "unlisted (限定公開)",
+  public: "public (公開)",
+};
+
+function channelDisplayName(info: YoutubeChannelInfo | null): string {
+  if (!info) return "未取得";
+  if (info.title && info.channel_id) {
+    return `${info.title} (${info.channel_id})`;
+  }
+  if (info.aud) {
+    return `client_id ${info.aud.slice(0, 30)}…`;
+  }
+  return info.error ?? "取得失敗";
+}
 
 export default function StagePublish() {
   const ctx = useShellCtx();
@@ -22,6 +43,15 @@ export default function StagePublish() {
   const [error, setError] = useState<string | null>(null);
   const [busyPlatform, setBusyPlatform] = useState<Platform | null>(null);
   const [privacy, setPrivacy] = useState<Privacy>("private");
+
+  // YouTube channel switching state
+  const [profiles, setProfiles] = useState<string[]>([]);
+  const [profile, setProfile] = useState<string>("default");
+  const [channelInfo, setChannelInfo] = useState<YoutubeChannelInfo | null>(
+    null,
+  );
+  const [channelInfoLoading, setChannelInfoLoading] = useState(false);
+  const [pendingPlatform, setPendingPlatform] = useState<Platform | null>(null);
 
   const reload = useCallback(async () => {
     try {
@@ -40,6 +70,48 @@ export default function StagePublish() {
     reload();
   }, [reload]);
 
+  // 初回 mount で利用可能 profiles を取得。env 未設定なら空配列が返る。
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .youtubeProfiles()
+      .then(({ profiles: p }) => {
+        if (cancelled) return;
+        setProfiles(p);
+        if (p.length > 0 && !p.includes(profile)) {
+          setProfile(p[0]);
+        }
+      })
+      .catch((e) => {
+        console.warn("youtubeProfiles fetch failed:", e);
+      });
+    return () => {
+      cancelled = true;
+    };
+    // profile は内部で更新するので意図的に依存から外す (= 初回のみ取得)
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, []);
+
+  // profile 切替時に channel info を取得 (= chip / モーダル の表示更新)
+  useEffect(() => {
+    let cancelled = false;
+    setChannelInfoLoading(true);
+    api
+      .youtubeChannelInfo(profile)
+      .then((info) => {
+        if (!cancelled) setChannelInfo(info);
+      })
+      .catch(() => {
+        if (!cancelled) setChannelInfo(null);
+      })
+      .finally(() => {
+        if (!cancelled) setChannelInfoLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [profile]);
+
   const doPublish = async (platform: Platform) => {
     setError(null);
     setBusyPlatform(platform);
@@ -47,8 +119,8 @@ export default function StagePublish() {
       const job = await api.publish(ts, {
         platform,
         privacy: platform === "youtube" ? privacy : undefined,
+        channel: platform === "youtube" ? profile : undefined,
       });
-      // job ステータスをポーリング
       let done = false;
       while (!done) {
         await new Promise((r) => setTimeout(r, 1500));
@@ -66,6 +138,21 @@ export default function StagePublish() {
     } finally {
       setBusyPlatform(null);
     }
+  };
+
+  // YouTube だけはモーダル確認を挟む。IG/TikTok は半自動なので直接実行。
+  const requestPublish = (platform: Platform) => {
+    if (platform === "youtube") {
+      setPendingPlatform("youtube");
+    } else {
+      doPublish(platform);
+    }
+  };
+
+  const confirmPendingPublish = () => {
+    const p = pendingPlatform;
+    setPendingPlatform(null);
+    if (p) doPublish(p);
   };
 
   return (
@@ -111,6 +198,43 @@ export default function StagePublish() {
 
           <div className="card mb-4">
             <h3 className="text-lg font-semibold mb-3">公開アクション</h3>
+
+            {/* YouTube 用の channel chip + selector */}
+            <div className="mb-3 text-sm flex flex-wrap items-center gap-3">
+              {profiles.length > 1 && (
+                <label className="flex items-center gap-2">
+                  <span className="text-slate-400">チャンネル:</span>
+                  <select
+                    value={profile}
+                    onChange={(e) => setProfile(e.target.value)}
+                    className="bg-slate-800 border border-slate-700 rounded px-2 py-1"
+                  >
+                    {profiles.map((p) => (
+                      <option key={p} value={p}>
+                        {p}
+                      </option>
+                    ))}
+                  </select>
+                </label>
+              )}
+              <span className="text-xs text-slate-400">
+                投稿先:{" "}
+                <span className="px-2 py-0.5 rounded bg-slate-700 text-slate-200">
+                  {channelInfoLoading
+                    ? "取得中…"
+                    : channelDisplayName(channelInfo)}
+                </span>
+                {channelInfo &&
+                  !channelInfo.title &&
+                  channelInfo.aud &&
+                  !channelInfoLoading && (
+                    <span className="ml-2 text-amber-400">
+                      ※ 完全なチャンネル名は youtube.readonly scope が必要
+                    </span>
+                  )}
+              </span>
+            </div>
+
             <div className="mb-3 text-sm">
               <label className="mr-2">YouTube 公開範囲:</label>
               <select
@@ -118,18 +242,21 @@ export default function StagePublish() {
                 onChange={(e) => setPrivacy(e.target.value as Privacy)}
                 className="bg-slate-800 border border-slate-700 rounded px-2 py-1"
               >
-                <option value="private">private (テスト)</option>
-                <option value="unlisted">unlisted (限定公開)</option>
-                <option value="public">public (公開)</option>
+                {(Object.keys(PRIVACY_LABELS) as Privacy[]).map((p) => (
+                  <option key={p} value={p}>
+                    {PRIVACY_LABELS[p]}
+                  </option>
+                ))}
               </select>
             </div>
+
             <div className="flex flex-wrap gap-3">
               {(Object.keys(PLATFORM_LABELS) as Platform[]).map((p) => (
                 <button
                   key={p}
                   className="btn-primary"
                   disabled={busyPlatform !== null}
-                  onClick={() => doPublish(p)}
+                  onClick={() => requestPublish(p)}
                 >
                   {busyPlatform === p
                     ? "公開中..."
@@ -188,6 +315,55 @@ export default function StagePublish() {
             </div>
           )}
         </>
+      )}
+
+      {/* YouTube 公開前の確認モーダル */}
+      {pendingPlatform === "youtube" && (
+        <div
+          className="fixed inset-0 z-50 flex items-center justify-center bg-black/60"
+          onClick={() => setPendingPlatform(null)}
+        >
+          <div
+            className="card max-w-md w-full mx-4"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <h3 className="text-lg font-semibold mb-3">
+              YouTube に投稿しますか?
+            </h3>
+            <dl className="text-sm bg-slate-800 rounded p-3 mb-4 space-y-1">
+              <div className="flex">
+                <dt className="text-slate-400 w-20">投稿先:</dt>
+                <dd className="flex-1">{channelDisplayName(channelInfo)}</dd>
+              </div>
+              <div className="flex">
+                <dt className="text-slate-400 w-20">profile:</dt>
+                <dd className="flex-1">{channelInfo?.profile ?? profile}</dd>
+              </div>
+              <div className="flex">
+                <dt className="text-slate-400 w-20">公開範囲:</dt>
+                <dd className="flex-1">{PRIVACY_LABELS[privacy]}</dd>
+              </div>
+            </dl>
+            {channelInfo && !channelInfo.title && (
+              <p className="text-xs text-amber-400 mb-3">
+                ※ チャンネル名 / channel_id は scope 不足で取得できていません (=
+                refresh_token に youtube.readonly を追加すると完全表示)。
+                profile と client_id (aud) で投稿先は判別できています。
+              </p>
+            )}
+            <div className="flex gap-2 justify-end">
+              <button
+                className="btn-secondary"
+                onClick={() => setPendingPlatform(null)}
+              >
+                キャンセル
+              </button>
+              <button className="btn-primary" onClick={confirmPendingPublish}>
+                公開する
+              </button>
+            </div>
+          </div>
+        </div>
       )}
     </StageGate>
   );
