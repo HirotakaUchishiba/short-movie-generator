@@ -706,6 +706,41 @@ KLING_CACHE_REQUIRE_APPROVAL = os.getenv(
 # L3: cache age TTL (日)
 KLING_CACHE_TTL_DAYS = int(os.getenv("KLING_CACHE_TTL_DAYS", "365"))
 
+# Compositional Architecture Layer 1 (Clip Library)
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §3
+# screenplay の identity (= character_refs / location_ref / start_emotion /
+# camera_distance) が一致するクリップ群を 1 つの "pool" として扱い、その中から
+# annotation でランクして top-k を variant pool として返す。同じ identity の
+# 別 screenplay は同じ pool を参照するため、warm 状態で AI 課金が大幅に減る。
+CLIP_LIBRARY_DIR = os.environ.get(
+    "CLIP_LIBRARY_DIR", os.path.join(BASE_DIR, "cache", "clips"))
+CLIP_LIBRARY_ENABLED = os.getenv(
+    "CLIP_LIBRARY_ENABLED", "0") not in ("0", "false", "False")
+# Major 改修時に bump して全 pool を miss 化する手動 invalidation の鍵。
+CLIP_LIBRARY_VERSION = os.getenv("CLIP_LIBRARY_VERSION", "v1")
+# 1 identity あたり pool に貯める variant の目標数 (= 既定 10)。
+# pool 内 entry が target 未満の間は warming up 扱いで lookup は機能するが
+# 多様性は限定的。target に達すると視覚的単調さが解消される。
+CLIP_POOL_TARGET_SIZE = int(os.getenv("CLIP_POOL_TARGET_SIZE", "10"))
+# lookup_clip_pool が返す top-k の k。variant 選択は seed で決定論的に行う。
+CLIP_POOL_TOP_K = int(os.getenv("CLIP_POOL_TOP_K", "10"))
+# LRU prune 上限 (= GB)。デフォルト 100GB。超過時に hit_count + last_used_at で
+# 80% まで縮退する。
+CLIP_POOL_MAX_TOTAL_GB = int(os.getenv("CLIP_POOL_MAX_TOTAL_GB", "100"))
+# 新規 entry の status: pending_review (= 既定、UI 承認待ち) か active 直送か
+CLIP_POOL_AUTO_APPROVE = os.getenv(
+    "CLIP_POOL_AUTO_APPROVE", "0") not in ("0", "false", "False")
+# part_registry の SSOT yaml 群が住むディレクトリ
+PART_REGISTRY_DIR = os.environ.get(
+    "PART_REGISTRY_DIR", os.path.join(BASE_DIR, "config", "part_registry"))
+
+# Layer 3 (Composition Engine) backend dispatch.
+# "ffmpeg" (= 既存 compositor.py、既定) または "remotion" (= 新設、Phase 2+ で
+# compositor_remotion.py を wire する)。
+OVERLAY_BACKEND = os.environ.get("OVERLAY_BACKEND", "ffmpeg")
+# Remotion render 時の並列度 (= --concurrency)。
+REMOTION_CONCURRENCY = int(os.environ.get("REMOTION_CONCURRENCY", "4"))
+
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(20 * 1024 * 1024)))

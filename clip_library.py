@@ -1,0 +1,588 @@
+"""Layer 1: Clip Library (= 重い AI 生成パーツの再利用層)。
+
+screenplay の identity (= character_refs / location_ref / start_emotion /
+camera_distance) で entry をフィルタし、annotation (= visual_intent_id /
+duration_bucket / motion_intensity) でランクして top-k を variant pool として返す。
+
+設計 doc:
+    docs/plannings/2026-05-10_compositional-architecture.md §3
+
+不変条件:
+- identity は **hard match** (= 一致しない entry は絶対に hit しない)
+- annotation は **soft rank** (= 完全一致が無くても compatible_with 経由で fallback)
+- compositional パーツ (= subtitle_style / sticker / transition 等) は entry の
+  identity / annotation には含めない。Layer 2 / 3 で都度合成するため
+- variant 選択は (ts, scene_idx) を seed とする決定論的 hash
+
+本モジュールは **データ層と lookup ロジックのみ** を提供する。
+AI 生成 (= Imagen / Kling 呼び出し) は scene_gen / bg_cache / kling_cache 経由で行い、
+本モジュールへの register は cold path から呼ばれる (= Phase 2 で wire)。
+"""
+
+from __future__ import annotations
+
+import hashlib
+import json
+import logging
+import os
+import shutil
+import uuid
+from dataclasses import asdict, dataclass, field
+from datetime import datetime, timezone
+from pathlib import Path
+from typing import Any, Iterator, Literal
+
+import config
+
+logger = logging.getLogger(__name__)
+
+
+# ───────────── データクラス ─────────────
+
+
+@dataclass(frozen=True)
+class ClipIdentity:
+    """hard match される視覚アイデンティティ (= ここが揃わない entry は絶対 hit しない)。
+
+    `character_refs` は順序非依存。`==` 比較は frozenset 経由で行う。
+    """
+
+    character_refs: tuple[str, ...]
+    location_ref: str
+    start_emotion: str
+    camera_distance: str = "medium-close"
+
+    def char_set(self) -> frozenset[str]:
+        return frozenset(self.character_refs)
+
+    def matches(self, other: "ClipIdentity") -> bool:
+        return (
+            self.char_set() == other.char_set()
+            and self.location_ref == other.location_ref
+            and self.start_emotion == other.start_emotion
+            and self.camera_distance == other.camera_distance
+        )
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "character_refs": list(self.character_refs),
+            "location_ref": self.location_ref,
+            "start_emotion": self.start_emotion,
+            "camera_distance": self.camera_distance,
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ClipIdentity":
+        return cls(
+            character_refs=tuple(d["character_refs"]),
+            location_ref=d["location_ref"],
+            start_emotion=d["start_emotion"],
+            camera_distance=d.get("camera_distance", "medium-close"),
+        )
+
+
+@dataclass
+class ClipAnnotation:
+    """soft rank に使う注釈情報 (= 一致しなくても hit はする、スコアが下がるだけ)。"""
+
+    visual_intent_id: str | None = None
+    duration_bucket: int | None = None
+    motion_intensity: str = "low"
+    generation_seed: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ClipAnnotation":
+        return cls(
+            visual_intent_id=d.get("visual_intent_id"),
+            duration_bucket=d.get("duration_bucket"),
+            motion_intensity=d.get("motion_intensity", "low"),
+            generation_seed=d.get("generation_seed"),
+        )
+
+
+@dataclass
+class ClipProvenance:
+    """デバッグ + 再生成の根拠。lookup には使わない。"""
+
+    imagen_prompt: str = ""
+    kling_prompt: str = ""
+    ref_image_shas: dict[str, str] = field(default_factory=dict)
+    location_sha: str | None = None
+    model_versions: dict[str, str] = field(default_factory=dict)
+    generated_at: str = ""
+    source_screenplay: str | None = None
+    source_scene_idx: int | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ClipProvenance":
+        return cls(
+            imagen_prompt=d.get("imagen_prompt", ""),
+            kling_prompt=d.get("kling_prompt", ""),
+            ref_image_shas=dict(d.get("ref_image_shas") or {}),
+            location_sha=d.get("location_sha"),
+            model_versions=dict(d.get("model_versions") or {}),
+            generated_at=d.get("generated_at", ""),
+            source_screenplay=d.get("source_screenplay"),
+            source_scene_idx=d.get("source_scene_idx"),
+        )
+
+
+ClipStatus = Literal["pending_review", "active", "blacklisted"]
+
+
+@dataclass
+class ClipLifecycle:
+    """承認 / 利用統計 / blacklist 等の lifecycle 管理。"""
+
+    status: ClipStatus = "pending_review"
+    approved_at: str | None = None
+    hit_count: int = 0
+    last_used_at: str | None = None
+    blacklisted: bool = False
+    blacklist_reason: str | None = None
+
+    def to_dict(self) -> dict[str, Any]:
+        return asdict(self)
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ClipLifecycle":
+        status = d.get("status", "pending_review")
+        if status not in ("pending_review", "active", "blacklisted"):
+            status = "pending_review"
+        return cls(
+            status=status,  # type: ignore[arg-type]
+            approved_at=d.get("approved_at"),
+            hit_count=int(d.get("hit_count", 0)),
+            last_used_at=d.get("last_used_at"),
+            blacklisted=bool(d.get("blacklisted", False)),
+            blacklist_reason=d.get("blacklist_reason"),
+        )
+
+
+@dataclass
+class ClipEntry:
+    """Layer 1 cache の 1 entry。
+
+    対応する物理ファイル:
+        cache/clips/<id>/meta.json       ← この entry のシリアライズ
+        cache/clips/<id>/bg.png          ← Imagen 出力 (静止画)
+        cache/clips/<id>/kling_clean.mp4 ← Kling 出力 (lipsync 前)
+        cache/clips/<id>/preview.gif     ← (任意、UI 表示用)
+    """
+
+    id: str
+    identity: ClipIdentity
+    annotation: ClipAnnotation
+    provenance: ClipProvenance
+    lifecycle: ClipLifecycle
+
+    def to_dict(self) -> dict[str, Any]:
+        return {
+            "id": self.id,
+            "identity": self.identity.to_dict(),
+            "annotation": self.annotation.to_dict(),
+            "provenance": self.provenance.to_dict(),
+            "lifecycle": self.lifecycle.to_dict(),
+        }
+
+    @classmethod
+    def from_dict(cls, d: dict[str, Any]) -> "ClipEntry":
+        return cls(
+            id=d["id"],
+            identity=ClipIdentity.from_dict(d["identity"]),
+            annotation=ClipAnnotation.from_dict(d["annotation"]),
+            provenance=ClipProvenance.from_dict(d["provenance"]),
+            lifecycle=ClipLifecycle.from_dict(d.get("lifecycle") or {}),
+        )
+
+    def entry_dir(self, root: Path | None = None) -> Path:
+        return _entry_dir(self.id, root)
+
+    def bg_path(self, root: Path | None = None) -> Path:
+        return self.entry_dir(root) / "bg.png"
+
+    def kling_path(self, root: Path | None = None) -> Path:
+        return self.entry_dir(root) / "kling_clean.mp4"
+
+
+# ───────────── ファイルシステムレイアウト ─────────────
+
+
+def _library_root() -> Path:
+    root = getattr(config, "CLIP_LIBRARY_DIR", None)
+    if not root:
+        root = os.path.join(config.BASE_DIR, "cache", "clips")
+    p = Path(root)
+    p.mkdir(parents=True, exist_ok=True)
+    return p
+
+
+def _entry_dir(entry_id: str, root: Path | None = None) -> Path:
+    root = root or _library_root()
+    return root / entry_id
+
+
+def _meta_path(entry_id: str, root: Path | None = None) -> Path:
+    return _entry_dir(entry_id, root) / "meta.json"
+
+
+def _now_iso() -> str:
+    return datetime.now(timezone.utc).isoformat(timespec="milliseconds")
+
+
+def _new_entry_id() -> str:
+    """衝突回避用の short uuid (= 16 hex chars)。"""
+
+    return uuid.uuid4().hex[:16]
+
+
+# ───────────── 永続化 ─────────────
+
+
+def load_entry(entry_id: str, root: Path | None = None) -> ClipEntry | None:
+    """meta.json を読んで ClipEntry を復元する。存在しなければ None。"""
+
+    mp = _meta_path(entry_id, root)
+    if not mp.exists():
+        return None
+    try:
+        data = json.loads(mp.read_text(encoding="utf-8"))
+    except (json.JSONDecodeError, OSError) as e:
+        logger.warning("[clip-library] meta load failed for %s: %s", entry_id, e)
+        return None
+    try:
+        return ClipEntry.from_dict(data)
+    except (KeyError, TypeError, ValueError) as e:
+        logger.warning("[clip-library] meta parse failed for %s: %s", entry_id, e)
+        return None
+
+
+def save_entry(entry: ClipEntry, root: Path | None = None) -> None:
+    """meta.json に書き込む。entry_dir を必要なら作成。"""
+
+    d = _entry_dir(entry.id, root)
+    d.mkdir(parents=True, exist_ok=True)
+    mp = d / "meta.json"
+    tmp = mp.with_suffix(".tmp")
+    tmp.write_text(
+        json.dumps(entry.to_dict(), ensure_ascii=False, indent=2),
+        encoding="utf-8",
+    )
+    os.replace(tmp, mp)
+
+
+def iter_all_entries(root: Path | None = None) -> Iterator[ClipEntry]:
+    """全 entry を yield する (= 順序保証なし、blacklist 含む)。"""
+
+    base = root or _library_root()
+    if not base.exists():
+        return
+    for entry_dir in base.iterdir():
+        if not entry_dir.is_dir():
+            continue
+        entry = load_entry(entry_dir.name, root=base)
+        if entry is not None:
+            yield entry
+
+
+def iter_active_entries(root: Path | None = None) -> Iterator[ClipEntry]:
+    """status=="active" かつ blacklisted でない entry のみ yield。"""
+
+    for entry in iter_all_entries(root):
+        if entry.lifecycle.blacklisted:
+            continue
+        if entry.lifecycle.status != "active":
+            continue
+        yield entry
+
+
+# ───────────── lookup / variant 選択 ─────────────
+
+
+def _scene_to_identity(scene: dict) -> ClipIdentity:
+    """screenplay scene dict から ClipIdentity を派生。
+
+    `identity` を入れ子で持つ新スキーマと、フラットに `character_refs` 等を持つ
+    旧スキーマの両方を許容する (= 互換ウインドウ)。
+    """
+
+    if "identity" in scene and isinstance(scene["identity"], dict):
+        return ClipIdentity.from_dict(scene["identity"])
+
+    return ClipIdentity(
+        character_refs=tuple(scene.get("character_refs") or ()),
+        location_ref=scene["location_ref"],
+        start_emotion=scene["start_emotion"],
+        camera_distance=scene.get("camera_distance", "medium-close"),
+    )
+
+
+def _scene_to_annotation_request(scene: dict) -> dict[str, Any]:
+    if "annotation" in scene and isinstance(scene["annotation"], dict):
+        a = scene["annotation"]
+        return {
+            "visual_intent_id": a.get("visual_intent_id"),
+            "duration_bucket": a.get("duration_bucket"),
+            "motion_intensity": a.get("motion_intensity", "low"),
+        }
+    return {
+        "visual_intent_id": scene.get("visual_intent_id"),
+        "duration_bucket": scene.get("duration_bucket"),
+        "motion_intensity": scene.get("motion_intensity", "low"),
+    }
+
+
+def _annotation_score(entry: ClipEntry, requested: dict[str, Any]) -> float:
+    """annotation の degree match スコア。高いほど良い候補。"""
+
+    score = 0.0
+    a = entry.annotation
+    req_intent = requested.get("visual_intent_id")
+    if a.visual_intent_id is not None and a.visual_intent_id == req_intent:
+        score += 3.0
+    elif req_intent and _intent_compatible(a.visual_intent_id, req_intent):
+        score += 1.5
+    if (
+        a.duration_bucket is not None
+        and a.duration_bucket == requested.get("duration_bucket")
+    ):
+        score += 1.0
+    if a.motion_intensity == requested.get("motion_intensity", "low"):
+        score += 0.5
+    # hit_count が低いものを微優先 (= 飽和回避)
+    score += max(0.0, 0.3 - 0.01 * entry.lifecycle.hit_count)
+    return score
+
+
+def lookup_clip_pool(
+    scene: dict,
+    top_k: int | None = None,
+    root: Path | None = None,
+) -> list[ClipEntry]:
+    """scene の identity に hard match する active entry のうち、annotation で
+    rank した top-k を variant pool として返す。
+
+    引数:
+        scene: screenplay の 1 scene (= identity / annotation を持つ新スキーマ、または
+            character_refs / location_ref / start_emotion 等を直接持つ旧スキーマ)
+        top_k: 返す件数。None なら config.CLIP_POOL_TOP_K (既定 10)
+        root: cache root を上書き (= テスト用)
+
+    返り値:
+        annotation_score 降順の ClipEntry リスト。空の場合は cold path を起動すべき。
+    """
+
+    if top_k is None:
+        top_k = int(getattr(config, "CLIP_POOL_TOP_K", 10))
+
+    target_identity = _scene_to_identity(scene)
+    candidates = [
+        entry
+        for entry in iter_active_entries(root)
+        if entry.identity.matches(target_identity)
+    ]
+    if not candidates:
+        return []
+
+    requested_ann = _scene_to_annotation_request(scene)
+    candidates.sort(key=lambda e: -_annotation_score(e, requested_ann))
+    return candidates[:top_k]
+
+
+def select_variant(pool: list[ClipEntry], ts: str, scene_idx: int) -> ClipEntry:
+    """pool から (ts, scene_idx) seed で 1 entry を決定論的に選ぶ。
+
+    同じ screenplay の rebuild では同じ ts / scene_idx になるため同じ entry が
+    出る (= 字幕修正等で何度も rebuild する運用と整合)。別 project (= 別 ts)
+    では別 entry が選ばれるため視聴者から見た多様性も担保される。
+    """
+
+    if not pool:
+        raise ValueError("select_variant called on empty pool")
+    seed = int(
+        hashlib.sha256(f"{ts}|{scene_idx}".encode("utf-8")).hexdigest(),
+        16,
+    )
+    return pool[seed % len(pool)]
+
+
+# ───────────── intent_compatible (= part_registry yaml 経由) ─────────────
+
+
+_INTENT_COMPAT_CACHE: dict[str, frozenset[str]] | None = None
+
+
+def _load_intent_compat_map() -> dict[str, frozenset[str]]:
+    """`config/part_registry/visual_intents.yaml` から id → compatible_with set を構築。
+
+    yaml が無い / 解析失敗時は空辞書を返す (= 互換採用 0、完全一致のみ score 加算)。
+    """
+
+    global _INTENT_COMPAT_CACHE
+    if _INTENT_COMPAT_CACHE is not None:
+        return _INTENT_COMPAT_CACHE
+
+    yaml_path = Path(getattr(config, "PART_REGISTRY_DIR", "")) / "visual_intents.yaml"
+    if not yaml_path.exists():
+        logger.info("[clip-library] visual_intents.yaml not found, no compat map")
+        _INTENT_COMPAT_CACHE = {}
+        return _INTENT_COMPAT_CACHE
+
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except ImportError:
+        logger.warning("[clip-library] pyyaml not installed, no compat map")
+        _INTENT_COMPAT_CACHE = {}
+        return _INTENT_COMPAT_CACHE
+
+    try:
+        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
+    except (yaml.YAMLError, OSError) as e:
+        logger.warning("[clip-library] visual_intents.yaml parse error: %s", e)
+        _INTENT_COMPAT_CACHE = {}
+        return _INTENT_COMPAT_CACHE
+
+    out: dict[str, frozenset[str]] = {}
+    for entry in (data or {}).get("parts") or []:
+        eid = entry.get("id")
+        if not eid:
+            continue
+        compat = entry.get("compatible_with") or []
+        out[eid] = frozenset(compat)
+    _INTENT_COMPAT_CACHE = out
+    return out
+
+
+def _intent_compatible(a: str | None, b: str | None) -> bool:
+    """visual_intents.yaml の compatible_with を双方向で参照する。"""
+
+    if not a or not b or a == b:
+        return False
+    compat = _load_intent_compat_map()
+    if b in compat.get(a, frozenset()):
+        return True
+    if a in compat.get(b, frozenset()):
+        return True
+    return False
+
+
+def reset_intent_compat_cache() -> None:
+    """テスト用: yaml を読み直すための cache クリア。"""
+
+    global _INTENT_COMPAT_CACHE
+    _INTENT_COMPAT_CACHE = None
+
+
+# ───────────── lifecycle 操作 ─────────────
+
+
+def register_clip_entry(
+    identity: ClipIdentity,
+    annotation: ClipAnnotation,
+    provenance: ClipProvenance,
+    bg_src: str | os.PathLike[str] | None,
+    kling_src: str | os.PathLike[str] | None,
+    auto_approve: bool | None = None,
+    root: Path | None = None,
+) -> ClipEntry:
+    """新規 entry を登録する。bg_src / kling_src があればコピーして所定パスに置く。
+
+    auto_approve=None の場合は ``config.CLIP_POOL_AUTO_APPROVE`` を参照する。
+    既定は False (= status=pending_review)。
+    """
+
+    if auto_approve is None:
+        auto_approve = bool(getattr(config, "CLIP_POOL_AUTO_APPROVE", False))
+
+    entry_id = _new_entry_id()
+    now = _now_iso()
+    lifecycle = ClipLifecycle(
+        status="active" if auto_approve else "pending_review",
+        approved_at=now if auto_approve else None,
+        hit_count=0,
+        last_used_at=None,
+        blacklisted=False,
+    )
+    if not provenance.generated_at:
+        provenance = ClipProvenance.from_dict(
+            {**provenance.to_dict(), "generated_at": now}
+        )
+    entry = ClipEntry(
+        id=entry_id,
+        identity=identity,
+        annotation=annotation,
+        provenance=provenance,
+        lifecycle=lifecycle,
+    )
+    d = _entry_dir(entry_id, root)
+    d.mkdir(parents=True, exist_ok=True)
+
+    if bg_src is not None:
+        shutil.copyfile(os.fspath(bg_src), d / "bg.png")
+    if kling_src is not None:
+        shutil.copyfile(os.fspath(kling_src), d / "kling_clean.mp4")
+
+    save_entry(entry, root=root)
+    logger.info(
+        "[clip-library] register %s identity=%s intent=%s status=%s",
+        entry_id,
+        _identity_repr(identity),
+        annotation.visual_intent_id,
+        lifecycle.status,
+    )
+    return entry
+
+
+def approve_entry(entry_id: str, root: Path | None = None) -> bool:
+    entry = load_entry(entry_id, root)
+    if entry is None:
+        return False
+    entry.lifecycle.status = "active"
+    entry.lifecycle.approved_at = _now_iso()
+    entry.lifecycle.blacklisted = False
+    entry.lifecycle.blacklist_reason = None
+    save_entry(entry, root=root)
+    return True
+
+
+def blacklist_entry(
+    entry_id: str, reason: str, root: Path | None = None
+) -> bool:
+    entry = load_entry(entry_id, root)
+    if entry is None:
+        return False
+    entry.lifecycle.status = "blacklisted"
+    entry.lifecycle.blacklisted = True
+    entry.lifecycle.blacklist_reason = reason
+    save_entry(entry, root=root)
+    return True
+
+
+def touch_entry(entry_id: str, root: Path | None = None) -> bool:
+    """hit 時の hit_count++ + last_used_at 更新。"""
+
+    entry = load_entry(entry_id, root)
+    if entry is None:
+        return False
+    entry.lifecycle.hit_count += 1
+    entry.lifecycle.last_used_at = _now_iso()
+    save_entry(entry, root=root)
+    return True
+
+
+# ───────────── 内部ヘルパ ─────────────
+
+
+def _identity_repr(identity: ClipIdentity) -> str:
+    return (
+        f"chars={','.join(identity.character_refs)}|"
+        f"loc={identity.location_ref}|"
+        f"start={identity.start_emotion}|"
+        f"cam={identity.camera_distance}"
+    )

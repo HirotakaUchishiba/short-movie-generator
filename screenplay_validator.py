@@ -68,6 +68,16 @@ SCHEMA: dict = {
                 "存在チェックは _check_atomic_refs で実施"
             ),
         },
+        "global_parts": {
+            "type": "object",
+            "additionalProperties": True,
+            "description": (
+                "Compositional Architecture: screenplay-wide で適用される "
+                "Layer 2 パーツ (= filter_preset / bgm / intro_card / outro_card 等)。"
+                "詳細は docs/plannings/2026-05-10_compositional-architecture.md §6.1。"
+                "Phase 4 で part_registry の整合性チェックを足す"
+            ),
+        },
         "scenes": {
             "type": "array",
             "minItems": 1,
@@ -162,6 +172,103 @@ SCHEMA: dict = {
                         "type": "string",
                         "enum": ["subtle", "standard", "expressive"],
                         "description": "シーンごとのアニメーションの強さ",
+                    },
+                    # ───── Compositional Architecture (= clip library) ─────
+                    # 詳細: docs/plannings/2026-05-10_compositional-architecture.md §3
+                    # Phase 1 ではすべて optional。新スキーマで使う場合のみ指定する。
+                    "identity": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "description": (
+                            "Layer 1 (clip library) の hard match キー。"
+                            "新スキーマで使う場合は 4 フィールドすべて指定する。"
+                            "旧スキーマ (= scene.character_refs/location_ref/start_emotion を"
+                            "直接持つ) でも clip_library._scene_to_identity が変換する"
+                        ),
+                        "properties": {
+                            "character_refs": {
+                                "type": "array",
+                                "items": {"type": "string", "minLength": 1},
+                            },
+                            "location_ref": {"type": "string", "minLength": 1},
+                            "start_emotion": {"type": "string", "minLength": 1},
+                            "camera_distance": {
+                                "type": "string",
+                                "enum": ["close-up", "medium-close", "medium", "wide"],
+                            },
+                        },
+                        "required": [
+                            "character_refs",
+                            "location_ref",
+                            "start_emotion",
+                        ],
+                    },
+                    "annotation": {
+                        "type": "object",
+                        "additionalProperties": False,
+                        "description": (
+                            "Layer 1 (clip library) の soft rank に使う注釈。"
+                            "完全一致が無くても compatible_with 経由で fallback する"
+                        ),
+                        "properties": {
+                            "visual_intent_id": {
+                                "type": "string",
+                                "description": "config/part_registry/visual_intents.yaml の id",
+                            },
+                            "duration_bucket": {
+                                "type": "integer",
+                                "enum": [5, 10],
+                            },
+                            "motion_intensity": {
+                                "type": "string",
+                                "enum": ["low", "medium", "high"],
+                            },
+                            "generation_seed": {"type": "integer"},
+                        },
+                    },
+                    "start_emotion": {
+                        "type": "string",
+                        "description": (
+                            "scene 開始時のキャラ表情 (= bg.png 生成時点)。"
+                            "旧スキーマ互換用 (= identity が無い場合に直接読まれる)"
+                        ),
+                    },
+                    "visual_intent_id": {
+                        "type": "string",
+                        "description": (
+                            "annotation.visual_intent_id の旧スキーマ互換 alias。"
+                            "annotation 入れ子と併用しないこと"
+                        ),
+                    },
+                    "duration_bucket": {
+                        "type": "integer",
+                        "enum": [5, 10],
+                        "description": "annotation.duration_bucket の旧スキーマ互換 alias",
+                    },
+                    "motion_intensity": {
+                        "type": "string",
+                        "enum": ["low", "medium", "high"],
+                        "description": "annotation.motion_intensity の旧スキーマ互換 alias",
+                    },
+                    "scene_parts": {
+                        "type": "object",
+                        "additionalProperties": True,
+                        "description": (
+                            "Layer 2/3 (compositional parts)。subtitle_style / "
+                            "stickers / lower_third / camera_move / transitions / sfx 等。"
+                            "Phase 4 で part_registry の整合性チェックを足す"
+                        ),
+                    },
+                    "_override_background_prompt": {
+                        "type": ["string", "null"],
+                        "description": (
+                            "novel intent / 緊急対応用 escape hatch。指定すると "
+                            "atom_key を bypass して旧 free-text 経路で生成する"
+                        ),
+                    },
+                    "_override_animation_prompt": {
+                        "type": ["string", "null"],
+                        "description": "_override_background_prompt と同様",
                     },
                     "lines": {
                         "type": "array",
