@@ -9,7 +9,6 @@ import os
 import re
 import subprocess
 import sys
-import threading
 import time
 import uuid
 from dataclasses import asdict
@@ -96,8 +95,12 @@ TEMP_DIR = config.TEMP_DIR
 SCREENPLAYS_DIR = config.SCREENPLAYS_DIR
 OUTPUT_DIR = config.OUTPUT_DIR
 
-_jobs: dict[str, dict] = {}
-_jobs_lock = threading.Lock()
+# 共有 job state は job_runner.py を SSOT とする。Blueprint 化される routes
+# (= routes/stages.py / routes/publish.py 等) からも安全に呼べる。
+import job_runner  # noqa: E402
+
+_jobs = job_runner._jobs
+_jobs_lock = job_runner._jobs_lock
 # screenplay disk write の serialize 用 (per-name) は staged_pipeline に移動。
 # 同じ Lock を REST patch ハンドラと TTS regen 後の永続化が共有する。
 _screenplay_lock = staged_pipeline.screenplay_lock
@@ -606,80 +609,17 @@ def api_presets():
 
 
 # ───────────────── ジョブステータス ─────────────────
-
-class JobAlreadyRunningError(RuntimeError):
-    """同一 ts に対して既に running の job がある時に raise される。"""
-
-    def __init__(self, ts: str, existing_job_id: str, existing_kind: str):
-        super().__init__(
-            f"ts={ts} には既に実行中の job があります "
-            f"(job_id={existing_job_id}, kind={existing_kind})"
-        )
-        self.ts = ts
-        self.existing_job_id = existing_job_id
-        self.existing_kind = existing_kind
-
-
-# ts → 現在実行中の job_id。`_spawn_job(exclusive_ts=True)` で同 ts への並行
-# spawn を防ぐ。runner 終了時に _jobs_lock 配下で削除する。
-_active_ts: dict[str, str] = {}
+# 共有 state / spawn ロジックは job_runner.py に移管済み。互換 shim を残す。
+JobAlreadyRunningError = job_runner.JobAlreadyRunningError
+_active_ts = job_runner._active_ts
 
 
 def _spawn_job(fn, *, kind: str, ts: str, exclusive_ts: bool = True) -> str:
-    """job runner を spawn する。
-
-    exclusive_ts=True (= 既定) のとき、同じ ts に対して既に running の job が
-    あれば JobAlreadyRunningError を raise する。caller は HTTP 409 を返す。
-    並行起動禁止対象は stage runner / regen / cache fresh / publish。read-only
-    job (= 過去ログ取得など) はそもそも _spawn_job を使わないので影響なし。
-    """
-    job_id = str(uuid.uuid4())[:8]
-    started_at = time.time()
-    with _jobs_lock:
-        if exclusive_ts:
-            existing_id = _active_ts.get(ts)
-            if existing_id and existing_id in _jobs:
-                existing = _jobs[existing_id]
-                if existing.get("status") == "running":
-                    raise JobAlreadyRunningError(
-                        ts, existing_id, existing.get("kind") or "?",
-                    )
-        _jobs[job_id] = {
-            "id": job_id, "kind": kind, "ts": ts,
-            "status": "running", "log": [], "started_at": started_at,
-            "error": None,
-        }
-        if exclusive_ts:
-            _active_ts[ts] = job_id
-    job_store.create(job_id, kind=kind, ts=ts, started_at=started_at)
-
-    def runner():
-        try:
-            fn()
-            with _jobs_lock:
-                _jobs[job_id]["status"] = "completed"
-                if _active_ts.get(ts) == job_id:
-                    _active_ts.pop(ts, None)
-            job_store.update(job_id, status="completed")
-        except Exception as e:
-            logger.exception("job %s failed", job_id)
-            with _jobs_lock:
-                _jobs[job_id]["status"] = "failed"
-                _jobs[job_id]["error"] = str(e)
-                if _active_ts.get(ts) == job_id:
-                    _active_ts.pop(ts, None)
-            job_store.update(job_id, status="failed", error=str(e))
-    threading.Thread(target=runner, daemon=True).start()
-    return job_id
+    return job_runner.spawn_job(fn, kind=kind, ts=ts, exclusive_ts=exclusive_ts)
 
 
 def _job_already_running_response(e: JobAlreadyRunningError):
-    return jsonify({
-        "error": str(e),
-        "ts": e.ts,
-        "existing_job_id": e.existing_job_id,
-        "existing_kind": e.existing_kind,
-    }), 409
+    return job_runner.job_already_running_response(e)
 
 
 @app.route("/api/jobs/<job_id>", methods=["GET"])
