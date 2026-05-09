@@ -3,7 +3,6 @@ import hashlib
 import json
 import logging
 import os
-import re
 import shutil
 import subprocess as sp
 from concurrent.futures import ThreadPoolExecutor, as_completed
@@ -227,35 +226,18 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
     return base
 
 
+# Stage 別分割 (= stages/__init__.py 参照) の第一歩として、TTS 直前のテキスト
+# 整形 helper は stages/text_utils.py を SSOT とする。ここでは shim を残す。
+from stages import text_utils as _text_utils  # noqa: E402
+
+
 def _clean_text(text: str) -> str:
-    text = re.sub(r'^\d+[\.\)）]\s*', '', text)
-    text = re.sub(r'[（(][^）)]*[）)]\s*', '', text)
-    text = re.sub(r'[,.、。「」『』]', '', text)
-    # 稀な記号を v3 が解釈しやすい一般形に正規化
-    text = text.replace('⁉', '!?').replace('‼', '!!').replace('⁇', '??')
-    text = text.replace('〜', 'ー').replace('~', 'ー')
-    text = re.sub(r'[…―—]', '', text)
-    return text.strip()
+    return _text_utils.clean_text(text)
 
 
 def _apply_pronunciation_hints(text: str, hints: dict | None,
                                 global_dict: dict | None = None) -> str:
-    """global furigana dict + line.pronunciation_hints をmergeしてテキスト置換。
-
-    line.hints が同じkeyを持つ場合は line.hints が優先（line別オーバーライド）。
-    """
-    effective: dict[str, str] = {}
-    if global_dict:
-        effective.update(global_dict)
-    if hints:
-        effective.update(hints)
-    if not effective:
-        return text
-    for src in sorted(effective.keys(), key=len, reverse=True):
-        dst = effective[src]
-        if src:
-            text = text.replace(src, dst)
-    return text
+    return _text_utils.apply_pronunciation_hints(text, hints, global_dict)
 
 
 def _load_global_furigana_dict() -> dict[str, str]:
