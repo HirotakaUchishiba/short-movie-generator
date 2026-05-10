@@ -6,6 +6,24 @@ import type { Screenplay, Line, SubtitleChunk } from "../../types";
 import { freshUid } from "../../uid";
 import { useRenderPlan } from "../../hooks/useRenderPlan";
 import { ScreenplayBase } from "../../../remotion/compositions/ScreenplayBase";
+import { ScreenplayInstagram } from "../../../remotion/compositions/ScreenplayInstagram";
+import { ScreenplayTikTok } from "../../../remotion/compositions/ScreenplayTikTok";
+import { ScreenplayYoutube } from "../../../remotion/compositions/ScreenplayYoutube";
+
+// Phase 5-A の 4 platform composition を Stage 6 Player から切替えるための map。
+const PLATFORM_COMPOSITIONS = {
+  base: ScreenplayBase,
+  youtube: ScreenplayYoutube,
+  instagram: ScreenplayInstagram,
+  tiktok: ScreenplayTikTok,
+} as const;
+type PlatformId = keyof typeof PLATFORM_COMPOSITIONS;
+const PLATFORM_LABELS: Record<PlatformId, string> = {
+  base: "base",
+  youtube: "YouTube Shorts",
+  instagram: "Instagram Reels",
+  tiktok: "TikTok",
+};
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
@@ -20,6 +38,8 @@ export default function StageOverlay() {
   // ref に primary preview を完全移行。snap 機能は Player の getCurrentFrame()
   // を使って同等の「現在再生位置を chunk start/end に反映」を維持する。
   const playerRef = useRef<PlayerRef | null>(null);
+  // Phase 5-A の 3 platform composition を Player から切替えて視覚比較できる。
+  const [platform, setPlatform] = useState<PlatformId>("base");
 
   const sceneOffsets: number[] = [];
   let acc = 0;
@@ -243,6 +263,8 @@ export default function StageOverlay() {
               draft.subtitle_y_from_bottom ??
               ctx.serverConfig.subtitle_y_from_bottom
             }
+            platform={platform}
+            onPlatformChange={setPlatform}
           />
           <SubtitleYPositionEditor
             current={
@@ -715,50 +737,84 @@ function PrimaryPreviewPanel({
   playerRef,
   videoHeight,
   currentSubtitleY,
+  platform,
+  onPlatformChange,
 }: {
   ts: string;
   bumpKey: number;
   playerRef: React.MutableRefObject<PlayerRef | null>;
   videoHeight: number;
   currentSubtitleY: number;
+  platform: PlatformId;
+  onPlatformChange: (next: PlatformId) => void;
 }) {
   const state = useRenderPlan(ts, bumpKey);
+  const Composition = PLATFORM_COMPOSITIONS[platform];
 
   return (
-    <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded mb-3 max-w-md mx-auto relative">
-      {state.kind === "loading" && (
-        <div className="w-full h-full flex items-center justify-center text-[12px] text-slate-400">
-          render plan を取得中…
-        </div>
-      )}
-      {state.kind === "not_ready" && (
-        <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-amber-300">
-          {state.message}
-        </div>
-      )}
-      {state.kind === "error" && (
-        <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-rose-400">
-          {state.message}
-        </div>
-      )}
-      {state.kind === "ready" && (
-        <Player
-          ref={playerRef}
-          component={ScreenplayBase}
-          inputProps={{ plan: state.plan }}
-          durationInFrames={Math.max(1, state.plan.video.duration_frames)}
-          fps={state.plan.video.fps}
-          compositionWidth={state.plan.video.width}
-          compositionHeight={state.plan.video.height}
-          controls
-          loop
-          style={{ width: "100%", height: "100%" }}
+    <div className="max-w-md mx-auto mb-3">
+      {/* Phase 5-A: platform variant tab。
+          ScreenplayBase / Youtube / Instagram / TikTok composition を Player に
+          差し替えるだけで platform 別の見た目 (= 強制 karaoke_bold / outro 既定 等)
+          を比較できる。AI 課金は発生しない (= 同じ render_plan を使い回す)。 */}
+      <div className="flex items-center gap-1 mb-2 text-[11px]">
+        <span className="text-slate-500 mr-1">プレビュー:</span>
+        {(Object.keys(PLATFORM_COMPOSITIONS) as PlatformId[]).map((p) => {
+          const active = p === platform;
+          return (
+            <button
+              key={p}
+              type="button"
+              className={
+                "px-2 py-0.5 rounded border text-[10px] " +
+                (active
+                  ? "bg-emerald-700/40 border-emerald-500 text-emerald-100"
+                  : "bg-slate-800/40 border-slate-700 text-slate-400 hover:text-slate-200")
+              }
+              onClick={() => onPlatformChange(p)}
+              title={`Composition: Screenplay${p === "base" ? "Base" : p[0].toUpperCase() + p.slice(1)}`}
+            >
+              {PLATFORM_LABELS[p]}
+            </button>
+          );
+        })}
+      </div>
+      <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded relative">
+        {state.kind === "loading" && (
+          <div className="w-full h-full flex items-center justify-center text-[12px] text-slate-400">
+            render plan を取得中…
+          </div>
+        )}
+        {state.kind === "not_ready" && (
+          <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-amber-300">
+            {state.message}
+          </div>
+        )}
+        {state.kind === "error" && (
+          <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-rose-400">
+            {state.message}
+          </div>
+        )}
+        {state.kind === "ready" && (
+          <Player
+            ref={playerRef}
+            // platform tab で Composition が切り替わる。
+            component={Composition}
+            inputProps={{ plan: state.plan }}
+            durationInFrames={Math.max(1, state.plan.video.duration_frames)}
+            fps={state.plan.video.fps}
+            compositionWidth={state.plan.video.width}
+            compositionHeight={state.plan.video.height}
+            controls
+            loop
+            style={{ width: "100%", height: "100%" }}
+          />
+        )}
+        <SubtitleYPositionGuide
+          videoHeight={videoHeight}
+          currentY={currentSubtitleY}
         />
-      )}
-      <SubtitleYPositionGuide
-        videoHeight={videoHeight}
-        currentY={currentSubtitleY}
-      />
+      </div>
     </div>
   );
 }
