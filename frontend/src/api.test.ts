@@ -143,4 +143,38 @@ describe("api fetch wrapper", () => {
     expect(sent.abstract.scenes[0]._uid).toBeUndefined();
     expect(sent.abstract.scenes[0].lines[0]._uid).toBeUndefined();
   });
+
+  it("retryAnalyzeForProject() は POST /api/projects/<ts>/retry-analyze を呼ぶ", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(
+        JSON.stringify({ ok: true, new_analyze_job_id: "analyze_xyz" }),
+        {
+          status: 200,
+          headers: { "Content-Type": "application/json" },
+        },
+      ),
+    );
+    const { api } = await import("./api");
+    const r = await api.retryAnalyzeForProject("20260510_120000");
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toMatch(/\/api\/projects\/20260510_120000\/retry-analyze$/);
+    expect((call[1] as RequestInit).method).toBe("POST");
+    expect(r.ok).toBe(true);
+    expect(r.new_analyze_job_id).toBe("analyze_xyz");
+  });
+
+  it("deleteProject() は DELETE /api/projects/<ts> を呼ぶ", async () => {
+    (globalThis.fetch as ReturnType<typeof vi.fn>).mockResolvedValue(
+      new Response(JSON.stringify({ ts: "20260510_120000", deleted: true }), {
+        status: 200,
+        headers: { "Content-Type": "application/json" },
+      }),
+    );
+    const { api } = await import("./api");
+    const r = await api.deleteProject("20260510_120000");
+    const call = (globalThis.fetch as ReturnType<typeof vi.fn>).mock.calls[0];
+    expect(call[0]).toMatch(/\/api\/projects\/20260510_120000$/);
+    expect((call[1] as RequestInit).method).toBe("DELETE");
+    expect(r.deleted).toBe(true);
+  });
 });

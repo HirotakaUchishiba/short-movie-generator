@@ -309,6 +309,56 @@ export const api = {
       { method: "DELETE" },
     ),
 
+  // ─── 主導フロー: 参考動画 → project + analyze (= Phase B) ────
+  createProjectFromReferenceVideo: (
+    file: File,
+    options: { instructions?: string; fps?: number } = {},
+    onProgress?: (pct: number) => void,
+  ): Promise<{ ts: string; analyze_job_id: string }> => {
+    return new Promise((resolve, reject) => {
+      const xhr = new XMLHttpRequest();
+      const fd = new FormData();
+      fd.append("reference_video", file);
+      if (options.instructions) fd.append("instructions", options.instructions);
+      if (options.fps != null) fd.append("fps", String(options.fps));
+      xhr.upload.onprogress = (e) => {
+        if (e.lengthComputable && onProgress) {
+          onProgress(e.loaded / e.total);
+        }
+      };
+      xhr.onload = () => {
+        if (xhr.status >= 200 && xhr.status < 300) {
+          try {
+            resolve(JSON.parse(xhr.responseText));
+          } catch (e) {
+            reject(e instanceof Error ? e : new Error(String(e)));
+          }
+        } else {
+          let body: unknown;
+          try {
+            body = JSON.parse(xhr.responseText);
+          } catch {
+            // body 取れなくても ApiError は返す
+          }
+          reject(new ApiError(xhr.status, xhr.responseText, body));
+        }
+      };
+      xhr.onerror = () => reject(new Error("network error"));
+      xhr.open("POST", `${API_BASE}/api/projects/from-reference-video`);
+      applyAuthToXhr(xhr);
+      xhr.send(fd);
+    });
+  },
+  retryAnalyzeForProject: (ts: string) =>
+    http<{ ok: true; new_analyze_job_id: string }>(
+      `/api/projects/${ts}/retry-analyze`,
+      { method: "POST" },
+    ),
+  deleteProject: (ts: string) =>
+    http<{ ts: string; deleted: true }>(`/api/projects/${ts}`, {
+      method: "DELETE",
+    }),
+
   // ─── analyze ジョブ ─────────────────────────────
   createAnalyzeJob: (video_sha256: string, options: AnalyzeOptions = {}) =>
     http<{ job_id: string }>("/api/screenplay/analyze", {
