@@ -359,6 +359,21 @@ def query_performance() -> list[dict]:
         return [dict(r) for r in rows]
 
 
+def query_post_metrics_timeseries(
+    post_id: str, *, limit: int | None = None,
+) -> list[dict]:
+    """post_metrics を fetched_at 昇順で返す (= 投稿後の伸び曲線描画用)。"""
+    sql = ("SELECT * FROM post_metrics WHERE post_id = ? "
+           "ORDER BY fetched_at ASC")
+    params: list[Any] = [post_id]
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
 # ───────────── generation_records (Phase 0: 計測基盤) ─────────────
 
 # stage_runs entry のトップレベルキー。``extra`` でこれらを上書きされると
@@ -444,6 +459,42 @@ def get_generation_record(ts: str) -> dict | None:
             "SELECT * FROM generation_records WHERE ts = ?", (ts,),
         ).fetchone()
         return dict(row) if row else None
+
+
+def list_generation_records(
+    *, status: str | None = None, limit: int | None = None,
+) -> list[dict]:
+    """generation_records を created_at 降順で返す。
+
+    JSON 列 (stage_runs / prompts / seeds / api_meta / validator_scores) は
+    deserialize 済みで返す。validator_scores 推移を dashboard で表示するため。
+    """
+    where: list[str] = []
+    params: list[Any] = []
+    if status is not None:
+        where.append("status = ?")
+        params.append(status)
+    sql = "SELECT * FROM generation_records"
+    if where:
+        sql += " WHERE " + " AND ".join(where)
+    sql += " ORDER BY created_at DESC"
+    if limit is not None:
+        sql += " LIMIT ?"
+        params.append(int(limit))
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    out: list[dict] = []
+    for r in rows:
+        d = dict(r)
+        for k in ("stage_runs", "prompts", "seeds", "api_meta", "validator_scores"):
+            v = d.get(k)
+            if isinstance(v, str):
+                try:
+                    d[k] = json.loads(v)
+                except (json.JSONDecodeError, TypeError):
+                    pass
+        out.append(d)
+    return out
 
 
 # update_generation_record で扱うフィールド (`json.dumps` で TEXT 化する column を区別)。
