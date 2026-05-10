@@ -117,8 +117,8 @@ class TestAnnotationScore:
                 "motion_intensity": "low",
             },
         )
-        # 3.0 (intent) + 1.0 (duration) + 0.5 (motion) + 0.3 (fresh)
-        assert score == pytest.approx(4.8)
+        # 3.0 (intent) + 1.0 (duration) + 0.5 (motion)
+        assert score == pytest.approx(4.5)
 
     def test_partial_match_lower_score(self) -> None:
         e = _make_entry("talking_head_calm", 10, "high")
@@ -130,8 +130,8 @@ class TestAnnotationScore:
                 "motion_intensity": "low",
             },
         )
-        # 3.0 (intent) + 0 (duration mismatch) + 0 (motion mismatch) + 0.3
-        assert score == pytest.approx(3.3)
+        # 3.0 (intent) + 0 (duration mismatch) + 0 (motion mismatch)
+        assert score == pytest.approx(3.0)
 
     def test_no_intent_no_score(self) -> None:
         e = _make_entry(None, 5, "low")
@@ -143,10 +143,12 @@ class TestAnnotationScore:
                 "motion_intensity": "low",
             },
         )
-        # entry の intent が None なので 0 + 1.0 + 0.5 + 0.3
-        assert score == pytest.approx(1.8)
+        # entry の intent が None なので 0 + 1.0 + 0.5
+        assert score == pytest.approx(1.5)
 
-    def test_hit_count_demotes_score(self) -> None:
+    def test_hit_count_does_not_affect_score(self) -> None:
+        """**決定論性**: hit_count は score に影響しない (= 同 (ts, scene_idx)
+        で同じ entry が選ばれる不変条件を保つため)。"""
         fresh = _make_entry("talking_head_calm", 5, "low", hit_count=0)
         old = _make_entry("talking_head_calm", 5, "low", hit_count=100)
         s_fresh = _annotation_score(
@@ -155,7 +157,7 @@ class TestAnnotationScore:
         s_old = _annotation_score(
             old, {"visual_intent_id": "talking_head_calm", "duration_bucket": 5}
         )
-        assert s_fresh > s_old
+        assert s_fresh == s_old
 
 
 # ───────────── _intent_compatible (= yaml 駆動) ─────────────
@@ -594,3 +596,198 @@ class TestE2EWarmCacheFlow:
         }
         result = lookup_clip_pool(scene)
         assert len(result) == 1
+
+
+# ───────────── 並行制御 + 安全性 (Fix 1) ─────────────
+
+
+class TestRegisterAtomic:
+    """register_clip_entry が atomic (= partial state を残さない) かを検証。"""
+
+    def test_register_uses_tmp_then_rename(
+        self, isolated_root: Path, tmp_path: Path
+    ) -> None:
+        # 実 bg/kling source を作って register。成功時は entry dir に
+        # bg.png / kling_clean.mp4 / meta.json が揃い、.tmp ディレクトリは残らない。
+        bg = tmp_path / "src_bg.png"
+        kling = tmp_path / "src_kling.mp4"
+        bg.write_bytes(b"\x89PNG\r\n\x1a\n" + b"\x00" * 16)
+        kling.write_bytes(b"\x00\x00\x00\x18ftypisom" + b"\x00" * 32)
+
+        entry = register_clip_entry(
+            identity=ClipIdentity(("f1",), "office", "中立"),
+            annotation=ClipAnnotation(),
+            provenance=ClipProvenance(),
+            bg_src=bg,
+            kling_src=kling,
+            auto_approve=True,
+        )
+        edir = isolated_root / entry.id
+        assert edir.exists()
+        assert (edir / "bg.png").exists()
+        assert (edir / "kling_clean.mp4").exists()
+        assert (edir / "meta.json").exists()
+        # .tmp ディレクトリは残っていない
+        assert not (isolated_root / f".{entry.id}.tmp").exists()
+
+    def test_register_failure_cleans_up_tmp(
+        self,
+        isolated_root: Path,
+        tmp_path: Path,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        # shutil.copyfile を fail させて register が例外を投げ、final dir も
+        # .tmp dir も残らないことを確認。
+        bg = tmp_path / "src_bg.png"
+        bg.write_bytes(b"x")
+        original = clip_library.shutil.copyfile
+
+        def boom(src: str, dst: str) -> None:  # type: ignore[unused-ignore]
+            raise OSError("disk full")
+
+        monkeypatch.setattr(clip_library.shutil, "copyfile", boom)
+        try:
+            with pytest.raises(OSError):
+                register_clip_entry(
+                    identity=ClipIdentity(("f1",), "office", "中立"),
+                    annotation=ClipAnnotation(),
+                    provenance=ClipProvenance(),
+                    bg_src=bg,
+                    kling_src=None,
+                    auto_approve=True,
+                )
+        finally:
+            monkeypatch.setattr(clip_library.shutil, "copyfile", original)
+        # final dir は無く、.tmp dir も clean されている
+        children = [p.name for p in isolated_root.iterdir()]
+        assert children == [], f"unexpected leftover: {children}"
+
+
+class TestTouchAtomic:
+    """touch_entry が atomic write (= tmp + os.replace) で行われるかを検証。"""
+
+    def test_touch_writes_via_tmp(
+        self, isolated_root: Path, monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        entry = register_clip_entry(
+            identity=ClipIdentity(("f1",), "office", "中立"),
+            annotation=ClipAnnotation(),
+            provenance=ClipProvenance(),
+            bg_src=None,
+            kling_src=None,
+            auto_approve=True,
+        )
+        seen_tmp_paths: list[str] = []
+        original_replace = clip_library.os.replace
+
+        def tracked_replace(src: str, dst: str) -> None:
+            seen_tmp_paths.append(str(src))
+            original_replace(src, dst)
+
+        monkeypatch.setattr(clip_library.os, "replace", tracked_replace)
+        assert clip_library.touch_entry(entry.id)
+        # 1 回 os.replace が呼ばれ、その src は .tmp で終わる
+        assert len(seen_tmp_paths) == 1
+        assert seen_tmp_paths[0].endswith(".tmp")
+
+    def test_touch_missing_entry_returns_false(
+        self, isolated_root: Path
+    ) -> None:
+        assert clip_library.touch_entry("nonexistent_id") is False
+
+    def test_touch_corrupt_meta_returns_false(
+        self, isolated_root: Path
+    ) -> None:
+        entry = register_clip_entry(
+            identity=ClipIdentity(("f1",), "office", "中立"),
+            annotation=ClipAnnotation(),
+            provenance=ClipProvenance(),
+            bg_src=None,
+            kling_src=None,
+            auto_approve=True,
+        )
+        mp = isolated_root / entry.id / "meta.json"
+        mp.write_text("not json {{{", encoding="utf-8")
+        assert clip_library.touch_entry(entry.id) is False
+
+
+class TestSceneToIdentity:
+    """_scene_to_identity の入力検証 (= 必須 field 欠損で ValueError)。"""
+
+    def test_missing_location_ref_raises(self) -> None:
+        scene = {
+            "character_refs": ["f1"],
+            "start_emotion": "中立",
+        }
+        with pytest.raises(ValueError, match="location_ref"):
+            clip_library._scene_to_identity(scene)
+
+    def test_missing_start_emotion_raises(self) -> None:
+        scene = {
+            "character_refs": ["f1"],
+            "location_ref": "office",
+        }
+        with pytest.raises(ValueError, match="start_emotion"):
+            clip_library._scene_to_identity(scene)
+
+    def test_non_str_location_ref_raises(self) -> None:
+        scene = {
+            "character_refs": ["f1"],
+            "location_ref": 123,
+            "start_emotion": "中立",
+        }
+        with pytest.raises(ValueError):
+            clip_library._scene_to_identity(scene)
+
+    def test_identity_dict_path_works(self) -> None:
+        scene = {
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
+        }
+        ident = clip_library._scene_to_identity(scene)
+        assert ident.location_ref == "office"
+
+
+class TestSceneHasOverride:
+    """_scene_has_override の挙動 (= satisfy / register / scene_gen で共通利用)。"""
+
+    def test_no_override_returns_false(self) -> None:
+        assert clip_library._scene_has_override({}) is False
+        assert clip_library._scene_has_override({"location_ref": "x"}) is False
+
+    def test_empty_string_override_treated_as_no_override(self) -> None:
+        # "   " など空白のみは override 無し扱い (= strip 後 falsy)
+        assert (
+            clip_library._scene_has_override(
+                {"_override_background_prompt": "   "}
+            )
+            is False
+        )
+
+    def test_background_override_returns_true(self) -> None:
+        assert (
+            clip_library._scene_has_override(
+                {"_override_background_prompt": "夕焼けの海"}
+            )
+            is True
+        )
+
+    def test_animation_override_returns_true(self) -> None:
+        assert (
+            clip_library._scene_has_override(
+                {"_override_animation_prompt": "subject runs"}
+            )
+            is True
+        )
+
+    def test_non_str_override_treated_as_no_override(self) -> None:
+        # 不正型 (= int / list 等) は override 無し扱い (= 安全側)
+        assert (
+            clip_library._scene_has_override(
+                {"_override_background_prompt": 123}
+            )
+            is False
+        )

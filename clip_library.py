@@ -310,15 +310,27 @@ def _scene_to_identity(scene: dict) -> ClipIdentity:
 
     `identity` を入れ子で持つ新スキーマと、フラットに `character_refs` 等を持つ
     旧スキーマの両方を許容する (= 互換ウインドウ)。
+
+    必須 field (= location_ref / start_emotion) が欠落していたら ValueError。
+    `_scene_has_identity` で pre-check されている前提だが、validator bypass や
+    competing process が dict を mutate した場合に KeyError で crash するのを
+    防ぐ。
     """
 
     if "identity" in scene and isinstance(scene["identity"], dict):
         return ClipIdentity.from_dict(scene["identity"])
 
+    location_ref = scene.get("location_ref")
+    start_emotion = scene.get("start_emotion")
+    if not isinstance(location_ref, str) or not isinstance(start_emotion, str):
+        raise ValueError(
+            "scene missing required identity fields "
+            f"(location_ref={location_ref!r}, start_emotion={start_emotion!r})"
+        )
     return ClipIdentity(
         character_refs=tuple(scene.get("character_refs") or ()),
-        location_ref=scene["location_ref"],
-        start_emotion=scene["start_emotion"],
+        location_ref=location_ref,
+        start_emotion=start_emotion,
         camera_distance=scene.get("camera_distance", "medium-close"),
     )
 
@@ -339,7 +351,12 @@ def _scene_to_annotation_request(scene: dict) -> dict[str, Any]:
 
 
 def _annotation_score(entry: ClipEntry, requested: dict[str, Any]) -> float:
-    """annotation の degree match スコア。高いほど良い候補。"""
+    """annotation の degree match スコア。高いほど良い候補。
+
+    **不変条件**: スコア計算に entry の動的状態 (= hit_count / last_used_at 等) を
+    含めない。同 (ts, scene_idx) で同じ entry が選ばれる **決定論性** を保つため。
+    variant 多様性は variant pool の母数 + (ts, scene_idx) seed で確保する。
+    """
 
     score = 0.0
     a = entry.annotation
@@ -355,9 +372,26 @@ def _annotation_score(entry: ClipEntry, requested: dict[str, Any]) -> float:
         score += 1.0
     if a.motion_intensity == requested.get("motion_intensity", "low"):
         score += 0.5
-    # hit_count が低いものを微優先 (= 飽和回避)
-    score += max(0.0, 0.3 - 0.01 * entry.lifecycle.hit_count)
     return score
+
+
+def _scene_has_override(scene: dict) -> bool:
+    """scene が novel intent escape hatch (= `_override_*`) を設定しているか判定。
+
+    satisfy / register / scene_gen の 3 箇所で同一 check を使うため共通化。
+    どちらか片方でも非空なら True (= clip_library を bypass する判断は両者
+    同等扱い)。
+    """
+
+    return bool(
+        (scene.get("_override_background_prompt") or "").strip()
+        if isinstance(scene.get("_override_background_prompt"), str)
+        else False
+    ) or bool(
+        (scene.get("_override_animation_prompt") or "").strip()
+        if isinstance(scene.get("_override_animation_prompt"), str)
+        else False
+    )
 
 
 def lookup_clip_pool(
@@ -520,15 +554,34 @@ def register_clip_entry(
         provenance=provenance,
         lifecycle=lifecycle,
     )
-    d = _entry_dir(entry_id, root)
-    d.mkdir(parents=True, exist_ok=True)
 
-    if bg_src is not None:
-        shutil.copyfile(os.fspath(bg_src), d / "bg.png")
-    if kling_src is not None:
-        shutil.copyfile(os.fspath(kling_src), d / "kling_clean.mp4")
+    # ── 並行登録時の partial state 防止 ──
+    # `<id>.tmp` directory に書き切ってから atomic に `<id>` へ rename する。
+    # rename は POSIX で同 filesystem 内なら atomic。これにより:
+    #   - 別 process が iter_all_entries 中に途中状態を見ない
+    #   - 失敗時 (= copy/Save 例外) は .tmp が残るだけで cache が破損しない
+    final_dir = _entry_dir(entry_id, root)
+    tmp_dir = final_dir.with_name(f".{entry_id}.tmp")
+    if tmp_dir.exists():
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+    tmp_dir.mkdir(parents=True, exist_ok=True)
+    try:
+        if bg_src is not None:
+            shutil.copyfile(os.fspath(bg_src), tmp_dir / "bg.png")
+        if kling_src is not None:
+            shutil.copyfile(os.fspath(kling_src), tmp_dir / "kling_clean.mp4")
+        # meta.json も .tmp 内に書く (= save_entry は entry.id 経由で
+        # 解決するため tmp_dir に直接 dump)
+        (tmp_dir / "meta.json").write_text(
+            json.dumps(entry.to_dict(), ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        # atomic rename: 同 parent dir 内なので POSIX で atomic
+        os.replace(tmp_dir, final_dir)
+    except Exception:
+        shutil.rmtree(tmp_dir, ignore_errors=True)
+        raise
 
-    save_entry(entry, root=root)
     logger.info(
         "[clip-library] register %s identity=%s intent=%s status=%s",
         entry_id,
@@ -565,14 +618,39 @@ def blacklist_entry(
 
 
 def touch_entry(entry_id: str, root: Path | None = None) -> bool:
-    """hit 時の hit_count++ + last_used_at 更新。"""
+    """hit 時の hit_count++ + last_used_at 更新。
 
-    entry = load_entry(entry_id, root)
-    if entry is None:
+    並行 hit (= 複数 project が同時に同 entry を hit) で lost update が発生する
+    のを防ぐため、meta.json を **直接 read-modify-write** + tmp + os.replace で
+    atomic に行う。`load_entry` → mutate → `save_entry` の 3 step は使わない。
+
+    厳密な mutex ではないが、書き込み window が小さいため衝突確率は十分低い
+    (= 複数 process が ms 単位で重なった場合のみ lost update が起きる、その
+    ケースでも file 自体は corrupt しない)。完全な correctness が必要になったら
+    fcntl / portalocker での file lock を導入する。
+    """
+
+    mp = _meta_path(entry_id, root)
+    if not mp.exists():
         return False
-    entry.lifecycle.hit_count += 1
-    entry.lifecycle.last_used_at = _now_iso()
-    save_entry(entry, root=root)
+    try:
+        data = json.loads(mp.read_text(encoding="utf-8"))
+    except (OSError, json.JSONDecodeError) as e:
+        logger.warning("[clip-library] touch failed (parse): %s", e)
+        return False
+    lifecycle = data.setdefault("lifecycle", {})
+    lifecycle["hit_count"] = int(lifecycle.get("hit_count", 0)) + 1
+    lifecycle["last_used_at"] = _now_iso()
+    tmp = mp.with_suffix(".tmp")
+    try:
+        tmp.write_text(
+            json.dumps(data, ensure_ascii=False, indent=2),
+            encoding="utf-8",
+        )
+        os.replace(tmp, mp)
+    except OSError as e:
+        logger.warning("[clip-library] touch failed (write): %s", e)
+        return False
     return True
 
 
@@ -627,16 +705,14 @@ def satisfy_scenes_from_library(
     for s_idx, scene in enumerate(scenes):
         if not _scene_has_identity(scene):
             continue
-        if scene.get("_override_background_prompt") or scene.get(
-            "_override_animation_prompt"
-        ):
+        if _scene_has_override(scene):
             # novel intent escape hatch が設定されている → clip_library を
             # bypass して旧 free-text 経路で生成させる
             continue
 
         try:
             pool = lookup_clip_pool(scene, root=root)
-        except Exception as e:
+        except (OSError, ValueError, KeyError, json.JSONDecodeError) as e:
             logger.warning(
                 "[clip-library] scene %d lookup 失敗 (skip): %s", s_idx, e,
             )
@@ -716,9 +792,7 @@ def register_cold_path_clips(
             continue
         if not _scene_has_identity(scene):
             continue
-        if scene.get("_override_background_prompt") or scene.get(
-            "_override_animation_prompt"
-        ):
+        if _scene_has_override(scene):
             continue
 
         bg_path = os.path.join(ts_path, f"bg_{s_idx:03d}.png")
@@ -727,7 +801,13 @@ def register_cold_path_clips(
             # cold path がまだ完了していない、または失敗したシーン
             continue
 
-        identity = _scene_to_identity(scene)
+        try:
+            identity = _scene_to_identity(scene)
+        except (KeyError, ValueError) as e:
+            logger.warning(
+                "[clip-library] scene %d identity 抽出失敗 (skip): %s", s_idx, e,
+            )
+            continue
         ann_req = _scene_to_annotation_request(scene)
         annotation = ClipAnnotation(
             visual_intent_id=ann_req.get("visual_intent_id"),
@@ -747,7 +827,7 @@ def register_cold_path_clips(
                 kling_src=kling_path,
                 root=root,
             )
-        except Exception as e:
+        except (OSError, ValueError) as e:
             logger.warning(
                 "[clip-library] scene %d register 失敗 (skip): %s", s_idx, e,
             )
