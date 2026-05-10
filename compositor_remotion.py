@@ -336,6 +336,28 @@ def build_render_plan(
                 "params": dict(fl.get("params") or {}),
             }
 
+        # Phase 5-B: sfx (= scene 内の効果音) を passthrough。
+        # 各 entry は {path, at, volume?}。path は Remotion の <Audio> が
+        # 解決可能な http(s):// or staticFile-relative パス。
+        if scene_parts_in.get("sfx"):
+            sfx_out: list[dict[str, Any]] = []
+            for s in scene_parts_in["sfx"]:
+                if (
+                    not isinstance(s, dict)
+                    or "path" not in s
+                    or "at" not in s
+                ):
+                    continue
+                item: dict[str, Any] = {
+                    "path": str(s["path"]),
+                    "at": float(s["at"]),
+                }
+                if s.get("volume") is not None:
+                    item["volume"] = float(s["volume"])
+                sfx_out.append(item)
+            if sfx_out:
+                plan_parts["sfx"] = sfx_out
+
         plan_scenes.append(
             {
                 "index": s_idx,
@@ -367,7 +389,7 @@ def _normalize_global_parts(raw: Any) -> dict[str, Any]:
       - filter_preset: {id, params}                       (Phase 4-C)
       - intro_card: {id, duration_sec, params}            (Phase 4-F)
       - outro_card: {id, duration_sec, params}            (Phase 4-F)
-    Phase 5 以降で bgm を追加する。
+      - bgm: {path, ducking_curve}                         (Phase 5-B)
 
     未知のキーは静かにドロップ (= validator が事前 reject する想定だが defensive)。
     """
@@ -395,6 +417,30 @@ def _normalize_global_parts(raw: Any) -> dict[str, Any]:
                 "duration_sec": float(card["duration_sec"]),
                 "params": dict(card.get("params") or {}),
             }
+
+    # Phase 5-B: bgm = {path, ducking_curve?}。
+    # ducking_curve は数値 (= constant volume) または [[t,v], ...] 配列を許容。
+    # 未指定なら 0.4 (= 控えめ) を default として ScreenplayBase 側で適用。
+    bgm = raw.get("bgm")
+    if isinstance(bgm, dict) and isinstance(bgm.get("path"), str):
+        bgm_out: dict[str, Any] = {"path": bgm["path"]}
+        curve = bgm.get("ducking_curve")
+        if isinstance(curve, (int, float)):
+            bgm_out["ducking_curve"] = float(curve)
+        elif isinstance(curve, list):
+            normalized_curve: list[list[float]] = []
+            for entry in curve:
+                if (
+                    isinstance(entry, (list, tuple))
+                    and len(entry) == 2
+                    and all(isinstance(v, (int, float)) for v in entry)
+                ):
+                    normalized_curve.append([float(entry[0]), float(entry[1])])
+            if normalized_curve:
+                bgm_out["ducking_curve"] = normalized_curve
+        else:
+            bgm_out["ducking_curve"] = 0.4
+        out["bgm"] = bgm_out
     return out
 
 

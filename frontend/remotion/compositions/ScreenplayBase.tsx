@@ -1,9 +1,31 @@
 import React from "react";
-import { AbsoluteFill, Sequence, useVideoConfig } from "remotion";
+import {
+  AbsoluteFill,
+  Audio,
+  Sequence,
+  staticFile,
+  useVideoConfig,
+} from "remotion";
 import { z } from "zod";
 import { RenderPlan } from "../schemas/renderPlan";
 import { SceneSequence } from "../components/SceneSequence";
 import { resolvePartComponent } from "../PartRegistry";
+
+// http(s):// なら直接、相対パスなら staticFile() で public/ 起点に解決する。
+function resolveAudioSrc(src: string): string {
+  return /^https?:\/\//.test(src) ? src : staticFile(src);
+}
+
+// ducking_curve から「現状の constant volume」を抽出。
+// 数値の場合はそのまま、配列 [[t,v], ...] の場合は先頭値で近似する
+// (= 時間軸 ducking は将来 useCurrentFrame 経由で interpolate に置換予定)。
+function bgmConstantVolume(
+  curve: number | Array<[number, number]> | undefined,
+): number {
+  if (typeof curve === "number") return curve;
+  if (Array.isArray(curve) && curve.length > 0) return curve[0][1];
+  return 0.4;
+}
 
 // snake_case key (= yaml / Python 流儀) を camelCase (= React props 流儀) に変換。
 // 値は再帰せず top-level のみ。Phase 4-F で title_card の sub_text → subText 等。
@@ -81,9 +103,17 @@ export const ScreenplayBase: React.FC<ScreenplayBaseProps> = ({ plan }) => {
     : 0;
   const outroFromFrame = Math.max(0, plan.video.duration_frames - outroFrames);
 
+  // Phase 5-B: bgm を screenplay 全長で重ねる (= 簡易 constant volume)。
+  // 時間軸 ducking は将来 (= TTS が喋っているフレーム範囲だけ音量下げ) で
+  // interpolate ベースに切替予定。
+  const bgm = plan.global_parts.bgm;
+  const bgmVolume = bgm ? bgmConstantVolume(bgm.ducking_curve) : 0;
+
   return (
     <AbsoluteFill style={{ backgroundColor: "black" }}>
       {wrapped}
+
+      {bgm && <Audio src={resolveAudioSrc(bgm.path)} volume={bgmVolume} />}
 
       {intro && (
         <Sequence from={0} durationInFrames={introFrames}>
