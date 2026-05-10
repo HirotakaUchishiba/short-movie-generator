@@ -28,7 +28,7 @@
 
 ## 1. プロジェクト概要
 
-**Short Movie Generator** は、参考動画から `scripts/analyze_video.py` で逆算生成した台本 (= 抽象台本) を入力に、**YouTube Shorts / Instagram Reels / TikTok 用の縦型ショート動画 (1080×1920, 60fps, 日本語特化)** を生成する自動化ツール。screenplay を手書きで起こす UI / API は無く、analyze pipeline が現状の唯一の作成経路 (= `screenplay_validator` / `load_template` のコードは legacy 互換で残るが、UI からは到達できない)。
+**Short Movie Generator** は、参考動画から `scripts/analyze_video.py` で逆算生成した台本 (= 抽象台本) を入力に、**YouTube Shorts / Instagram Reels / TikTok 用の縦型ショート動画 (1080×1920, 60fps, 日本語特化)** を生成する自動化ツール。screenplay を手書きで起こす UI / API は無く、analyze pipeline が現状の唯一の作成経路 (= analyze 出力 `screenplays/auto_<sha>.json` を `staged_pipeline.load_template` で project snapshot 化し、`screenplay_validator` が Stage 1 と全 UI 編集経路で検証する。両者は live コードで legacy ではない)。
 
 ### 1.1 設計の核 (= 4 つの分離原則)
 
