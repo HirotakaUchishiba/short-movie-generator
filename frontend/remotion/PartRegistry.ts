@@ -5,6 +5,7 @@
 
 import { CAMERA_MOVE_COMPONENTS } from "./parts/camera_moves";
 import { FILTER_PRESET_COMPONENTS } from "./parts/filter_presets";
+import { FRAME_LAYOUT_COMPONENTS } from "./parts/frame_layouts";
 import { LOWER_THIRD_COMPONENTS } from "./parts/lower_thirds";
 import { STICKER_COMPONENTS } from "./parts/stickers";
 import { SUBTITLE_COMPONENTS } from "./parts/subtitles";
@@ -19,8 +20,7 @@ export const PART_REGISTRY = {
   lower_thirds: LOWER_THIRD_COMPONENTS,
   title_cards: TITLE_CARD_COMPONENTS,
   transitions: TRANSITION_COMPONENTS,
-  // 将来追加:
-  //   frame_layouts: FRAME_LAYOUT_COMPONENTS,
+  frame_layouts: FRAME_LAYOUT_COMPONENTS,
 } as const;
 
 export type PartCategory = keyof typeof PART_REGISTRY;

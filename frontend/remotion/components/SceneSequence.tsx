@@ -57,10 +57,26 @@ export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
     ? resolvePartComponent("camera_moves", cameraMoveId)
     : null;
   const videoNode = <OffthreadVideo src={resolveSrc(scene.scene_video_path)} />;
-  const wrappedVideo = CameraMoveCmp ? (
+  const cameraWrapped = CameraMoveCmp ? (
     <CameraMoveCmp {...cameraReactProps}>{videoNode}</CameraMoveCmp>
   ) : (
     videoNode
+  );
+
+  // Phase 4-H: frame_layout があれば camera_wrapped 動画をさらに framing wrapper で包む
+  // (= letterbox / centered_with_blur 等)。default は full (= identity)。
+  // 順番: frame_layout > camera_move > 元動画 (= 外側ほど後で適用される画面構成)。
+  const frameLayoutId = scene.parts.frame_layout?.id;
+  const frameLayoutParams = scene.parts.frame_layout?.params ?? {};
+  const FrameLayoutCmp = frameLayoutId
+    ? resolvePartComponent("frame_layouts", frameLayoutId)
+    : null;
+  const wrappedVideo = FrameLayoutCmp ? (
+    <FrameLayoutCmp {...camelizeParams(frameLayoutParams)}>
+      {cameraWrapped}
+    </FrameLayoutCmp>
+  ) : (
+    cameraWrapped
   );
 
   return (
