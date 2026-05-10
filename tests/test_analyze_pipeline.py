@@ -151,6 +151,111 @@ def test_normalize_scene_pronunciation_hints_noop_for_clean_screenplay() -> None
     assert _normalize_scene_pronunciation_hints(sp) == 0
 
 
+def test_summarize_annotation_stats_counts_hit_and_demoted() -> None:
+    from analyze.pipeline import _summarize_annotation_stats
+    sp = {
+        "scenes": [
+            # hit
+            {"annotation": {"visual_intent_id": "talking_head_calm",
+                             "duration_bucket": 5}},
+            # hit (同 id)
+            {"annotation": {"visual_intent_id": "talking_head_calm"}},
+            # hit (別 id)
+            {"annotation": {"visual_intent_id": "reaction_surprise",
+                             "motion_intensity": "high"}},
+            # demoted: annotation 自体が無い
+            {"duration": 3, "lines": []},
+            # demoted: annotation はあるが visual_intent_id 無し
+            {"annotation": {"duration_bucket": 10, "motion_intensity": "low"}},
+        ],
+    }
+    stats = _summarize_annotation_stats(sp)
+    assert stats == {
+        "total_scenes": 5,
+        "with_visual_intent_id": 3,
+        "low_confidence_demoted": 2,
+        "by_intent_id": {
+            "talking_head_calm": 2,
+            "reaction_surprise": 1,
+        },
+    }
+
+
+def test_summarize_annotation_stats_empty_screenplay() -> None:
+    from analyze.pipeline import _summarize_annotation_stats
+    assert _summarize_annotation_stats({}) == {
+        "total_scenes": 0,
+        "with_visual_intent_id": 0,
+        "low_confidence_demoted": 0,
+        "by_intent_id": {},
+    }
+
+
+def test_summarize_annotation_stats_all_demoted() -> None:
+    from analyze.pipeline import _summarize_annotation_stats
+    sp = {"scenes": [{"duration": 1}, {"duration": 2}]}
+    stats = _summarize_annotation_stats(sp)
+    assert stats["total_scenes"] == 2
+    assert stats["with_visual_intent_id"] == 0
+    assert stats["low_confidence_demoted"] == 2
+    assert stats["by_intent_id"] == {}
+
+
+def test_run_emits_annotation_stats_in_phase_complete_save(tmp_path) -> None:
+    """phase_complete:save event に annotation_stats が乗ることを保証。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"fake")
+    output = tmp_path / "out.json"
+
+    events: list[tuple[str, dict]] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        events.append((event, dict(data)))
+
+    fake_screenplay = {
+        "caption": "x",
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "lines": [{"text": "a", "start": 0.0, "end": 1.0}]},
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "lines": [{"text": "b", "start": 0.0, "end": 1.0}]},
+            # demoted: visual_intent_id 無し
+            {"annotation": {"duration_bucket": 5},
+             "lines": [{"text": "c", "start": 0.0, "end": 1.0}]},
+            # demoted: annotation 自体無し
+            {"lines": [{"text": "d", "start": 0.0, "end": 1.0}]},
+        ],
+    }
+
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]), \
+         patch("analyze.pipeline._has_audio_stream", return_value=False), \
+         patch("analyze.pipeline._cache.file_sha256", return_value="v" * 64), \
+         patch("analyze.pipeline.furigana_store.load", return_value={}), \
+         patch("analyze.pipeline.furigana_store.collect_from_screenplay",
+               return_value={}), \
+         patch("analyze.pipeline.load_intent_catalog", return_value=[]), \
+         patch("analyze.pipeline.build_screenplay",
+               return_value=(fake_screenplay,
+                             {"input_tokens": 0, "output_tokens": 0})):
+        run(
+            video_path=str(fake_video),
+            output_path=str(output),
+            on_progress=on_progress,
+            use_cache=False,
+        )
+
+    save_events = [d for e, d in events
+                   if e == "phase_complete" and d.get("phase") == "save"]
+    assert len(save_events) == 1
+    stats = save_events[0]["annotation_stats"]
+    assert stats == {
+        "total_scenes": 4,
+        "with_visual_intent_id": 2,
+        "low_confidence_demoted": 2,
+        "by_intent_id": {"talking_head_calm": 2},
+    }
+
+
 def test_run_progress_callback_exception_is_swallowed(tmp_path) -> None:
     """progress callback が例外を出してもパイプライン全体は壊れない。"""
     fake_video = tmp_path / "v.mov"

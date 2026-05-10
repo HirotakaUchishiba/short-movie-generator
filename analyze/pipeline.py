@@ -155,6 +155,42 @@ def _downsample_frames(frame_paths: list[str],
     return [frame_paths[i] for i in indices]
 
 
+def _summarize_annotation_stats(screenplay: dict) -> dict:
+    """各 scene の annotation を集計して SSE event 用 dict を返す。
+
+    intent_resolver が catalog 渡しで normalize した結果として、各 scene には
+    以下のいずれかの状態がある:
+
+      - ``scene["annotation"]`` 自体が無い (= 全フィールド drop された / catalog
+        未指定)。これは visual_intent_id も含めて全部 drop された状態
+      - ``scene["annotation"]`` はあるが ``visual_intent_id`` が無い (= intent
+        だけ drop、duration_bucket / motion_intensity は残った)
+      - ``scene["annotation"]["visual_intent_id"]`` が string で残っている
+        (= catalog hit + 高 confidence)
+
+    UI の「N hit, M demoted, by intent」表示用に上記 3 状態を集計する。
+    """
+    scenes = screenplay.get("scenes") or []
+    total_scenes = len(scenes)
+    with_id = 0
+    demoted = 0
+    by_intent_id: dict[str, int] = {}
+    for scene in scenes:
+        ann = scene.get("annotation") if isinstance(scene, dict) else None
+        intent_id = ann.get("visual_intent_id") if isinstance(ann, dict) else None
+        if isinstance(intent_id, str) and intent_id:
+            with_id += 1
+            by_intent_id[intent_id] = by_intent_id.get(intent_id, 0) + 1
+        else:
+            demoted += 1
+    return {
+        "total_scenes": total_scenes,
+        "with_visual_intent_id": with_id,
+        "low_confidence_demoted": demoted,
+        "by_intent_id": by_intent_id,
+    }
+
+
 def _normalize_scene_pronunciation_hints(screenplay: dict) -> int:
     """scene 直下の pronunciation_hints を各 line に展開して scene からは削除する。
 
@@ -410,11 +446,13 @@ def run(
 
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(screenplay, f, ensure_ascii=False, indent=2)
+        annotation_stats = _summarize_annotation_stats(screenplay)
         _emit(on_progress, "phase_complete", {
             "phase": "save",
             "output_path": output_path,
             "claude_drift": drift,
             "validation_warnings": len(errors),
+            "annotation_stats": annotation_stats,
         })
 
         scenes_count = len(screenplay.get("scenes", []))
