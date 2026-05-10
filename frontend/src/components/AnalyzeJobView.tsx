@@ -514,10 +514,16 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
                   setDryrun(null);
                   setError(null);
                 } catch (e) {
-                  // 既に running (二重クリック等) は実害なし。状態を同期して
-                  // エラーを抑制する。string match に頼らず ApiError.status で
-                  // 判定 (= 別 error の本文に偶然 "409" が出ても誤抑制しない)。
-                  if (e instanceof ApiError && e.status === 409) {
+                  // 既に running / 既に terminal (= dryrun 二重クリック等) の
+                  // 状態遷移エラーは実害なし。backend (= api_confirm_analyze_job)
+                  // は error_code = "ANALYZE_JOB_INVALID_STATE" を返すので
+                  // それで判定 (= status 単独より具体的)。
+                  if (
+                    e instanceof ApiError &&
+                    e.status === 409 &&
+                    (e.body as { error_code?: string } | null)?.error_code ===
+                      "ANALYZE_JOB_INVALID_STATE"
+                  ) {
                     setJob((prev) =>
                       prev ? { ...prev, status: "running" } : prev,
                     );

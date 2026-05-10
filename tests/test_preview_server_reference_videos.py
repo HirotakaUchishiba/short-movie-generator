@@ -76,7 +76,9 @@ def test_upload_rejects_bad_extension(client) -> None:
         content_type="multipart/form-data",
     )
     assert r.status_code == 400
-    assert "unsupported extension" in r.get_json()["error"]
+    body = r.get_json()
+    assert body["error_code"] == "REFERENCE_VIDEO_UNSUPPORTED_EXT"
+    assert "unsupported extension" in body["message"]
 
 
 def test_upload_requires_file_field(client) -> None:
@@ -125,7 +127,10 @@ def test_delete_referenced_video_blocked(client) -> None:
     r = client.delete(f"/api/reference_videos/{sha}")
     assert r.status_code == 409
     body = r.get_json()
-    assert "1 件" in body["error"]
+    assert body["error_code"] == "REFERENCE_VIDEO_REFERENCED_BY_JOBS"
+    assert "1 件" in body["message"]
+    # 構造化フィールド + 旧 alias
+    assert body["count"] == 1
     assert body["job_count"] == 1
 
 
