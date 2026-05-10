@@ -595,8 +595,6 @@ def api_delete_reference_video(sha):
     }), 200
 
 
-# ───────────────── VideoStyle (抽象台本合成用テンプレ) ─────────────────
-
 # ───────────────── locations CRUD ─────────────────
 
 

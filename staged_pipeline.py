@@ -234,7 +234,7 @@ def write_metadata(temp_dir: str, screenplay_name: str | None,
         meta["screenplay_sha256"] = sha256 or ""
     if analyze_job_id:
         # analyze pipeline 経由で作られたプロジェクトのみ。Stage 1「素材編集」
-        # セクションで抽象台本 + VideoStyle を編集して再合成するためのキー。
+        # セクションで抽象台本を編集して再合成するためのキー。
         meta["analyze_job_id"] = analyze_job_id
     os.makedirs(temp_dir, exist_ok=True)
     io_utils.atomic_write_json(

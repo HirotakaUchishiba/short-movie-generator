@@ -16,7 +16,7 @@ export default function StageScript() {
     <StageGate
       stage="script"
       title="台本"
-      description="台本作成 (caption + シーン + セリフ) と VideoStyle を編集して完全 screenplay を組み立てます。OK を押すまで次のステージには進みません。"
+      description="台本 (caption + シーン + セリフ) を確認・編集します。analyze 経由のプロジェクトでは「素材編集」セクションで抽象台本を編集して再合成できます。OK を押すまで次のステージには進みません。"
     >
       <div className="mb-4 flex items-center gap-3 flex-wrap">
         <button
