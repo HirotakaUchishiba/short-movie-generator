@@ -740,3 +740,102 @@ def test_legacy_alias_fields_pass() -> None:
     sp["scenes"][0]["duration_bucket"] = 5
     sp["scenes"][0]["motion_intensity"] = "low"
     screenplay_validator.validate_screenplay(sp)
+
+
+# ───── _check_part_registry (= part_registry yaml 整合性チェック) ─────
+
+
+def test_known_subtitle_style_id_passes() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "subtitle_style": {"id": "minimal", "params": {}},
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_unknown_subtitle_style_id_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "subtitle_style": {"id": "nonexistent_style", "params": {}},
+    }
+    with pytest.raises(ValueError, match="subtitle_styles.yaml に未定義"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_unknown_sticker_id_in_array_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "stickers": [
+            {"id": "exclaim_red", "at": 0.5},  # OK
+            {"id": "ghost_sticker", "at": 1.0},  # NG
+        ],
+    }
+    with pytest.raises(ValueError, match="ghost_sticker"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_unknown_filter_preset_id_in_global_parts_fails() -> None:
+    sp = _valid_screenplay()
+    sp["global_parts"] = {
+        "filter_preset": {"id": "warp_drive", "params": {}},
+    }
+    with pytest.raises(ValueError, match="filter_presets.yaml に未定義"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_unknown_visual_intent_id_in_annotation_fails() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "ghost_intent",
+        "duration_bucket": 5,
+    }
+    with pytest.raises(ValueError, match="visual_intents.yaml に未定義"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_known_camera_move_and_transitions_pass() -> None:
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "camera_move": {"id": "subtle_zoom_in", "params": {}},
+        "transition_in": {"id": "dip_to_black", "params": {}},
+        "transition_out": {"id": "fade_quick", "params": {}},
+        "frame_layout": {"id": "letterbox_top_bottom", "params": {}},
+        "lower_third": {
+            "id": "name_banner",
+            "at": 0.5,
+            "duration": 2.0,
+            "params": {},
+        },
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_known_title_cards_pass() -> None:
+    sp = _valid_screenplay()
+    sp["global_parts"] = {
+        "intro_card": {"id": "simple_intro", "duration_sec": 1.5, "params": {}},
+        "outro_card": {
+            "id": "subscribe_outro",
+            "duration_sec": 2.0,
+            "params": {},
+        },
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_part_registry_check_skipped_when_yaml_missing(monkeypatch, tmp_path) -> None:
+    """yaml が無い category は警告だけで pass (= 半完成 deployment 保険)。"""
+
+    monkeypatch.setattr(
+        "config.PART_REGISTRY_DIR", str(tmp_path / "nonexistent_dir"),
+    )
+    screenplay_validator.reset_part_registry_cache()
+
+    sp = _valid_screenplay()
+    sp["scenes"][0]["scene_parts"] = {
+        "subtitle_style": {"id": "literally_anything", "params": {}},
+    }
+    # yaml が無いと ids 集合が空 → reject されない (= 警告のみ)
+    screenplay_validator.validate_screenplay(sp)
+    # 後続テストに影響しないよう cache を戻す
+    screenplay_validator.reset_part_registry_cache()

@@ -1,8 +1,12 @@
 
+import logging
+
 from jsonschema import Draft202012Validator
 
 import atomic_assets
 import config
+
+logger = logging.getLogger(__name__)
 
 # preset enum 一覧 (config.py から動的に取得して enum 制約に展開する)
 _FACIAL_KEYS = list(config.FACIAL_PRESETS.keys())
@@ -75,7 +79,7 @@ SCHEMA: dict = {
                 "Compositional Architecture: screenplay-wide で適用される "
                 "Layer 2 パーツ (= filter_preset / bgm / intro_card / outro_card 等)。"
                 "詳細は docs/plannings/2026-05-10_compositional-architecture.md §6.1。"
-                "Phase 4 で part_registry の整合性チェックを足す"
+                "id 一致は _check_part_registry で動的に検証される"
             ),
         },
         "scenes": {
@@ -256,7 +260,7 @@ SCHEMA: dict = {
                         "description": (
                             "Layer 2/3 (compositional parts)。subtitle_style / "
                             "stickers / lower_third / camera_move / transitions / sfx 等。"
-                            "Phase 4 で part_registry の整合性チェックを足す"
+                            "id 一致は _check_part_registry で動的に検証される"
                         ),
                     },
                     "_override_background_prompt": {
@@ -538,6 +542,174 @@ def _check_character_refs(screenplay: dict) -> list[str]:
     return errors
 
 
+# ───────────── Phase 4 後の宿題: part_registry 整合性チェック ─────────────
+#
+# screenplay の scene_parts / global_parts に書かれた id が、対応する
+# config/part_registry/<category>.yaml に存在することを検証する。
+# これが無いと render 時に PartRenderer が throw する遅い fail になる
+# (= UI から見ると「保存できたのに焼き直しが落ちる」状態)。
+#
+# yaml load は lru_cache でキャッシュ。テストや snapshot を pollute しないよう
+# 環境変数 PART_REGISTRY_DIR で上書き可能 (= config.py に定義済み)。
+
+# scene_parts の **単一参照** フィールド → category マップ
+_SCENE_PART_FIELDS_SINGLE: dict[str, str] = {
+    "subtitle_style": "subtitle_styles",
+    "lower_third": "lower_thirds",
+    "camera_move": "camera_moves",
+    "frame_layout": "frame_layouts",
+    "transition_in": "transitions",
+    "transition_out": "transitions",
+}
+# scene_parts の **配列参照** フィールド → category マップ
+_SCENE_PART_FIELDS_ARRAY: dict[str, str] = {
+    "stickers": "stickers",
+}
+# global_parts の単一参照フィールド → category マップ
+_GLOBAL_PART_FIELDS: dict[str, str] = {
+    "filter_preset": "filter_presets",
+    "intro_card": "title_cards",
+    "outro_card": "title_cards",
+}
+
+
+def _load_part_registry_ids_uncached(category: str) -> frozenset[str]:
+    """指定 category の yaml から id 集合を返す。
+
+    yaml が無い / 解析失敗時は空集合 (= 該当カテゴリの validation を実質
+    スキップする保険動作)。pyyaml が無い環境でも crash しない。
+    """
+
+    import os
+    import config as _cfg
+
+    yaml_dir = getattr(_cfg, "PART_REGISTRY_DIR", "")
+    yaml_path = os.path.join(yaml_dir, f"{category}.yaml")
+    if not os.path.exists(yaml_path):
+        logger.warning(
+            "[part-registry] %s.yaml not found at %s — skipping integrity check",
+            category, yaml_path,
+        )
+        return frozenset()
+    try:
+        import yaml  # type: ignore[import-not-found]
+    except ImportError:
+        logger.warning("[part-registry] pyyaml not installed — skipping integrity check")
+        return frozenset()
+    try:
+        with open(yaml_path, encoding="utf-8") as f:
+            data = yaml.safe_load(f)
+    except (yaml.YAMLError, OSError) as e:
+        logger.warning("[part-registry] %s.yaml parse error: %s", category, e)
+        return frozenset()
+    ids: list[str] = []
+    for entry in (data or {}).get("parts") or []:
+        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
+            ids.append(entry["id"])
+    return frozenset(ids)
+
+
+# モジュール起動時の cache。テストでは reset_part_registry_cache() で再ロード可能。
+_PART_REGISTRY_CACHE: dict[str, frozenset[str]] = {}
+
+
+def _load_part_registry_ids(category: str) -> frozenset[str]:
+    if category not in _PART_REGISTRY_CACHE:
+        _PART_REGISTRY_CACHE[category] = _load_part_registry_ids_uncached(category)
+    return _PART_REGISTRY_CACHE[category]
+
+
+def reset_part_registry_cache() -> None:
+    """テスト用: yaml を読み直すための cache クリア。"""
+    _PART_REGISTRY_CACHE.clear()
+
+
+def _check_part_registry(screenplay: dict) -> list[str]:
+    """scene_parts / global_parts の id が対応 yaml に存在することを検証。
+
+    存在しない id は **fast fail** で reject する (= render 時の throw を防ぐ)。
+    yaml が無い category は警告ログだけで pass (= 半完成 deployment でも回る)。
+    """
+
+    errors: list[str] = []
+
+    # scene_parts (= 各 scene)
+    for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
+        sp = scene.get("scene_parts") or {}
+        if not isinstance(sp, dict):
+            continue
+        for field, category in _SCENE_PART_FIELDS_SINGLE.items():
+            ref = sp.get(field)
+            if not isinstance(ref, dict):
+                continue
+            ref_id = ref.get("id")
+            if not isinstance(ref_id, str):
+                continue
+            ids = _load_part_registry_ids(category)
+            if ids and ref_id not in ids:
+                errors.append(
+                    f"scenes/{s_idx}/scene_parts/{field}/id: "
+                    f"'{ref_id}' は config/part_registry/{category}.yaml に未定義"
+                )
+        for field, category in _SCENE_PART_FIELDS_ARRAY.items():
+            arr = sp.get(field)
+            if not isinstance(arr, list):
+                continue
+            ids = _load_part_registry_ids(category)
+            if not ids:
+                continue
+            for i, item in enumerate(arr):
+                if not isinstance(item, dict):
+                    continue
+                item_id = item.get("id")
+                if isinstance(item_id, str) and item_id not in ids:
+                    errors.append(
+                        f"scenes/{s_idx}/scene_parts/{field}/{i}/id: "
+                        f"'{item_id}' は config/part_registry/{category}.yaml に未定義"
+                    )
+
+    # global_parts (= screenplay 全体)
+    gp = screenplay.get("global_parts") or {}
+    if isinstance(gp, dict):
+        for field, category in _GLOBAL_PART_FIELDS.items():
+            ref = gp.get(field)
+            if not isinstance(ref, dict):
+                continue
+            ref_id = ref.get("id")
+            if not isinstance(ref_id, str):
+                continue
+            ids = _load_part_registry_ids(category)
+            if ids and ref_id not in ids:
+                errors.append(
+                    f"global_parts/{field}/id: "
+                    f"'{ref_id}' は config/part_registry/{category}.yaml に未定義"
+                )
+
+    # scenes[].annotation.visual_intent_id も同様にチェック
+    for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
+        ann = scene.get("annotation") or {}
+        if isinstance(ann, dict):
+            vi = ann.get("visual_intent_id")
+            if isinstance(vi, str):
+                ids = _load_part_registry_ids("visual_intents")
+                if ids and vi not in ids:
+                    errors.append(
+                        f"scenes/{s_idx}/annotation/visual_intent_id: "
+                        f"'{vi}' は config/part_registry/visual_intents.yaml に未定義"
+                    )
+        # 旧スキーマ alias (= flat field)
+        flat_vi = scene.get("visual_intent_id")
+        if isinstance(flat_vi, str):
+            ids = _load_part_registry_ids("visual_intents")
+            if ids and flat_vi not in ids:
+                errors.append(
+                    f"scenes/{s_idx}/visual_intent_id: "
+                    f"'{flat_vi}' は config/part_registry/visual_intents.yaml に未定義"
+                )
+
+    return errors
+
+
 def _check_composed_required(screenplay: dict) -> list[str]:
     """composed 形式 (= Stage 2 以降が読む形) で必須のフィールドをチェック。
 
@@ -627,6 +799,7 @@ def validate_screenplay(screenplay: dict,
     errors.extend(_check_location_refs(screenplay))
     errors.extend(_check_character_refs(screenplay))
     errors.extend(_check_atomic_refs(screenplay))
+    errors.extend(_check_part_registry(screenplay))
     if require_composed:
         errors.extend(_check_composed_required(screenplay))
 
