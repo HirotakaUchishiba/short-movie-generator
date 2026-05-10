@@ -135,9 +135,18 @@ export interface Screenplay {
   scenes: Scene[];
 }
 
+// Stage 0 (analyze) の進行状態。null は legacy template 経路 project
+// (= analyze pipeline を経由しない) を意味する。
+export type AnalyzeStageStatus =
+  | "pending"
+  | "running"
+  | "completed"
+  | "failed"
+  | null;
+
 export interface ProjectListItem {
   timestamp: string;
-  screenplay_name: string;
+  screenplay_name: string | null;
   display_title: string;
   caption_hashtags: string;
   scene_count: number;
@@ -145,15 +154,18 @@ export interface ProjectListItem {
   created_at: string;
   current_stage: StageName | null;
   progress: Progress;
+  analyze_status?: AnalyzeStageStatus;
+  analyze_job_id?: string | null;
 }
 
 export interface ProjectDetail {
   timestamp: string;
-  screenplay_name: string;
-  screenplay: Screenplay;
+  screenplay_name: string | null;
+  screenplay: Screenplay | null;
   progress: Progress;
   current_stage: StageName | null;
   analyze_job_id: string | null;
+  analyze_status?: AnalyzeStageStatus;
 }
 
 export interface VoiceLibraryEntry {

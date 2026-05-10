@@ -67,9 +67,9 @@ describe("api fetch wrapper", () => {
     );
     const { api } = await import("./api");
     const r = await api.project("1");
-    expect(r.screenplay.scenes[0]._uid).toBeTruthy();
-    expect(r.screenplay.scenes[0].lines![0]._uid).toBeTruthy();
-    expect(r.screenplay.scenes[0].lines![0].subtitles![0]._uid).toBeTruthy();
+    expect(r.screenplay!.scenes[0]._uid).toBeTruthy();
+    expect(r.screenplay!.scenes[0].lines![0]._uid).toBeTruthy();
+    expect(r.screenplay!.scenes[0].lines![0].subtitles![0]._uid).toBeTruthy();
   });
 
   it("saveScreenplay() は _uid を strip して送信する", async () => {
