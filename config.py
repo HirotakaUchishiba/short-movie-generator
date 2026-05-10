@@ -733,6 +733,10 @@ CLIP_POOL_AUTO_APPROVE = os.getenv(
 # part_registry の SSOT yaml 群が住むディレクトリ
 PART_REGISTRY_DIR = os.environ.get(
     "PART_REGISTRY_DIR", os.path.join(BASE_DIR, "config", "part_registry"))
+# Phase 6: analyze pipeline が visual_intent_id を推定する際の confidence 閾値。
+# これ未満なら free-text fallback (= _override_animation_prompt) を使う。
+INTENT_CONFIDENCE_THRESHOLD = float(
+    os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.7"))
 
 # Layer 3 (Composition Engine) backend dispatch.
 # "ffmpeg" (= 既存 compositor.py、既定) または "remotion" (= 新設、Phase 2+ で
