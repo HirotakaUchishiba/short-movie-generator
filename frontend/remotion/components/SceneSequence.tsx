@@ -1,0 +1,71 @@
+import React from "react";
+import {
+  AbsoluteFill,
+  OffthreadVideo,
+  Sequence,
+  staticFile,
+  useVideoConfig,
+} from "remotion";
+import type { ResolvedScene } from "../schemas/renderPlan";
+import { PartRenderer } from "./PartRenderer";
+
+// 1 scene の描画責務:
+//  - scene_video (= 既に lipsync 済みの scene_<S>.mp4) を full-frame
+//  - subtitle_lines を chunk 単位で <Sequence> 配置
+//  - scene_parts.* の各 Layer 2 パーツを必要なら overlay
+//
+// 不変条件:
+//  - 字幕の chunk タイミングは **すでに backend (= compositor_remotion.py) で解決済み**
+//    の絶対秒。Remotion 側で再計算しない (= SSOT は Python 側)
+//  - scene_video_path は staticFile() で解決可能な相対パス、または http(s):// 絶対 URL
+
+export type SceneSequenceProps = {
+  scene: ResolvedScene;
+};
+
+const toFrames = (sec: number, fps: number) => Math.round(sec * fps);
+
+const resolveSrc = (videoSrc: string): string => {
+  if (/^https?:\/\//.test(videoSrc)) return videoSrc;
+  return staticFile(videoSrc);
+};
+
+export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
+  const { fps } = useVideoConfig();
+  const subtitleStyle = scene.parts.subtitle_style;
+
+  return (
+    <AbsoluteFill>
+      <OffthreadVideo src={resolveSrc(scene.scene_video_path)} />
+
+      {/* 字幕レイヤ。各 chunk を <Sequence from={..} durationInFrames={..}> で配置。
+          start/end は plan が「絶対秒」で持っているため、scene 内相対秒に直してから
+          frame に変換する (= scene の Sequence 内では from=0 が scene の頭)。 */}
+      {scene.subtitle_lines.flatMap((line) =>
+        line.chunks.map((chunk, cIdx) => {
+          const relStart = chunk.start_abs_sec - scene.offset_sec;
+          const relEnd = chunk.end_abs_sec - scene.offset_sec;
+          const fromFrame = Math.max(0, toFrames(relStart, fps));
+          const durFrames = Math.max(1, toFrames(relEnd - relStart, fps));
+          return (
+            <Sequence
+              key={`${line.line_idx}-${cIdx}`}
+              from={fromFrame}
+              durationInFrames={durFrames}
+            >
+              <PartRenderer
+                category="subtitle_styles"
+                id={subtitleStyle.id}
+                params={{
+                  text: chunk.text,
+                  emotion: line.emotion,
+                  ...(subtitleStyle.params ?? {}),
+                }}
+              />
+            </Sequence>
+          );
+        }),
+      )}
+    </AbsoluteFill>
+  );
+};
