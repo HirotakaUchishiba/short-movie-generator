@@ -32,12 +32,12 @@
 
 ### 1.1 設計の核 (= 4 つの分離原則)
 
-| 原則                                         | 内容                                                                                                |
-| -------------------------------------------- | --------------------------------------------------------------------------------------------------- |
-| **段階的ゲート方式 (= 8 stages)**            | 1 起動 = 1 stage 実行で停止。UI で承認するまで次に進まない。一括生成モードは存在しない              |
-| **Production Pipeline ↔ Composition Engine** | 重い (= AI 課金) 素材製造 (Stage 1-5) と、軽量な React/Remotion 組立 (Stage 6) を完全分離           |
-| **2 SSOT (= キャラ + ロケ)**                 | screenplay は参照だけ持ち、本体は `characters/<base>/` と `locations/<id>.json` に集約              |
-| **Template / Project Snapshot 分離**         | `screenplays/<name>.json` (template、git 追跡) と `temp/<TS>/screenplay.json` (作業 immutable copy) |
+| 原則                                         | 内容                                                                                                                                                                                       |
+| -------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| **段階的ゲート方式 (= 8 stages)**            | 通常 CLI (`main.py`) / preview UI は 1 起動 = 1 stage で停止し UI 承認で次に進む。フルオートは `scripts/auto_loop.py` (= 参考動画 URL 起点 + 予算 cap + Stage 8 human gate) のみが正規経路 |
+| **Production Pipeline ↔ Composition Engine** | 重い (= AI 課金) 素材製造 (Stage 1-5) と、軽量な React/Remotion 組立 (Stage 6) を完全分離                                                                                                  |
+| **2 SSOT (= キャラ + ロケ)**                 | screenplay は参照だけ持ち、本体は `characters/<base>/` と `locations/<id>.json` に集約                                                                                                     |
+| **Template / Project Snapshot 分離**         | `screenplays/<name>.json` (template、git 追跡) と `temp/<TS>/screenplay.json` (作業 immutable copy)                                                                                        |
 
 ### 1.2 守るべき最重要ルール
 
