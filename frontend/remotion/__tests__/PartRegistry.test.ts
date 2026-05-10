@@ -78,6 +78,16 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.lower_thirds).toBe(true);
     }
   });
+
+  it("contains title_cards category (Phase 4-F)", () => {
+    expect("title_cards" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 3 title_card components (Phase 4-F)", () => {
+    for (const id of ["simple_intro", "subscribe_outro", "section_break"]) {
+      expect(id in PART_REGISTRY.title_cards).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {
