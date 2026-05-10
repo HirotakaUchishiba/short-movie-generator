@@ -1,4 +1,5 @@
 """analyze.pipeline.run() の単体テスト。"""
+import json
 from unittest.mock import patch
 
 import pytest
@@ -254,6 +255,150 @@ def test_run_emits_annotation_stats_in_phase_complete_save(tmp_path) -> None:
         "low_confidence_demoted": 2,
         "by_intent_id": {"talking_head_calm": 2},
     }
+
+
+def test_collect_novel_intent_candidates_streak() -> None:
+    """post-normalize 状態から demoted streak が candidates に変換される。"""
+    from analyze.pipeline import _collect_novel_intent_candidates
+    sp = {
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "background_prompt": "calm intro"},
+            # demoted streak start
+            {"background_prompt": "subject is gardening with tools"},
+            {"animation_prompt": "subject keeps gardening"},
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "background_prompt": "back to calm"},
+        ],
+    }
+    cands = _collect_novel_intent_candidates(sp)
+    assert len(cands) == 1
+    assert cands[0]["scene_indices"] == [1, 2]
+    assert "gardening" in cands[0]["description"]
+    assert cands[0]["proposed_id"].startswith("proposed_")
+    assert "consecutive" in cands[0]["rationale"]
+
+
+def test_collect_novel_intent_candidates_empty_when_all_resolved() -> None:
+    from analyze.pipeline import _collect_novel_intent_candidates
+    sp = {
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"}},
+            {"annotation": {"visual_intent_id": "reaction_surprise"}},
+        ],
+    }
+    assert _collect_novel_intent_candidates(sp) == []
+
+
+def test_collect_novel_intent_candidates_single_demoted_below_min_streak() -> None:
+    """単発の demoted は min_streak=2 で候補にならない。"""
+    from analyze.pipeline import _collect_novel_intent_candidates
+    sp = {
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"}},
+            {"background_prompt": "lone anomaly"},
+            {"annotation": {"visual_intent_id": "talking_head_calm"}},
+        ],
+    }
+    assert _collect_novel_intent_candidates(sp) == []
+
+
+def test_run_emits_suggested_intents_in_phase_complete_save(tmp_path) -> None:
+    """save event に suggested_intents が乗り、ファイルにも書き出される。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"fake")
+    output = tmp_path / "out.json"
+
+    events: list[tuple[str, dict]] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        events.append((event, dict(data)))
+
+    fake_screenplay = {
+        "caption": "x",
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "background_prompt": "intro",
+             "lines": [{"text": "a", "start": 0.0, "end": 1.0}]},
+            # 2 件連続 demoted (= novel intent 候補になる)
+            {"background_prompt": "subject is gardening with tools",
+             "lines": [{"text": "b", "start": 0.0, "end": 1.0}]},
+            {"animation_prompt": "subject keeps gardening",
+             "lines": [{"text": "c", "start": 0.0, "end": 1.0}]},
+        ],
+    }
+
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]), \
+         patch("analyze.pipeline._has_audio_stream", return_value=False), \
+         patch("analyze.pipeline._cache.file_sha256", return_value="v" * 64), \
+         patch("analyze.pipeline.furigana_store.load", return_value={}), \
+         patch("analyze.pipeline.furigana_store.collect_from_screenplay",
+               return_value={}), \
+         patch("analyze.pipeline.load_intent_catalog", return_value=[]), \
+         patch("analyze.pipeline.build_screenplay",
+               return_value=(fake_screenplay,
+                             {"input_tokens": 0, "output_tokens": 0})):
+        run(
+            video_path=str(fake_video),
+            output_path=str(output),
+            on_progress=on_progress,
+            use_cache=False,
+        )
+
+    save_events = [d for e, d in events
+                   if e == "phase_complete" and d.get("phase") == "save"]
+    assert len(save_events) == 1
+    suggested = save_events[0]["suggested_intents"]
+    assert len(suggested) == 1
+    assert suggested[0]["scene_indices"] == [1, 2]
+    assert suggested[0]["proposed_id"].startswith("proposed_")
+    # ファイル併記も確認
+    sip_path = save_events[0]["suggested_intents_path"]
+    assert sip_path is not None
+    written = json.loads(open(sip_path, encoding="utf-8").read())
+    assert written["suggested_intents"][0]["scene_indices"] == [1, 2]
+
+
+def test_run_omits_suggested_intents_file_when_no_candidates(tmp_path) -> None:
+    """候補ゼロ時は file 出力を行わず event payload は空 list。"""
+    fake_video = tmp_path / "v.mov"
+    fake_video.write_bytes(b"fake")
+    output = tmp_path / "out.json"
+
+    events: list[tuple[str, dict]] = []
+
+    def on_progress(event: str, data: dict) -> None:
+        events.append((event, dict(data)))
+
+    fake_screenplay = {
+        "caption": "x",
+        "scenes": [
+            {"annotation": {"visual_intent_id": "talking_head_calm"},
+             "lines": [{"text": "a", "start": 0.0, "end": 1.0}]},
+        ],
+    }
+    with patch("analyze.pipeline._extract_frames", return_value=["f1.jpg"]), \
+         patch("analyze.pipeline._has_audio_stream", return_value=False), \
+         patch("analyze.pipeline._cache.file_sha256", return_value="v" * 64), \
+         patch("analyze.pipeline.furigana_store.load", return_value={}), \
+         patch("analyze.pipeline.furigana_store.collect_from_screenplay",
+               return_value={}), \
+         patch("analyze.pipeline.load_intent_catalog", return_value=[]), \
+         patch("analyze.pipeline.build_screenplay",
+               return_value=(fake_screenplay,
+                             {"input_tokens": 0, "output_tokens": 0})):
+        run(
+            video_path=str(fake_video),
+            output_path=str(output),
+            on_progress=on_progress,
+            use_cache=False,
+        )
+    save_events = [d for e, d in events
+                   if e == "phase_complete" and d.get("phase") == "save"]
+    assert save_events[0]["suggested_intents"] == []
+    assert save_events[0]["suggested_intents_path"] is None
+    # 副作用ファイルが出ていないこと
+    assert not (tmp_path / "out.suggested_intents.json").exists()
 
 
 def test_run_progress_callback_exception_is_swallowed(tmp_path) -> None:
