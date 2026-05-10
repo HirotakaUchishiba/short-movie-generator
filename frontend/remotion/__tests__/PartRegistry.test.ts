@@ -13,11 +13,21 @@ describe("PART_REGISTRY", () => {
   it("registers minimal subtitle component", () => {
     expect("minimal" in PART_REGISTRY.subtitle_styles).toBe(true);
   });
+
+  it("registers fade_in subtitle component (Phase 4-A)", () => {
+    expect("fade_in" in PART_REGISTRY.subtitle_styles).toBe(true);
+  });
+
+  it("registers karaoke_bold subtitle component (Phase 4-A)", () => {
+    expect("karaoke_bold" in PART_REGISTRY.subtitle_styles).toBe(true);
+  });
 });
 
 describe("isKnownPart", () => {
   it("returns true for known part", () => {
     expect(isKnownPart("subtitle_styles", "minimal")).toBe(true);
+    expect(isKnownPart("subtitle_styles", "fade_in")).toBe(true);
+    expect(isKnownPart("subtitle_styles", "karaoke_bold")).toBe(true);
   });
 
   it("returns false for unknown id", () => {
@@ -31,9 +41,11 @@ describe("isKnownPart", () => {
 
 describe("resolvePartComponent", () => {
   it("returns component for known part", () => {
-    const cmp = resolvePartComponent("subtitle_styles", "minimal");
-    expect(cmp).toBeDefined();
-    expect(typeof cmp).toBe("function");
+    for (const id of ["minimal", "fade_in", "karaoke_bold"]) {
+      const cmp = resolvePartComponent("subtitle_styles", id);
+      expect(cmp).toBeDefined();
+      expect(typeof cmp).toBe("function");
+    }
   });
 
   it("throws with helpful message for unknown id", () => {
