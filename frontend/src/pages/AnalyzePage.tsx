@@ -84,15 +84,18 @@ export default function AnalyzePage() {
     try {
       await finishDelete(false);
     } catch (e) {
-      // 409 は「この動画を参照する分析ジョブが残っている」状態。string match に
-      // 頼らず ApiError.status で判定する (= 別の error 本文に偶然 "409" が
-      // 出た場合の誤マッチを避ける)。
-      if (e instanceof ApiError && e.status === 409) {
-        const body = (e.body ?? {}) as { count?: number; message?: string };
-        // backend が count を返してくれていればそれを使い、なければ message から
-        // 抽出する (= legacy fallback)。
-        const fallbackCount = (e.bodyText.match(/(\d+)\s*件/) ?? [])[1];
-        const n = body.count ?? fallbackCount ?? "?";
+      // 409 + error_code = "REFERENCE_VIDEO_REFERENCED_BY_JOBS" は
+      // 「この動画を参照する分析ジョブが残っている」状態。
+      // backend (= preview_server.api_delete_reference_video) は count を構造化
+      // フィールドで返すので、message からの正規表現抽出には頼らない。
+      if (
+        e instanceof ApiError &&
+        e.status === 409 &&
+        (e.body as { error_code?: string } | null)?.error_code ===
+          "REFERENCE_VIDEO_REFERENCED_BY_JOBS"
+      ) {
+        const body = (e.body ?? {}) as { count?: number };
+        const n = body.count ?? "?";
         const ok = confirm(
           `この動画は ${n} 件の分析ジョブから参照されています。\n` +
             `関連ジョブも一緒に削除しますか? (ジョブ履歴とフェーズ記録も消えます)`,

@@ -132,6 +132,7 @@ def _no_cache_for_assets(resp):
 # Blueprint 分割の段階移行 (= routes/__init__.py 参照) のため、検証ヘルパは
 # routes/_helpers.py を SSOT とし、ここでは shim を残す (= 既存 import 互換)。
 from routes import _helpers as _route_helpers  # noqa: E402
+from routes._helpers import api_error  # noqa: E402
 
 
 def _validate_ts(ts: str) -> str:
@@ -512,15 +513,21 @@ def api_upload_reference_video():
     """
     f = request.files.get("file")
     if not f:
-        return jsonify({"error": "file required (multipart 'file' field)"}), 400
+        return api_error(
+            "REFERENCE_VIDEO_FILE_REQUIRED",
+            "file required (multipart 'file' field)",
+            400,
+        )
 
     name = f.filename or "video"
     ext = os.path.splitext(name)[1].lower()
     if ext not in analyze_job.ALLOWED_VIDEO_EXTS:
-        return jsonify({
-            "error": f"unsupported extension: {ext}",
-            "allowed": list(analyze_job.ALLOWED_VIDEO_EXTS),
-        }), 400
+        return api_error(
+            "REFERENCE_VIDEO_UNSUPPORTED_EXT",
+            f"unsupported extension: {ext}",
+            400,
+            allowed=list(analyze_job.ALLOWED_VIDEO_EXTS),
+        )
 
     ref_dir = analyze_job.reference_videos_dir()
     tmp = ref_dir / f".tmp_{uuid.uuid4().hex}{ext}"
@@ -570,19 +577,27 @@ def api_list_reference_videos():
 @app.route("/api/reference_videos/<sha>", methods=["DELETE"])
 def api_delete_reference_video(sha):
     if not re.match(r'^[a-f0-9]{64}$', sha):
-        return jsonify({"error": "invalid sha256 (64 hex chars required)"}), 400
+        return api_error(
+            "REFERENCE_VIDEO_INVALID_SHA256",
+            "invalid sha256 (64 hex chars required)",
+            400,
+        )
 
     force = request.args.get("force", "").lower() in ("1", "true", "yes")
     deleted = analyze_job.delete_reference_video(sha, force=force)
     if not deleted:
         n = analyze_job.count_jobs_for_video(sha)
-        return jsonify({
-            "error": (
+        return api_error(
+            "REFERENCE_VIDEO_REFERENCED_BY_JOBS",
+            (
                 f"この動画は {n} 件の analyze ジョブから参照されています。"
                 "?force=true を指定すると関連ジョブごと削除します。"
             ),
-            "job_count": n,
-        }), 409
+            409,
+            count=n,
+            # 旧 frontend が job_count を読んでいるので併記 (= 段階的移行)
+            job_count=n,
+        )
 
     file_path = analyze_job.reference_video_path(sha)
     if file_path and os.path.exists(file_path):
@@ -750,9 +765,17 @@ def api_create_analyze_job():
     data = request.get_json(force=True) or {}
     sha = data.get("video_sha256") or ""
     if not _SHA256_RE.match(sha):
-        return jsonify({"error": "video_sha256 (64 hex chars) required"}), 400
+        return api_error(
+            "ANALYZE_INVALID_SHA256",
+            "video_sha256 (64 hex chars) required",
+            400,
+        )
     if not analyze_job.get_reference_video(sha):
-        return jsonify({"error": f"reference video not found: {sha}"}), 404
+        return api_error(
+            "ANALYZE_REFERENCE_VIDEO_NOT_FOUND",
+            f"reference video not found: {sha}",
+            404,
+        )
 
     raw_options = data.get("options") or {}
     allowed = {"fps", "instructions"}
@@ -772,11 +795,11 @@ def api_list_analyze_jobs():
 @app.route("/api/screenplay/analyze/<job_id>", methods=["GET"])
 def api_analyze_job_detail(job_id):
     if not _JOB_ID_RE.match(job_id):
-        return jsonify({"error": "invalid job_id"}), 400
+        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
     try:
         j = analyze_job.get_job(job_id)
     except KeyError:
-        return jsonify({"error": "job not found"}), 404
+        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
     phases = analyze_job.get_phases(job_id)
     return jsonify({**_job_to_dict(j), "phases": phases})
 
@@ -785,11 +808,11 @@ def api_analyze_job_detail(job_id):
 def api_analyze_job_events(job_id):
     """SSE で event をストリーミング配信する。"""
     if not _JOB_ID_RE.match(job_id):
-        return jsonify({"error": "invalid job_id"}), 400
+        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
     try:
         snapshot = _job_to_dict(analyze_job.get_job(job_id))
     except KeyError:
-        return jsonify({"error": "job not found"}), 404
+        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
 
     terminal_events = ("completed", "failed", "cancelled")
     is_terminal = snapshot["status"] in terminal_events
@@ -824,13 +847,17 @@ def api_analyze_job_events(job_id):
 def api_confirm_analyze_job(job_id):
     """awaiting_confirm 状態のジョブを running に遷移させて Claude 続行。"""
     if not _JOB_ID_RE.match(job_id):
-        return jsonify({"error": "invalid job_id"}), 400
+        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
     try:
         analyze_runner.confirm(job_id)
     except KeyError:
-        return jsonify({"error": "job not found"}), 404
+        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 409
+        # ValueError は「既に running / 既に terminal」等の状態遷移エラー
+        # (= dryrun 二重クリックのケース) で 409 を返す
+        return api_error(
+            "ANALYZE_JOB_INVALID_STATE", str(e), 409,
+        )
     return jsonify({"ok": True}), 200
 
 
@@ -844,11 +871,19 @@ def api_get_project_abstract(ts):
     """
     _validate_ts(ts)
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error(
+            "ANALYZE_PROJECT_NOT_FOUND",
+            "プロジェクトが存在しません",
+            404,
+        )
     try:
         sp = staged_pipeline.load_project_abstract(_ts_path(ts))
     except FileNotFoundError:
-        return jsonify({"error": "screenplay snapshot not found"}), 404
+        return api_error(
+            "ANALYZE_SNAPSHOT_NOT_FOUND",
+            "screenplay snapshot not found",
+            404,
+        )
     return jsonify({
         "screenplay_path": staged_pipeline.project_screenplay_path(_ts_path(ts)),
         "abstract": sp,
@@ -866,21 +901,35 @@ def api_put_project_abstract(ts):
     _validate_ts(ts)
     ts_path = _ts_path(ts)
     if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error(
+            "ANALYZE_PROJECT_NOT_FOUND",
+            "プロジェクトが存在しません",
+            404,
+        )
     data = request.get_json(force=True) or {}
     abstract = data.get("abstract")
     if not isinstance(abstract, dict):
-        return jsonify({"error": "abstract (object) is required"}), 400
+        return api_error(
+            "ANALYZE_ABSTRACT_REQUIRED",
+            "abstract (object) is required",
+            400,
+        )
     scenes = abstract.get("scenes")
     if not isinstance(scenes, list) or not scenes:
-        return jsonify({"error": "abstract.scenes must be non-empty array"}), 400
+        return api_error(
+            "ANALYZE_ABSTRACT_SCENES_EMPTY",
+            "abstract.scenes must be non-empty array",
+            400,
+        )
     from screenplay_validator import validate_abstract
     errors = validate_abstract(abstract, strict=False)
     if errors:
-        return jsonify({
-            "error": "abstract のスキーマ検証に失敗しました",
-            "errors": errors,
-        }), 400
+        return api_error(
+            "ANALYZE_ABSTRACT_VALIDATION_FAILED",
+            "abstract のスキーマ検証に失敗しました",
+            400,
+            errors=errors,
+        )
     with _screenplay_lock(ts):
         staged_pipeline.save_project_screenplay(ts_path, abstract)
     progress_store.revoke_all_approvals(ts_path)
@@ -936,11 +985,11 @@ def api_apply_scene_boundaries(ts):
 def api_cancel_analyze_job(job_id):
     """ジョブのキャンセルを要求 (各フェーズ境界で読まれて中断)。"""
     if not _JOB_ID_RE.match(job_id):
-        return jsonify({"error": "invalid job_id"}), 400
+        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
     try:
         analyze_job.get_job(job_id)
     except KeyError:
-        return jsonify({"error": "job not found"}), 404
+        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
     analyze_runner.cancel(job_id)
     return jsonify({"ok": True}), 202
 

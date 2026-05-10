@@ -7,10 +7,33 @@ from __future__ import annotations
 
 import os
 import re
+from typing import Any
 
-from flask import abort
+from flask import abort, jsonify
 
 import config
+
+
+def api_error(
+    code: str, message: str, status: int, **extra: Any
+) -> tuple[Any, int]:
+    """error response の SSOT helper。
+
+    `frontend/src/api.ts` の ApiError は `body.error_code` で分岐するため、
+    backend は **必ず error_code field を含めて** 返す。`message` は人間可読の
+    詳細、`extra` は count や missing_indices 等の構造化フィールド。
+
+    使い方:
+        return api_error("ANALYZE_INVALID_SHA256", "video_sha256 (64 hex) required", 400)
+        return api_error("ANALYZE_VIDEO_REFERENCED", "still referenced", 409, count=3)
+
+    code は SCREAMING_SNAKE_CASE の prefix (= ANALYZE_ / RENDER_PLAN_ / ...)
+    で領域を区別する。
+    """
+
+    body: dict[str, Any] = {"error_code": code, "message": message}
+    body.update(extra)
+    return jsonify(body), status
 
 
 _TS_PATTERN = re.compile(r"^[\w\-]+$")
