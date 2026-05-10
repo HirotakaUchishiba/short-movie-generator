@@ -2,7 +2,7 @@
 
 ショート動画（Instagram Reels / TikTok / YouTube Shorts）の自動生成ツール。日本語音声・日本語字幕に特化。
 
-人間が手動で作成した台本JSONを入力として、背景画像生成 → 日本語TTS → Kling V3動画生成 → ASS字幕合成 → SNS投稿キャプション出力までを一気通貫で処理する。
+`scripts/analyze_video.py` で参考動画から逆算生成した台本JSONを入力として、背景画像生成 → 日本語TTS → Kling V3動画生成 → ASS字幕合成 → SNS投稿キャプション出力までを一気通貫で処理する。
 
 ## ドキュメント
 
@@ -26,7 +26,7 @@ cp .env.example .env
 
 ### 1. 台本を作成する
 
-`screenplays/<名前>.json` を手動で作成する。スキーマは [台本JSONフォーマット](#台本jsonフォーマット) を参照。
+`scripts/analyze_video.py <参考動画>` で `screenplays/auto_<sha>.json` を生成する (= 現状の唯一の作成経路)。スキーマは [台本JSONフォーマット](#台本jsonフォーマット) を参照。
 
 ### 2. 動画を生成する
 
@@ -149,7 +149,7 @@ short_movie_generator/
 ├── log_setup.py              # logging 共通セットアップ
 ├── config.py                 # プロジェクト設定
 ├── views/                    # Flask HTMLテンプレート
-├── screenplays/              # 台本JSON（手動作成）
+├── screenplays/              # 台本JSON（analyze pipeline 出力）
 ├── drafts/                   # 台本の下書き（1動画1ディレクトリ＋3ファイル）/ リサーチ素材（.gitignore 対象）
 ├── characters/               # 参照キャラクター画像（PNG、任意）
 ├── tests/                    # pytest テスト
