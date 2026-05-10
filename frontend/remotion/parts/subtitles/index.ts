@@ -1,14 +1,21 @@
 // subtitle parts の id → component map。
 // SSOT は config/part_registry/subtitle_styles.yaml の `component` フィールドと一致させる。
 
+import { FadeInSubtitle } from "./FadeInSubtitle";
+import { KaraokeBoldSubtitle } from "./KaraokeBoldSubtitle";
 import { MinimalSubtitle } from "./MinimalSubtitle";
 
+export { FadeInSubtitle } from "./FadeInSubtitle";
+export { KaraokeBoldSubtitle } from "./KaraokeBoldSubtitle";
 export { MinimalSubtitle } from "./MinimalSubtitle";
+export type { FadeInSubtitleProps } from "./FadeInSubtitle";
+export type { KaraokeBoldSubtitleProps } from "./KaraokeBoldSubtitle";
 export type { MinimalSubtitleProps } from "./MinimalSubtitle";
 
 export const SUBTITLE_COMPONENTS = {
   minimal: MinimalSubtitle,
-  // Phase 2-B 以降で追加: karaoke_bold, fade_in, bouncing_word
+  fade_in: FadeInSubtitle,
+  karaoke_bold: KaraokeBoldSubtitle,
 } as const;
 
 export type SubtitleStyleId = keyof typeof SUBTITLE_COMPONENTS;
