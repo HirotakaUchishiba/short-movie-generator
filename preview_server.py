@@ -34,6 +34,41 @@ logger = logging.getLogger(__name__)
 # 古い DB でも CREATE TABLE IF NOT EXISTS で安全に追加される。
 _analytics_db.init_db()
 
+
+def _bootstrap_intent_suggestions_inbox() -> None:
+    """旧 ``screenplays/*.suggested_intents.json`` を inbox に吸い上げる
+    one-shot migration。inbox がすでに非空なら skip (= 起動毎の二重実行防止)。
+
+    pytest 実行中は副作用回避のため skip (= 各 test は monkeypatch で
+    INTENT_SUGGESTIONS_PATH を tmp_path に向けているが、import 時 bootstrap は
+    本物の path を見てしまうため)。
+
+    設計 doc: docs/plannings/2026-05-10_intent-suggestion-flow.md §6 Phase 4
+    """
+
+    if "pytest" in sys.modules or os.getenv("PYTEST_CURRENT_TEST"):
+        return
+    inbox_path = os.fspath(config.INTENT_SUGGESTIONS_PATH)
+    # inbox に 1 entry でもあれば既に bootstrap 済みとみなす (= idempotent)
+    try:
+        if os.path.exists(inbox_path) and os.path.getsize(inbox_path) > 4:
+            return
+    except OSError:
+        return
+    try:
+        from scripts.migrate_intent_suggestions import run as _migrate_run
+        summary = _migrate_run()
+        if int(summary.get("files_migrated", 0)) > 0:
+            logger.info(
+                "[bootstrap] intent_suggestions migrated: %d files / %d entries",
+                summary["files_migrated"], summary["entries_upserted"],
+            )
+    except (ImportError, OSError, ValueError) as e:
+        logger.warning("[bootstrap] intent_suggestions migration skipped: %s", e)
+
+
+_bootstrap_intent_suggestions_inbox()
+
 app = Flask(__name__, static_folder=None)
 # 動画アップロード上限。既定 2GB、PREVIEW_MAX_UPLOAD_MB env で上書き可能。
 _max_upload_mb = int(os.getenv("PREVIEW_MAX_UPLOAD_MB", "2048"))
@@ -48,6 +83,7 @@ from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
 from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.clip_library import clip_library_bp  # noqa: E402
+from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.part_catalog import part_catalog_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.render_plan import render_plan_bp  # noqa: E402
@@ -59,6 +95,7 @@ app.register_blueprint(projects_bp)
 app.register_blueprint(render_plan_bp)
 app.register_blueprint(part_catalog_bp)
 app.register_blueprint(clip_library_bp)
+app.register_blueprint(intent_suggestions_bp)
 app.register_blueprint(stages_bp)
 app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)

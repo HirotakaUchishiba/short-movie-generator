@@ -30,6 +30,31 @@ def _isolate_job_store(tmp_path, monkeypatch):
 
 
 @pytest.fixture(autouse=True)
+def _isolate_intent_suggestions(tmp_path, monkeypatch):
+    """analyze pipeline / route テストが本番 ``data/intent_suggestions.json``
+    を汚染しないよう、INTENT_SUGGESTIONS_PATH と archive dir を tmp_path に向ける。
+    """
+    monkeypatch.setenv(
+        "INTENT_SUGGESTIONS_PATH", str(tmp_path / "intent_suggestions.json")
+    )
+    monkeypatch.setenv(
+        "INTENT_SUGGESTIONS_ARCHIVE_DIR",
+        str(tmp_path / "intent_suggestions_archive"),
+    )
+    import config as _config
+    monkeypatch.setattr(
+        _config,
+        "INTENT_SUGGESTIONS_PATH",
+        str(tmp_path / "intent_suggestions.json"),
+    )
+    monkeypatch.setattr(
+        _config,
+        "INTENT_SUGGESTIONS_ARCHIVE_DIR",
+        str(tmp_path / "intent_suggestions_archive"),
+    )
+
+
+@pytest.fixture(autouse=True)
 def _stub_character_images(request, monkeypatch):
     """validator / diagnose_abstract の character ref 物理存在検証は
     既定スキップ (= 開発機の characters/ に依存しない)。

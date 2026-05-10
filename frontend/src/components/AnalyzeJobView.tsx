@@ -657,14 +657,14 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
               data-testid="suggested-intents"
             >
               <Link
-                to="/intent-catalog"
+                to="/intent-catalog#suggestions"
                 className="text-amber-300 hover:text-amber-100 underline"
               >
                 💡 新規 intent 候補 {suggestedIntents.length} 件
               </Link>
               <span className="ml-2 text-slate-400">
                 (= 連続して既存 catalog にマッチしないシーンが見つかりました。
-                IntentCatalog で yaml に追加検討)
+                IntentCatalog の「💡 提案」セクションでトリアージしてください)
               </span>
             </div>
           )}

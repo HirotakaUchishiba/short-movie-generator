@@ -201,7 +201,7 @@ describe("AnalyzeJobView annotation_stats", () => {
     expect(el.textContent).toMatch(/1 件/);
     const link = el.querySelector("a");
     expect(link).not.toBeNull();
-    expect(link?.getAttribute("href")).toBe("/intent-catalog");
+    expect(link?.getAttribute("href")).toBe("/intent-catalog#suggestions");
   });
 
   it("suggested_intents が空 list なら表示しない", async () => {

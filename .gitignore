@@ -24,6 +24,10 @@ data/cost_records.jsonl
 data/jobs.json
 # launchd 起点の fetch_metrics 出力 (= tools/launchd/install.sh が書き出すローカルログ)
 data/launchd_*.log
+# novel intent suggestion inbox + archive (= UI トリアージ runtime state)
+data/intent_suggestions.json
+data/intent_suggestions_archive/
+data/intent_suggestions.errors.log
 assets/bgm/*.wav
 assets/bgm/*.mp3
 assets/reference_videos/
