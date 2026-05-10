@@ -161,9 +161,18 @@ export default function ProjectList() {
           </p>
           <PendingAnalyticsBadge />
         </div>
-        <Link to="/analyze" className="btn-ghost whitespace-nowrap text-sm">
-          参考動画から台本を生成 →
-        </Link>
+        <div className="flex items-center gap-2">
+          <Link to="/analyze" className="btn-ghost whitespace-nowrap text-sm">
+            参考動画から台本を生成 →
+          </Link>
+          <Link
+            to="/intent-catalog"
+            className="btn-ghost whitespace-nowrap text-sm"
+            title="clip_library entry の承認 / blacklist + part_registry の閲覧"
+          >
+            🗂 Intent Catalog →
+          </Link>
+        </div>
       </header>
 
       {error && (
