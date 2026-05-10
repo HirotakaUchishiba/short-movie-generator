@@ -363,6 +363,23 @@ Composition Engine (= 新設 Remotion = 既製パーツ組立) の役割分担**
 重い (= AI 生成) パーツは引き続き Production Pipeline が担当し、Remotion は
 組立てに専念する (= AI 課金は減らす方向にしか動かない不変条件)。
 
+### 利用可能な part categories (= screenplay から enum 参照)
+
+実装済みカテゴリ。各 SSOT は `config/part_registry/<category>.yaml`、
+React 実装は `frontend/remotion/parts/<category>/`。drift test で id 集合の
+一致が常に enforce される。
+
+| 階層       | category          | 利用可能 id                                                        | screenplay の指定箇所                                       |
+| ---------- | ----------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
+| **scene**  | `subtitle_styles` | `minimal` / `fade_in` / `karaoke_bold`                             | `scene_parts.subtitle_style.id`                             |
+| **scene**  | `stickers`        | `exclaim_red` / `question_mark` / `sparkle` / `thumbs_up` / `fire` | `scene_parts.stickers[].id`                                 |
+| **scene**  | `camera_moves`    | `none` / `subtle_zoom_in` / `ken_burns` / `dolly_pull_back`        | `scene_parts.camera_move.id`                                |
+| **scene**  | `lower_thirds`    | `name_banner` / `role_caption` / `quote_box`                       | `scene_parts.lower_third.id`                                |
+| **global** | `filter_presets`  | `none` / `warm_cinematic` / `cool_blue` / `monochrome` / `vintage` | `global_parts.filter_preset.id`                             |
+| **global** | `title_cards`     | `simple_intro` / `subscribe_outro` / `section_break`               | `global_parts.intro_card.id` / `global_parts.outro_card.id` |
+
+新カテゴリ追加 (= 将来の transitions / bgm / sfx / frame_layouts) は `2026-05-10_compositional-architecture.md` §4.4 の手順に従う。
+
 ## ログ
 
 `logging` モジュール経由で出力される (規約は `docs/developments/coding-rules.md` §2)。`LOG_LEVEL` 環境変数でレベル変更、`LOG_FILE` でファイル出力可。
