@@ -147,6 +147,13 @@ export const api = {
       created_at?: string;
       last_used_at?: string;
     }>(`/api/projects/${ts}/scenes/${sceneIdx}/bg-cache-info`),
+  // Phase 3-A: Composition Engine 用の render plan を取得。
+  // Stage 5 完了後にのみ 200 を返す (= scene_<S>.mp4 が必須)。
+  // RenderPlan 型は frontend/remotion/schemas/renderPlan.ts の Zod から派生。
+  renderPlan: (ts: string) =>
+    http<{ plan: import("../remotion/schemas/renderPlan").RenderPlan }>(
+      `/api/projects/${ts}/render-plan`,
+    ),
   saveScreenplay: (ts: string, screenplay: Screenplay) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay`, {
       method: "PUT",

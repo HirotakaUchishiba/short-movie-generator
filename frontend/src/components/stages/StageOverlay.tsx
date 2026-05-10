@@ -1,8 +1,11 @@
 import { useRef, useState } from "react";
+import { Player } from "@remotion/player";
 import StageGate, { useShellCtx } from "../StageGate";
 import { overlayAssetUrl, api } from "../../api";
 import type { Screenplay, Line, SubtitleChunk } from "../../types";
 import { freshUid } from "../../uid";
+import { useRenderPlan } from "../../hooks/useRenderPlan";
+import { ScreenplayBase } from "../../../remotion/compositions/ScreenplayBase";
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
@@ -254,6 +257,15 @@ export default function StageOverlay() {
             現在の再生位置をスナップ。空欄のチャンクは line
             全体を文字数比例で自動配分。
           </p>
+
+          {/* Phase 3-B: Remotion <Player> 並列プレビュー (= 焼き直し不要)。
+              既存 video preview を残し、Player を下に追加して比較できるようにする。
+              編集 (= chunk text) は Player 側に即時反映、字幕 Y 位置は Player 側でも
+              再 fetch 後に反映 (= regen_count を bumpKey に流用)。 */}
+          <RemotionPreviewPanel
+            ts={ctx.detail.timestamp}
+            bumpKey={ctx.detail.progress.stages.overlay.regen_count}
+          />
         </div>
         <div className="card">
           <div className="flex justify-between items-center mb-3">
@@ -686,6 +698,60 @@ function SubtitleYPositionEditor({
       <p className="text-[10px] text-slate-500 mt-1.5">
         スライダー変更後「保存して焼き直し」を押すと反映 ( ffmpeg overlay
         のみ・無料)
+      </p>
+    </div>
+  );
+}
+
+// Phase 3-B: Remotion <Player> による Stage 6 リアルタイムプレビュー。
+// 既存 ffmpeg-baked video の下に side-by-side で表示する (= 並べて比較できる)。
+// 焼き直し不要で字幕を即時確認できるが、まだ video 置き換えはしない (= Phase 3-C)。
+function RemotionPreviewPanel({
+  ts,
+  bumpKey,
+}: {
+  ts: string;
+  bumpKey: number;
+}) {
+  const state = useRenderPlan(ts, bumpKey);
+
+  return (
+    <div className="card border-emerald-700/40 bg-emerald-900/10 max-w-md mx-auto mt-4">
+      <div className="flex items-center justify-between mb-2">
+        <h4 className="text-sm font-semibold text-emerald-200">
+          🎬 Remotion プレビュー (= 焼き直し不要、開発中)
+        </h4>
+        <span className="text-[10px] text-emerald-400">Phase 3-B</span>
+      </div>
+      {state.kind === "loading" && (
+        <div className="text-[11px] text-slate-400">
+          render plan を取得中…
+        </div>
+      )}
+      {state.kind === "not_ready" && (
+        <div className="text-[11px] text-amber-300">{state.message}</div>
+      )}
+      {state.kind === "error" && (
+        <div className="text-[11px] text-rose-400">{state.message}</div>
+      )}
+      {state.kind === "ready" && (
+        <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded">
+          <Player
+            component={ScreenplayBase}
+            inputProps={{ plan: state.plan }}
+            durationInFrames={Math.max(1, state.plan.video.duration_frames)}
+            fps={state.plan.video.fps}
+            compositionWidth={state.plan.video.width}
+            compositionHeight={state.plan.video.height}
+            controls
+            loop
+            style={{ width: "100%", height: "100%" }}
+          />
+        </div>
+      )}
+      <p className="text-[10px] text-slate-500 mt-2">
+        上の動画 (= ffmpeg 焼き込み) と並列の比較ビュー。「保存して焼き直し」
+        を押すたびに最新 plan が再 fetch される。
       </p>
     </div>
   );
