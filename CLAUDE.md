@@ -369,16 +369,33 @@ Composition Engine (= 新設 Remotion = 既製パーツ組立) の役割分担**
 React 実装は `frontend/remotion/parts/<category>/`。drift test で id 集合の
 一致が常に enforce される。
 
-| 階層       | category          | 利用可能 id                                                        | screenplay の指定箇所                                       |
-| ---------- | ----------------- | ------------------------------------------------------------------ | ----------------------------------------------------------- |
-| **scene**  | `subtitle_styles` | `minimal` / `fade_in` / `karaoke_bold`                             | `scene_parts.subtitle_style.id`                             |
-| **scene**  | `stickers`        | `exclaim_red` / `question_mark` / `sparkle` / `thumbs_up` / `fire` | `scene_parts.stickers[].id`                                 |
-| **scene**  | `camera_moves`    | `none` / `subtle_zoom_in` / `ken_burns` / `dolly_pull_back`        | `scene_parts.camera_move.id`                                |
-| **scene**  | `lower_thirds`    | `name_banner` / `role_caption` / `quote_box`                       | `scene_parts.lower_third.id`                                |
-| **global** | `filter_presets`  | `none` / `warm_cinematic` / `cool_blue` / `monochrome` / `vintage` | `global_parts.filter_preset.id`                             |
-| **global** | `title_cards`     | `simple_intro` / `subscribe_outro` / `section_break`               | `global_parts.intro_card.id` / `global_parts.outro_card.id` |
+| 階層       | category          | 利用可能 id                                                        | screenplay の指定箇所                                            |
+| ---------- | ----------------- | ------------------------------------------------------------------ | ---------------------------------------------------------------- |
+| **scene**  | `subtitle_styles` | `minimal` / `fade_in` / `karaoke_bold`                             | `scene_parts.subtitle_style.id`                                  |
+| **scene**  | `stickers`        | `exclaim_red` / `question_mark` / `sparkle` / `thumbs_up` / `fire` | `scene_parts.stickers[].id`                                      |
+| **scene**  | `camera_moves`    | `none` / `subtle_zoom_in` / `ken_burns` / `dolly_pull_back`        | `scene_parts.camera_move.id`                                     |
+| **scene**  | `lower_thirds`    | `name_banner` / `role_caption` / `quote_box`                       | `scene_parts.lower_third.id`                                     |
+| **scene**  | `transitions`     | `cut` / `dip_to_black` / `dip_to_white` / `fade_quick`             | `scene_parts.transition_in.id` / `scene_parts.transition_out.id` |
+| **scene**  | `frame_layouts`   | `full` / `letterbox_top_bottom` / `centered_with_blur`             | `scene_parts.frame_layout.id`                                    |
+| **scene**  | sfx (= file)      | `assets/sfx/*` (= http URL or staticFile 相対パス)                 | `scene_parts.sfx[]` (= {path, at, volume?})                      |
+| **global** | `filter_presets`  | `none` / `warm_cinematic` / `cool_blue` / `monochrome` / `vintage` | `global_parts.filter_preset.id`                                  |
+| **global** | `title_cards`     | `simple_intro` / `subscribe_outro` / `section_break`               | `global_parts.intro_card.id` / `global_parts.outro_card.id`      |
+| **global** | bgm (= file)      | `assets/bgm/*`                                                     | `global_parts.bgm` (= {path, ducking_curve?})                    |
 
-新カテゴリ追加 (= 将来の transitions / bgm / sfx / frame_layouts) は `2026-05-10_compositional-architecture.md` §4.4 の手順に従う。
+### platform 別 Composition (Phase 5-A)
+
+`compose_video_remotion(..., template="youtube"|"instagram"|"tiktok"|"base")` で
+ScreenplayBase を wrap した platform 別 composition を選べる。各 template は
+ScreenplayBase の global_parts / per-scene parts に既定値を上書き:
+
+| template    | 上書き内容                                                                              |
+| ----------- | --------------------------------------------------------------------------------------- |
+| `base`      | (= 既定、上書きなし)                                                                    |
+| `youtube`   | outro_card 既定 = `subscribe_outro` 2.0s                                                |
+| `instagram` | subtitle_style `minimal` を全 scene で `karaoke_bold` に強制                            |
+| `tiktok`    | `karaoke_bold` 強制 + 字幕 y_from_bottom = 640 + outro_card 既定 = `section_break` 1.0s |
+
+新カテゴリ追加は `2026-05-10_compositional-architecture.md` §4.4 の手順に従う。
 
 ## ログ
 
