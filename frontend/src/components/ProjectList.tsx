@@ -2,6 +2,7 @@ import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, bgAssetUrl } from "../api";
 import type { ProjectListItem, StageName } from "../types";
+import CreateFromReferenceVideoSection from "./CreateFromReferenceVideoSection";
 
 const STAGE_LABELS: Record<StageName, string> = {
   script: "台本",
@@ -30,9 +31,18 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
     ? (STAGE_LABELS[p.current_stage] ?? p.current_stage)
     : "完了";
   const isDone = !p.current_stage;
+  const isAnalyzing =
+    p.analyze_status === "running" || p.analyze_status === "pending";
+  const analyzeFailed = p.analyze_status === "failed";
+  // Stage 0 中 / 失敗の project は専用 page (= /project/<TS>/analyze) へ。
+  // それ以外 (= Stage 1+ または legacy 経路) は通常の ProjectShell へ。
+  const linkTo =
+    isAnalyzing || analyzeFailed
+      ? `/project/${p.timestamp}/analyze`
+      : `/project/${p.timestamp}`;
   return (
     <Link
-      to={`/project/${p.timestamp}`}
+      to={linkTo}
       className="group flex flex-col overflow-hidden rounded-lg border border-slate-700 bg-slate-800/50 transition hover:border-emerald-400 hover:bg-slate-800"
     >
       <div className="relative aspect-[9/16] overflow-hidden bg-slate-900">
@@ -67,17 +77,23 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
           </div>
         )}
         <div className="absolute left-2 top-2">
-          <span
-            className={
-              "badge " +
-              (isDone
-                ? "bg-emerald-600/90 text-white"
-                : "bg-slate-900/80 text-slate-100 backdrop-blur")
-            }
-          >
-            {isDone ? "✓ " : ""}
-            {stageLabel}
-          </span>
+          {isAnalyzing ? (
+            <span className="badge bg-amber-600/90 text-white">📹 分析中</span>
+          ) : analyzeFailed ? (
+            <span className="badge bg-rose-600/90 text-white">⚠ 分析失敗</span>
+          ) : (
+            <span
+              className={
+                "badge " +
+                (isDone
+                  ? "bg-emerald-600/90 text-white"
+                  : "bg-slate-900/80 text-slate-100 backdrop-blur")
+              }
+            >
+              {isDone ? "✓ " : ""}
+              {stageLabel}
+            </span>
+          )}
         </div>
         {p.scene_count > 0 && (
           <div className="absolute bottom-2 right-2">
@@ -161,9 +177,6 @@ export default function ProjectList() {
           </p>
         </div>
         <div className="flex items-center gap-2">
-          <Link to="/analyze" className="btn-ghost whitespace-nowrap text-sm">
-            参考動画から台本を生成 →
-          </Link>
           <Link
             to="/intent-catalog"
             className="btn-ghost whitespace-nowrap text-sm"
@@ -180,9 +193,17 @@ export default function ProjectList() {
         </div>
       )}
 
-      <section className="card mb-8">
-        <h2 className="mb-3 text-lg font-semibold">新規プロジェクト</h2>
-        <div className="flex items-center gap-3">
+      {/* 主動作: 参考動画から作成 (= Phase C の主導フロー CTA) */}
+      <CreateFromReferenceVideoSection
+        onSuccess={(ts) => navigate(`/project/${ts}/analyze`)}
+      />
+
+      {/* 副動作: 既存 template から作成 (= 量産・再利用ユーザー向け、折りたたみ) */}
+      <details className="card mb-8" data-testid="legacy-template-section">
+        <summary className="cursor-pointer text-sm text-slate-400 hover:text-slate-200">
+          既存 template から作成 (= analyze 済み auto_*.json から再生成)
+        </summary>
+        <div className="mt-3 flex items-center gap-3">
           <select
             className="input flex-1"
             value={selectedScreenplay}
@@ -198,14 +219,14 @@ export default function ProjectList() {
             ))}
           </select>
           <button
-            className="btn-primary"
+            className="btn-secondary"
             disabled={!selectedScreenplay || creating}
             onClick={onCreate}
           >
             {creating ? "作成中..." : "プロジェクト作成"}
           </button>
         </div>
-      </section>
+      </details>
 
       <section>
         <div className="mb-3 flex items-baseline justify-between">
