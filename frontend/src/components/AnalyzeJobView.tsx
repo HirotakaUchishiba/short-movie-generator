@@ -47,6 +47,13 @@ interface PhaseState {
   message?: string;
 }
 
+interface AnnotationStats {
+  total_scenes: number;
+  with_visual_intent_id: number;
+  low_confidence_demoted: number;
+  by_intent_id: Record<string, number>;
+}
+
 const PHASE_ORDER: AnalyzePhase[] = [
   "frames",
   "audio",
@@ -87,6 +94,8 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
   const [confirmBusy, setConfirmBusy] = useState(false);
   const [now, setNow] = useState<number>(Date.now());
   const [claudeChars, setClaudeChars] = useState<number>(0);
+  const [annotationStats, setAnnotationStats] =
+    useState<AnnotationStats | null>(null);
   const esRef = useRef<EventSource | null>(null);
 
   // 初回詳細ロード
@@ -181,6 +190,22 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
             fromCache: !!d.from_cache,
             message: d.skipped_reason || undefined,
           });
+        // save phase に annotation_stats が乗っていれば UI 表示用に取り込む
+        if (d.phase === "save" && d.annotation_stats) {
+          const s = d.annotation_stats as Partial<AnnotationStats>;
+          if (
+            typeof s.total_scenes === "number" &&
+            typeof s.with_visual_intent_id === "number" &&
+            typeof s.low_confidence_demoted === "number"
+          ) {
+            setAnnotationStats({
+              total_scenes: s.total_scenes,
+              with_visual_intent_id: s.with_visual_intent_id,
+              low_confidence_demoted: s.low_confidence_demoted,
+              by_intent_id: (s.by_intent_id as Record<string, number>) ?? {},
+            });
+          }
+        }
       } catch {}
     });
     es.addEventListener("phase_skipped", (ev) => {
@@ -569,6 +594,35 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
           {jobStartedAt && jobFinishedAt && (
             <div className="text-xs text-slate-400 mt-1">
               総所要時間: {formatDuration(jobFinishedAt - jobStartedAt)}
+            </div>
+          )}
+          {annotationStats && (
+            <div
+              className="text-xs text-slate-300 mt-2"
+              data-testid="annotation-stats"
+            >
+              annotation:{" "}
+              <span className="font-mono text-emerald-300">
+                {annotationStats.with_visual_intent_id}
+              </span>{" "}
+              hit / {annotationStats.total_scenes} scenes
+              {Object.keys(annotationStats.by_intent_id).length > 0 && (
+                <span className="ml-1 text-slate-400">
+                  (
+                  {Object.entries(annotationStats.by_intent_id)
+                    .map(([id, n]) => `${id}: ${n}`)
+                    .join(", ")}
+                  {annotationStats.low_confidence_demoted > 0 &&
+                    `, low conf demoted: ${annotationStats.low_confidence_demoted}`}
+                  )
+                </span>
+              )}
+              {Object.keys(annotationStats.by_intent_id).length === 0 &&
+                annotationStats.low_confidence_demoted > 0 && (
+                  <span className="ml-1 text-slate-400">
+                    (low conf demoted: {annotationStats.low_confidence_demoted})
+                  </span>
+                )}
             </div>
           )}
           <div className="mt-3 flex gap-2 flex-wrap">
