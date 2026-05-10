@@ -7,6 +7,7 @@ import {
   useVideoConfig,
 } from "remotion";
 import type { ResolvedScene } from "../schemas/renderPlan";
+import { resolvePartComponent } from "../PartRegistry";
 import { PartRenderer } from "./PartRenderer";
 
 // 1 scene の描画責務:
@@ -30,13 +31,41 @@ const resolveSrc = (videoSrc: string): string => {
   return staticFile(videoSrc);
 };
 
+// snake_case key (= yaml / Python から来る) を camelCase に変換 (= React props 流儀)。
+// 値は再帰せず top-level のみ。Phase 4-D で camera_move の from_scale → fromScale 等。
+function camelizeParams(
+  params: Record<string, unknown>,
+): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const [k, v] of Object.entries(params)) {
+    const cc = k.replace(/_([a-z0-9])/g, (_m, c: string) => c.toUpperCase());
+    out[cc] = v;
+  }
+  return out;
+}
+
 export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
   const { fps } = useVideoConfig();
   const subtitleStyle = scene.parts.subtitle_style;
 
+  // Phase 4-D: camera_move があれば動画レイヤだけ wrap (= overlays には影響させない)。
+  // params は snake_case (= yaml 流儀) で来るので React props (= camelCase) に変換。
+  const cameraMoveId = scene.parts.camera_move?.id;
+  const cameraParams = scene.parts.camera_move?.params ?? {};
+  const cameraReactProps = camelizeParams(cameraParams);
+  const CameraMoveCmp = cameraMoveId
+    ? resolvePartComponent("camera_moves", cameraMoveId)
+    : null;
+  const videoNode = <OffthreadVideo src={resolveSrc(scene.scene_video_path)} />;
+  const wrappedVideo = CameraMoveCmp ? (
+    <CameraMoveCmp {...cameraReactProps}>{videoNode}</CameraMoveCmp>
+  ) : (
+    videoNode
+  );
+
   return (
     <AbsoluteFill>
-      <OffthreadVideo src={resolveSrc(scene.scene_video_path)} />
+      {wrappedVideo}
 
       {/* 字幕レイヤ。各 chunk を <Sequence from={..} durationInFrames={..}> で配置。
           start/end は plan が「絶対秒」で持っているため、scene 内相対秒に直してから

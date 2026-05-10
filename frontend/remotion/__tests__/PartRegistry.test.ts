@@ -53,6 +53,21 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.filter_presets).toBe(true);
     }
   });
+
+  it("contains camera_moves category (Phase 4-D)", () => {
+    expect("camera_moves" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 4 camera_move components (Phase 4-D)", () => {
+    for (const id of [
+      "none",
+      "subtle_zoom_in",
+      "ken_burns",
+      "dolly_pull_back",
+    ]) {
+      expect(id in PART_REGISTRY.camera_moves).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {
