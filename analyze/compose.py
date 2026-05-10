@@ -177,8 +177,28 @@ def diagnose_abstract(abstract: dict) -> dict:
 def compose_screenplay(abstract: dict) -> dict:
     """抽象台本を完全 screenplay に変換する。
 
-    シーンごとに animation_style / location_ref / character_selection
-    を持つ前提。voice_overrides は characters/<id>.json から引く。
+    **pass-through 契約 (= Phase A 不変条件)**:
+    本関数は abstract に書かれた **すべての非派生フィールド** をそのまま
+    compose 後にも残す。compose は派生フィールドを **追加** するだけで、
+    abstract の他キーは破壊しない。
+
+    派生フィールド (= compose が生成 / 上書きする):
+      - root: caption は明示的に str 化
+      - scene: characters / character_refs / location_ref / lipsync /
+               background_prompt / animation_prompt / identity (条件付き) /
+               lines[].speaker (= ref 解決) / lines[].voice_overrides (= キャラ
+               base voice + line 個別 override の merge)
+
+    保持フィールド (= 旧実装で silent strip されていたもの):
+      - root: featured_characters / speaker_to_ref / subtitle_y_from_bottom /
+              hook_id / arc_id / global_parts / その他 root keys
+      - scene: scene_parts / action_id / annotation / camera_distance /
+               duration / animation_style / character_selection /
+               _override_background_prompt / _override_animation_prompt /
+               旧 alias (start_emotion / visual_intent_id / duration_bucket /
+               motion_intensity の flat) / その他 scene keys
+
+    voice_overrides は characters/<id>.json から引く。
     """
     featured = abstract.get("featured_characters") or []
     char_ids = [str(c) for c in featured if c]
@@ -201,27 +221,36 @@ def compose_screenplay(abstract: dict) -> dict:
         if isinstance(k, str) and isinstance(v, str)
     }
 
-    sp: dict[str, Any] = {
-        "caption": abstract.get("caption", ""),
-        "scenes": [],
-    }
+    # ── pass-through 起点: abstract の root を shallow copy ──
+    # caption は str に正規化、scenes は新規 list (= 各 scene を src 起点で
+    # 構築するため後で上書き)。それ以外の非派生 key (featured_characters /
+    # speaker_to_ref / subtitle_y_from_bottom / hook_id / arc_id /
+    # global_parts 等) はそのまま残る。
+    sp: dict[str, Any] = dict(abstract)
+    sp["caption"] = abstract.get("caption", "")
+    sp["scenes"] = []
 
     for i, src in enumerate(abstract.get("scenes") or []):
         scene_anim = src.get("animation_style") or DEFAULT_ANIMATION_STYLE
         scene_chars = _resolve_scene_characters(src, char_ids, speaker_to_ref)
         location_ref = src.get("location_ref") or ""
 
-        scene: dict[str, Any] = {
-            "characters": [{"name": cid} for cid in scene_chars],
-            "character_refs": list(scene_chars),
-            "location_ref": location_ref,
-            "lipsync": True,
-            "lines": [],
-        }
+        # ── pass-through 起点: src scene を shallow copy ──
+        # 旧 alias / scene_parts / action_id / その他 abstract 由来 key を
+        # すべて維持する。下で派生フィールドを上書き。
+        scene: dict[str, Any] = dict(src)
+        # 派生フィールド (= compose が常に生成する)
+        scene["characters"] = [{"name": cid} for cid in scene_chars]
+        scene["character_refs"] = list(scene_chars)
+        scene["location_ref"] = location_ref
+        scene["lipsync"] = True
+        scene["lines"] = []   # 下で line 個別 voice merge 後に再構築
         if "duration" in src:
             scene["duration"] = float(src["duration"])
-        if src.get("camera_distance"):
-            scene["camera_distance"] = src["camera_distance"]
+        # camera_distance は src にあれば残す。無ければ key 自体を入れない
+        # (= 旧実装と互換)。dict(src) 起点なので有る場合は自動的に残る。
+        if not src.get("camera_distance"):
+            scene.pop("camera_distance", None)
 
         # ── Step 2: identity 派生 (= clip_library cache 鍵) ──
         # 必須 4 フィールド (character_refs / location_ref / start_emotion /
@@ -232,20 +261,11 @@ def compose_screenplay(abstract: dict) -> dict:
         identity = _derive_identity(scene, src)
         if identity is not None:
             scene["identity"] = identity
-
-        # annotation は abstract 段階で Step 1 が書いたものを compose 後にも
-        # 維持する (= clip_library._scene_to_annotation_request が読む)。
-        # validator が enum を効かせるので不正値はここを通らない。
-        if isinstance(src.get("annotation"), dict):
-            scene["annotation"] = dict(src["annotation"])
-
-        # _override_background_prompt / _override_animation_prompt が abstract
-        # 側にあれば compose にも引き継ぐ (= novel intent escape hatch、
-        # clip_library._scene_has_override が True を返して bypass される)。
-        for k in ("_override_background_prompt", "_override_animation_prompt"):
-            v = src.get(k)
-            if isinstance(v, str) and v.strip():
-                scene[k] = v
+        else:
+            # src に identity が入っていても derive で False ならば、
+            # 部分 identity を残すと誤 hit するので消す (= 旧実装の挙動を
+            # 維持: identity は dervie が成功した場合のみ存在)。
+            scene.pop("identity", None)
 
         scene["background_prompt"] = _compose_background(scene, location_ref)
         scene["animation_prompt"] = _compose_animation(src, scene_anim)
