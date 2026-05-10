@@ -110,8 +110,10 @@ def create_job(
 
     project_ts: from-reference-video 経路 (= POST /api/projects/from-reference-video)
         で渡される project の TS (= temp/<TS>)。save phase 完了 hook が
-        この TS を見て metadata + Stage 1 unlock を行う。standalone analyze
-        (= 旧経路、Phase E で削除予定) は None。
+        この TS を見て metadata + Stage 1 unlock を行う。production の唯一の
+        caller は必ず project_ts を渡し、None は test fixture が直接呼ぶ
+        ときの test-only path として残してある (= 旧 standalone analyze
+        経路は Phase E (#182) で削除済)。
     """
     job_id = _new_job_id()
     options_json = json.dumps(options, ensure_ascii=False, sort_keys=True)

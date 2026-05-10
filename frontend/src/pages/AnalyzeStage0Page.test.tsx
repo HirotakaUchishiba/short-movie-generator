@@ -7,13 +7,7 @@ import AnalyzeStage0Page from "./AnalyzeStage0Page";
 // AnalyzeJobView は SSE + API を持つ重い component なので軽量 stub に差し替え。
 // 本 page の責務 (= analyze_status による分岐) だけ検証する。
 vi.mock("../components/AnalyzeJobView", () => ({
-  default: ({
-    jobId,
-    projectTs,
-  }: {
-    jobId: string;
-    projectTs?: string | null;
-  }) => (
+  default: ({ jobId, projectTs }: { jobId: string; projectTs: string }) => (
     <div data-testid="analyze-job-view">
       jobId={jobId} projectTs={projectTs}
     </div>
