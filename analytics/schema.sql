@@ -83,11 +83,36 @@ CREATE TABLE IF NOT EXISTS post_metrics (
     avg_view_duration REAL,
     completion_rate REAL,
     ctr REAL,
+    -- schema v10: PDCA 中核 KPI。content-strategy.md がフック / 80-20 ルール /
+    -- アルゴリズム適合 / Halo effect プロキシとして要求する 6 指標。
+    impressions INTEGER,
+    subscribers_gained INTEGER,
+    traffic_browse_pct REAL,
+    traffic_suggested_pct REAL,
+    traffic_search_pct REAL,
+    traffic_external_pct REAL,
     raw_response TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_metrics_post_time ON post_metrics(post_id, fetched_at);
 CREATE UNIQUE INDEX IF NOT EXISTS uq_metrics_post_fetched ON post_metrics(post_id, fetched_at);
+
+-- schema v10: 動画内 elapsed % vs audience watch ratio の time-series。
+-- YouTube Analytics の dimension=elapsedVideoTimeRatio で取得し、30 秒地点 /
+-- フックの強さ (= content-strategy.md L57, L242-247) を後段で算出する素材。
+CREATE TABLE IF NOT EXISTS post_retention_curves (
+    id INTEGER PRIMARY KEY AUTOINCREMENT,
+    post_id TEXT NOT NULL REFERENCES posts(id) ON DELETE CASCADE,
+    fetched_at TEXT NOT NULL,
+    elapsed_pct REAL NOT NULL,
+    elapsed_sec REAL,
+    ratio REAL NOT NULL,
+    raw_response TEXT,
+    UNIQUE(post_id, fetched_at, elapsed_pct)
+);
+
+CREATE INDEX IF NOT EXISTS idx_retention_post_time
+ON post_retention_curves(post_id, fetched_at);
 
 -- Latest metrics view
 CREATE VIEW IF NOT EXISTS v_latest_metrics AS

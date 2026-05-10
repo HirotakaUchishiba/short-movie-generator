@@ -22,6 +22,46 @@ st.set_page_config(page_title="Tensyoku Movie Analytics", layout="wide")
 db.init_db()
 
 
+def _fmt_int(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    try:
+        return f"{int(v):,}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _fmt_pct(v) -> str:
+    if v is None or (isinstance(v, float) and pd.isna(v)):
+        return "—"
+    try:
+        return f"{float(v):.1%}"
+    except (TypeError, ValueError):
+        return "—"
+
+
+def _interpolate_retention(curve_df: pd.DataFrame, *,
+                           target_sec: float) -> float | None:
+    """elapsed_sec を持つ curve から target に最も近い 2 点で線形補間。"""
+    if "elapsed_sec" not in curve_df.columns:
+        return None
+    df = curve_df.dropna(subset=["elapsed_sec"]).sort_values("elapsed_sec")
+    if df.empty:
+        return None
+    before = df[df["elapsed_sec"] <= target_sec]
+    after = df[df["elapsed_sec"] >= target_sec]
+    if before.empty:
+        return float(after.iloc[0]["ratio"])
+    if after.empty:
+        return float(before.iloc[-1]["ratio"])
+    b = before.iloc[-1]
+    a = after.iloc[0]
+    if b["elapsed_sec"] == a["elapsed_sec"]:
+        return float(b["ratio"])
+    t = (target_sec - b["elapsed_sec"]) / (a["elapsed_sec"] - b["elapsed_sec"])
+    return float(b["ratio"] + t * (a["ratio"] - b["ratio"]))
+
+
 @st.cache_data(ttl=60)
 def load_performance() -> pd.DataFrame:
     rows = db.query_performance()
@@ -240,9 +280,68 @@ def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
                         st.line_chart(ts_df.set_index("fetched_at")[chart_cols])
                     else:
                         st.info("時系列に表示可能な数値カラムがありません。")
+
+                    # schema v10: PDCA 中核 KPI を最新 fetch から表示。
+                    if not ts_df.empty:
+                        latest = ts_df.iloc[-1]
+                        st.markdown("#### PDCA 中核 KPI (= 最新 fetch)")
+                        kpi_cols = st.columns(4)
+                        kpi_cols[0].metric(
+                            "impressions", _fmt_int(latest.get("impressions")),
+                        )
+                        kpi_cols[1].metric("CTR", _fmt_pct(latest.get("ctr")))
+                        kpi_cols[2].metric(
+                            "subscribers gained",
+                            _fmt_int(latest.get("subscribers_gained")),
+                        )
+                        kpi_cols[3].metric(
+                            "completion rate",
+                            _fmt_pct(latest.get("completion_rate")),
+                        )
+
+                        traffic = {
+                            "browse": latest.get("traffic_browse_pct"),
+                            "suggested": latest.get("traffic_suggested_pct"),
+                            "search": latest.get("traffic_search_pct"),
+                            "external": latest.get("traffic_external_pct"),
+                        }
+                        traffic = {
+                            k: float(v) for k, v in traffic.items()
+                            if v is not None and not pd.isna(v)
+                        }
+                        if traffic:
+                            st.markdown("#### traffic source share")
+                            tdf = pd.DataFrame({
+                                "source": list(traffic.keys()),
+                                "share": list(traffic.values()),
+                            })
+                            st.bar_chart(tdf.set_index("source"))
                 else:
                     st.info("post_metrics の時系列データがありません。"
                             "scripts/fetch_metrics.py を複数回実行すると蓄積されます。")
+
+                # schema v10: audience retention curve (= フックの強さ)。
+                curve = db.query_retention_curve(post_id)
+                if curve:
+                    st.markdown("#### audience retention curve")
+                    curve_df = pd.DataFrame(curve)
+                    has_sec = (
+                        "elapsed_sec" in curve_df.columns
+                        and curve_df["elapsed_sec"].notna().any()
+                    )
+                    chart_x = "elapsed_sec" if has_sec else "elapsed_pct"
+                    chart_df = curve_df.dropna(subset=[chart_x]).sort_values(chart_x)
+                    if not chart_df.empty:
+                        st.line_chart(chart_df.set_index(chart_x)["ratio"])
+                    if has_sec:
+                        ratio_at_30 = _interpolate_retention(
+                            curve_df, target_sec=30.0,
+                        )
+                        if ratio_at_30 is not None:
+                            st.metric(
+                                "30 秒時点 retention",
+                                f"{ratio_at_30:.0%}",
+                            )
 
     st.markdown("### Raw JSON")
     try:
