@@ -194,23 +194,23 @@ audit doc §5 修正履歴に明示。
 
 ## 4. 設計外の追加実装 (= drift ではなく enhancement)
 
-### E-1: `annotation.confidence` / `annotation.rationale` field
+### ✅ E-1: `annotation.confidence` / `annotation.rationale` field (= 設計 doc 反映済)
 
-| 項目              | 内容                                                                                                                                                                   |
-| ----------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状態              | ✨ 設計 doc 未記載の追加 (= 動作は OK、設計側に追記推奨)                                                                                                               |
-| 場所              | `video_analyzer.py:24-29` の SYSTEM_PROMPT で要求、`analyze/intent_resolver.py:normalize_scene_annotation()` で確信度 < 0.7 のとき `visual_intent_id` を `null` に降格 |
-| なぜ追加されたか  | Claude が低確信度で intent を選んだ場合に novel intent fallback (= cold path) に逃がすため                                                                             |
-| 設計 doc 側の対応 | `docs/abstract-screenplay-design.md` の annotation スキーマ節に `confidence` / `rationale` を追記する (= 別 PR)                                                        |
+| 項目             | 内容                                                                                                                                                                   |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状態             | ✅ 設計 doc 反映済 (= `docs/abstract-screenplay-design.md` §2 / §3 B' に追記)                                                                                          |
+| 場所             | `video_analyzer.py:24-29` の SYSTEM_PROMPT で要求、`analyze/intent_resolver.py:normalize_scene_annotation()` で確信度 < 0.7 のとき `visual_intent_id` を `null` に降格 |
+| なぜ追加されたか | Claude が低確信度で intent を選んだ場合に novel intent fallback (= cold path) に逃がすため                                                                             |
+| ブランチ         | `docs/abstract-screenplay-design-update`                                                                                                                               |
 
-### E-2: novel intent suggestion (= PR #165)
+### ✅ E-2: novel intent suggestion (= PR #165、設計 doc 反映済)
 
-| 項目              | 内容                                                                                                  |
-| ----------------- | ----------------------------------------------------------------------------------------------------- |
-| 状態              | ✨ 設計 doc 未記載の追加 (= 動作は OK、設計側に追記推奨)                                              |
-| 場所              | `analyze/pipeline.py` の `_collect_novel_intent_candidates()`、SSE event の `novel_intent_candidates` |
-| なぜ追加されたか  | analyze 中に低確信度の intent を可視化し、catalog 拡張のヒントを UI に出す                            |
-| 設計 doc 側の対応 | `docs/plannings/2026-05-10_analyze-pipeline-conformance.md` §9「既知の宿題」から削除し、本実装を明記  |
+| 項目             | 内容                                                                                                                               |
+| ---------------- | ---------------------------------------------------------------------------------------------------------------------------------- |
+| 状態             | ✅ 設計 doc 反映済 (= `docs/abstract-screenplay-design.md` §2 cold path 説明 + analyze-pipeline-conformance §9 既知の宿題から外す) |
+| 場所             | `analyze/pipeline.py` の `_collect_novel_intent_candidates()`、SSE event の `novel_intent_candidates`                              |
+| なぜ追加されたか | analyze 中に低確信度の intent を可視化し、catalog 拡張のヒントを UI に出す                                                         |
+| ブランチ         | `docs/abstract-screenplay-design-update`                                                                                           |
 
 ---
 
@@ -300,12 +300,12 @@ backend pytest と frontend vitest を design-critical 経路で網羅実行。
 
 ## 9. 修正の優先順位 (= 本 audit 後にやるべき作業)
 
-| #   | 内容                                                                             | 優先度   | 工数 | 担当ブランチ                              |
-| --- | -------------------------------------------------------------------------------- | -------- | ---- | ----------------------------------------- |
-| 1   | D-1 修正 (= 軸別 view 4 つを v_active_posts 経由に統一)                          | 🟠 中-低 | 小   | `fix/axis-views-active-posts-consistency` |
-| 2   | E-1 / E-2 を設計 doc に追記 (= confidence / rationale / novel_intent_candidates) | 🟡 低    | 小   | `docs/abstract-screenplay-design-update`  |
-| 3   | 継続課題 1-2 補強 (= Stage 1-5 で parts 消費)                                    | 🟡 低    | 中   | (= 別セッション)                          |
-| 4   | 継続課題 1-8 (= production e2e test)                                             | 🟡 低    | 中   | (= 別セッション、mock fixture 構築要)     |
+| #   | 内容                                                                                | 優先度   | 工数 | 担当ブランチ                                       |
+| --- | ----------------------------------------------------------------------------------- | -------- | ---- | -------------------------------------------------- |
+| 1   | ✅ D-1 修正 (= 軸別 view 4 つを v_active_posts 経由に統一)                          | 🟠 中-低 | 小   | `fix/axis-views-active-posts-consistency` (= 解消) |
+| 2   | ✅ E-1 / E-2 を設計 doc に追記 (= confidence / rationale / novel_intent_candidates) | 🟡 低    | 小   | `docs/abstract-screenplay-design-update` (= 解消)  |
+| 3   | 継続課題 1-2 補強 (= Stage 1-5 で parts 消費)                                       | 🟡 低    | 中   | (= 別セッション)                                   |
+| 4   | 継続課題 1-8 (= production e2e test)                                                | 🟡 低    | 中   | (= 別セッション、mock fixture 構築要)              |
 
 ---
 

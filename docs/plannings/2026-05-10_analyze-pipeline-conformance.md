@@ -330,19 +330,29 @@ Step 3 (error_code) ── 独立 (= API shape 変更のみ、annotation/identit
 ## 9. 既知の宿題 (= 本計画では扱わない)
 
 - `scene_parts` / `global_parts` の自動初期化 (= UI で bulk apply で吸収する Low)
-- `analyze/compose.py:204-258` で scene_parts / global_parts が silent strip される
-  問題 (= staged_pipeline 全体改修が必要、本計画外)
-- `intent_resolver.detect_novel_intent_candidates` の UI 露出 (= 別 issue で対応)
+- ✅ `analyze/compose.py` で scene_parts / global_parts が silent strip される問題 → **解消済**
+  (= PR #157 で `compose_screenplay()` を `dict(abstract)` 起点の pass-through contract に統一)
+- ✅ `intent_resolver.detect_novel_intent_candidates` の UI 露出 → **解消済**
+  (= PR #156 で SSE event に annotation_stats を含めて UI 表示、PR #165 で save phase
+  に `_collect_novel_intent_candidates()` を組み込み novel_intent_candidates を出力)
 - 同 video_sha 再 analyze 時の template 上書き警告 (= UI 改修、Low)
+
+### 設計外の追加実装 (= 本計画策定時には未予定だった enhancement)
+
+| 追加                                | 場所                                                                             | 設計 doc 反映                                            |
+| ----------------------------------- | -------------------------------------------------------------------------------- | -------------------------------------------------------- |
+| `annotation.confidence` (0.0-1.0)   | `video_analyzer.py` SYSTEM_PROMPT + `intent_resolver.normalize_scene_annotation` | `docs/abstract-screenplay-design.md` §2 / §3 B' に追記済 |
+| `annotation.rationale` (string)     | 同上                                                                             | 同上                                                     |
+| `novel_intent_candidates` SSE event | `analyze/pipeline.py:_collect_novel_intent_candidates()`                         | 同上 (= cold path 説明)                                  |
 
 ---
 
 ## 10. 進捗トラッキング
 
-- [ ] Step 0: 本ドキュメント (= 完了でこの doc が main にマージ)
-- [ ] Step 1: annotation 注入 (= `feat/analyze-annotation-injection`)
-- [ ] Step 2: identity 派生 (= `feat/analyze-identity-derivation`)
-- [ ] Step 3: error_code 統一 (= `fix/analyze-error-code-unification`)
+- [x] Step 0: 本ドキュメント (= main マージ済)
+- [x] Step 1: annotation 注入 (= `feat/analyze-annotation-injection`、PR #149)
+- [x] Step 2: identity 派生 (= `feat/analyze-identity-derivation`、PR #150)
+- [x] Step 3: error_code 統一 (= `fix/analyze-error-code-unification`、PR #151)
 
 各 step PR には本ドキュメントへのリンクを必ず含める (= 後追いで context が再現できる
 ように)。

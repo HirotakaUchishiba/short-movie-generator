@@ -66,6 +66,16 @@
       "camera_distance": "medium-close", // optional (ロケのデフォを上書き)
       "animation_style": "subtle", // subtle | standard | expressive
       "character_selection": ["f1"], // optional / [] = 0 人 (背景のみ)
+      "annotation": {
+        // optional / Layer 1 (Clip Library) cache lookup 用。
+        // Claude が推論し、低 confidence なら visual_intent_id=null に降格 (= cold path に流れる)。
+        "visual_intent_id": "talking_head_calm", // visual_intents.yaml の id か null
+        "duration_bucket": 5, // 5 / 10 (= visual_intents の duration_buckets と整合)
+        "motion_intensity": "low", // low | medium | high
+        "start_emotion": "中立",
+        "confidence": 0.92, // 0.0 - 1.0 (= Claude 自信度)
+        "rationale": "全身正面で穏やかに語っており体の動きは最小限",
+      },
       "lines": [
         {
           "text": "やばいやばい",
@@ -84,6 +94,14 @@
 ```
 
 ビジュアル系派生フィールド (= `background_prompt`, `animation_prompt`, `character_refs`, `characters[]`, `tags`, `lipsync`, line.`voice_overrides`) は **保存しない**。`load_project_screenplay()` が読み出し時に compose で生成する。
+
+`scenes[].annotation` は Layer 1 (Clip Library) の cache lookup key 用で、Layer 2
+(scene 見た目部品 = `scene_parts.subtitle_style` 等) とは別系統。`identity`
+(= `character_refs` / `location_ref` / `start_emotion` / `camera_distance` の
+4 必須 field 揃った時のみ compose で派生) と組合せて、同 identity + 同 intent の
+scene が 2 回目以降 AI 課金 0 で hit する設計。低 confidence で `visual_intent_id=null`
+になった scene は cold path (= 通常の Imagen + Kling 生成) に流れ、catalog 拡張
+のヒントとして SSE event の `novel_intent_candidates` に出力される。
 
 ---
 
@@ -113,6 +131,21 @@
 | 4   | `scenes[].camera_distance`     | scene | locations/<id>.json のデフォを継承      |
 | 5   | `scenes[].animation_style`     | scene | "standard"                              |
 | 6   | `scenes[].character_selection` | scene | 未指定 (= speakers から自動推論)        |
+
+### B'. analyze pipeline が **Claude 推論で書く** (= Layer 1 cache lookup 用)
+
+すべて optional。validator は annotation 不在を許容する (= 旧 abstract 後方互換)。
+
+| #   | フィールド                             | 階層  | 由来 / 既定                                                                                                                 |
+| --- | -------------------------------------- | ----- | --------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `scenes[].annotation.visual_intent_id` | scene | Claude 推論で `config/part_registry/visual_intents.yaml` の id を 1 つ選ぶ。confidence < 0.7 なら null (= cold path に降格) |
+| 2   | `scenes[].annotation.duration_bucket`  | scene | 5 / 10 のいずれか (= visual_intents の `duration_buckets` と整合)                                                           |
+| 3   | `scenes[].annotation.motion_intensity` | scene | low / medium / high                                                                                                         |
+| 4   | `scenes[].annotation.start_emotion`    | scene | 9 emotion 候補 + visual_intents.valid_start_emotions と整合性検証                                                           |
+| 5   | `scenes[].annotation.confidence`       | scene | 0.0 - 1.0。Claude が自身の intent 選択にどれだけ確信があるか                                                                |
+| 6   | `scenes[].annotation.rationale`        | scene | 自然言語 1 行 (= なぜその intent を選んだかの根拠説明、UI / log で読む)                                                     |
+
+低 confidence + null `visual_intent_id` の scene は SSE event `novel_intent_candidates` に集計され、UI で「catalog 拡張のヒント」として表示される。
 
 ### C. compose で **派生される** (= 保存しない)
 
