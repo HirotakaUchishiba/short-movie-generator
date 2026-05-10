@@ -332,6 +332,40 @@ export interface AbstractLine {
   _uid?: string;
 }
 
+// Compositional Architecture: scene_parts のフィールド型 (= renderPlan.ts と整合)。
+// 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4
+export interface PartReference {
+  id: string;
+  params?: Record<string, unknown>;
+}
+export interface StickerPart {
+  id: string;
+  at: number;
+  duration?: number;
+  params?: Record<string, unknown>;
+}
+export interface LowerThirdPart {
+  id: string;
+  at: number;
+  duration: number;
+  params?: Record<string, unknown>;
+}
+export interface SfxPart {
+  path: string;
+  at: number;
+  volume?: number;
+}
+export interface SceneParts {
+  subtitle_style?: PartReference;
+  stickers?: StickerPart[];
+  lower_third?: LowerThirdPart;
+  camera_move?: PartReference;
+  frame_layout?: PartReference;
+  transition_in?: PartReference;
+  transition_out?: PartReference;
+  sfx?: SfxPart[];
+}
+
 export interface AbstractScene {
   lines: AbstractLine[];
   duration?: number;
@@ -343,8 +377,27 @@ export interface AbstractScene {
   camera_distance?: CameraDistance;
   location_ref?: string;
   animation_style?: "subtle" | "standard" | "expressive";
+  // Compositional Architecture: scene-level parts (= UI 2 で編集対象)
+  scene_parts?: SceneParts;
   // クライアント側で付与される React key 用 ID。API 送信時に strip される。
   _uid?: string;
+}
+
+// Compositional Architecture: global_parts (= screenplay-wide パーツ)。
+export interface GlobalPartsBgm {
+  path: string;
+  ducking_curve?: number | [number, number][];
+}
+export interface GlobalPartsCard {
+  id: string;
+  duration_sec: number;
+  params?: Record<string, unknown>;
+}
+export interface GlobalParts {
+  filter_preset?: PartReference;
+  intro_card?: GlobalPartsCard;
+  outro_card?: GlobalPartsCard;
+  bgm?: GlobalPartsBgm;
 }
 
 export interface AbstractScreenplay {
@@ -356,6 +409,8 @@ export interface AbstractScreenplay {
   // analyze 時に Claude が割り振った匿名 speaker_N を実 character ref に
   // マッピングする辞書。compose で line.speaker と scene の登場人物を解決する。
   speaker_to_ref?: Record<string, string>;
+  // Compositional Architecture: screenplay-wide parts (= UI 3 で編集対象)
+  global_parts?: GlobalParts;
   // future-proof で broadly に許容する。
   [k: string]: unknown;
 }

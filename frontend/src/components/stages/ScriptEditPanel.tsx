@@ -12,6 +12,7 @@ import type {
   AnalyzeJobDetail,
 } from "../../types";
 import { freshUid } from "../../uid";
+import { ScenePartsEditor } from "./ScenePartsEditor";
 
 const EMOTIONS = [
   "驚き",
@@ -619,6 +620,11 @@ function SceneEditor({
             }
           />
         )}
+
+        {/* Compositional Architecture: scene_parts editor (= subtitle / sticker /
+            transition / camera_move / lower_third / frame_layout)。
+            ScenePartsEditor 内部で part_registry catalog を fetch して enum 選択。 */}
+        <ScenePartsEditor scene={scene} onSceneChange={onSceneChange} />
 
         {/* lines 編集 (各 line をカード化、シーン端の line に ▲▼) */}
         <ul className="space-y-2">
