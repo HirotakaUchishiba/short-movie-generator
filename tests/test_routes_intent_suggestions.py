@@ -7,7 +7,6 @@ from __future__ import annotations
 
 import pytest
 
-from analyze import suggestion_store
 from analyze.suggestion_store import (
     IntentSuggestionRecord,
     compute_id,

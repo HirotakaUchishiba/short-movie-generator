@@ -1,5 +1,4 @@
 """analyze.pipeline.run() の単体テスト。"""
-import json
 from unittest.mock import patch
 
 import pytest
