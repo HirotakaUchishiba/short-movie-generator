@@ -1,10 +1,5 @@
 import React from "react";
-import {
-  AbsoluteFill,
-  interpolate,
-  useCurrentFrame,
-  useVideoConfig,
-} from "remotion";
+import { AbsoluteFill, interpolate, useCurrentFrame } from "remotion";
 
 // "fade_in" subtitle part.
 // 表示開始から短時間 (= fadeDurationFrames) かけて opacity を 0 → 1 にフェードイン。
@@ -18,7 +13,6 @@ export type FadeInSubtitleProps = {
   borderColor?: string;
   borderWidth?: number;
   yFromBottom?: number;
-  maxWidthRatio?: number;
   // 既定 8 frame (= 60fps で約 0.13 秒)。0 で fade なし
   fadeDurationFrames?: number;
   emotion?: string;
@@ -31,10 +25,8 @@ export const FadeInSubtitle: React.FC<FadeInSubtitleProps> = ({
   borderColor = "#000000",
   borderWidth = 6,
   yFromBottom = 950,
-  maxWidthRatio = 0.9,
   fadeDurationFrames = 8,
 }) => {
-  const { width } = useVideoConfig();
   const frame = useCurrentFrame();
   // <Sequence> 配下では frame=0 が表示開始フレームなので、そのまま fade に使える
   const opacity = interpolate(
@@ -43,8 +35,10 @@ export const FadeInSubtitle: React.FC<FadeInSubtitleProps> = ({
     [0, 1],
     { extrapolateLeft: "clamp", extrapolateRight: "clamp" },
   );
-  const paddingBottom = Math.max(0, yFromBottom - fontSize / 2);
-  const maxWidth = width * maxWidthRatio;
+  // ffmpeg drawtext の `y` はテキスト top 起点。Remotion で同じ位置にするには
+  // paddingBottom = (yFromBottom - fontSize) で justifyContent flex-end する
+  // (= MinimalSubtitle と同じ算出)。
+  const paddingBottom = Math.max(0, yFromBottom - fontSize);
 
   return (
     <AbsoluteFill
@@ -67,8 +61,9 @@ export const FadeInSubtitle: React.FC<FadeInSubtitleProps> = ({
           paintOrder: "stroke fill",
           textAlign: "center",
           lineHeight: 1.2,
-          maxWidth,
-          whiteSpace: "pre-wrap",
+          // ffmpeg drawtext は自動折返ししないため Remotion 側も `pre` で揃える
+          // (= \n は line break、それ以外の自動 wrap なし)。
+          whiteSpace: "pre",
         }}
       >
         {text}
