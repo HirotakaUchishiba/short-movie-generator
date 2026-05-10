@@ -60,7 +60,10 @@ def _link_scene_videos(
 ) -> list[str]:
     """scene_<S>.mp4 を workspace に symlink して、relative path のリストを返す。
 
-    既に同じ symlink があれば再利用する。link 不可な FS では copy にフォールバック。
+    既に同サイズのファイルがあれば再利用する。Remotion 4 の webpack bundler が
+    symlink を follow しない (= bundle 内 public/ への copy 時に symlink ターゲット
+    を含めない) ため、本関数は **常に物理コピー** する。
+    cache 容量を抑えたい場合は `_render_<TS>/` 単位で render 後に削除して回す。
     """
 
     rels: list[str] = []
@@ -68,20 +71,22 @@ def _link_scene_videos(
         # ソース basename を保つと debug しやすい (= scene_000.mp4 等)
         link_name = f"scene_{idx:03d}{Path(src).suffix}"
         dst = workspace / link_name
+        src_path = Path(src)
+        # 既存ファイルが同 size なら再利用 (= 連続呼び出し時の高速化)
+        if dst.exists() and not dst.is_symlink():
+            try:
+                if dst.stat().st_size == src_path.stat().st_size:
+                    rels.append(f"{public_relpath}/{link_name}")
+                    continue
+            except OSError:
+                pass
+        # 既存 symlink (= 旧版互換) は除去してから copy する
         if dst.exists() or dst.is_symlink():
             try:
-                if dst.is_symlink():
-                    if os.readlink(str(dst)) == os.fspath(src):
-                        rels.append(f"{public_relpath}/{link_name}")
-                        continue
                 dst.unlink()
             except OSError:
                 pass
-        try:
-            os.symlink(os.fspath(src), str(dst))
-        except (OSError, NotImplementedError):
-            # symlink 不可 (= Windows or 一部 FS) なら copy
-            shutil.copyfile(os.fspath(src), str(dst))
+        shutil.copyfile(os.fspath(src), str(dst))
         rels.append(f"{public_relpath}/{link_name}")
     return rels
 
@@ -406,6 +411,13 @@ def render_via_remotion(
     # frontend ディレクトリで実行 (= remotion.config.ts が相対パスで entry point を見る)
     cwd = os.path.join(config.BASE_DIR, "frontend")
 
+    # `--public-dir` を絶対パスで明示する。
+    # Remotion 4 は bundle 時に `public/` のスナップショットを作って cache する。
+    # `_render_<TS>/` の symlink は compose_video_remotion 直前に作られるため、
+    # 古い cache bundle にはまだ存在しない。--public-dir で実物を指定すると
+    # bundle がスナップショットではなく実 dir を参照するようになり、
+    # symlink を直接 resolve できる。
+    public_dir = os.path.abspath(os.path.join(cwd, "public"))
     cmd = [
         "npx",
         "remotion",
@@ -415,6 +427,7 @@ def render_via_remotion(
         f"--props={os.path.abspath(plan_path)}",
         f"--frames=0-{end_frame}",
         f"--concurrency={int(getattr(config, 'REMOTION_CONCURRENCY', 4))}",
+        f"--public-dir={public_dir}",
     ]
     logger.info("[remotion] render start: composition=%s frames=0-%d output=%s",
                 composition_id, end_frame, output_path)
