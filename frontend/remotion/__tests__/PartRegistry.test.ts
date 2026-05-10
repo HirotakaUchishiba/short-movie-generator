@@ -88,6 +88,16 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.title_cards).toBe(true);
     }
   });
+
+  it("contains transitions category (Phase 4-G)", () => {
+    expect("transitions" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 4 transition components (Phase 4-G)", () => {
+    for (const id of ["cut", "dip_to_black", "dip_to_white", "fade_quick"]) {
+      expect(id in PART_REGISTRY.transitions).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {

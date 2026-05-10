@@ -452,6 +452,60 @@ class TestBuildRenderPlan:
         # lower_third 無し scene には key が立たない
         assert "lower_third" not in plan["scenes"][1]["parts"]
 
+    def test_transitions_in_out_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-G: scene_parts.transition_in / transition_out が plan に
+        正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "transition_in": {
+                            "id": "dip_to_black",
+                            "params": {"duration_frames": 18},
+                        },
+                        "transition_out": {"id": "dip_to_white"},
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        ti = plan["scenes"][0]["parts"]["transition_in"]
+        to = plan["scenes"][0]["parts"]["transition_out"]
+        assert ti["id"] == "dip_to_black"
+        assert ti["params"]["duration_frames"] == 18
+        assert to["id"] == "dip_to_white"
+        assert to["params"] == {}
+        # 2 つ目 scene には key 無し
+        assert "transition_in" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_transitions_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "transition_in": {"params": {}},  # id 欠落
+                        "transition_out": "not_a_dict",
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert "transition_in" not in plan["scenes"][0]["parts"]
+        assert "transition_out" not in plan["scenes"][0]["parts"]
+
     def test_intro_outro_cards_passed_through(
         self, dummy_scene_videos: list[str]
     ) -> None:

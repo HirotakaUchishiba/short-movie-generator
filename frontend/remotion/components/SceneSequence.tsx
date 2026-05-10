@@ -138,6 +138,48 @@ export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
             </Sequence>
           );
         })()}
+
+      {/* Phase 4-G: transition_in (= scene 冒頭 N frame) / transition_out
+          (= scene 末尾 N frame) を全画面 overlay。direction を child に渡す。
+          詳細: docs/plannings/2026-05-10_compositional-architecture.md §4.1 */}
+      {scene.parts.transition_in &&
+        (() => {
+          const ti = scene.parts.transition_in;
+          const params = camelizeParams(ti.params);
+          const durFrames = Math.max(1, Number(params.durationFrames ?? 12));
+          return (
+            <Sequence key="transition-in" from={0} durationInFrames={durFrames}>
+              <PartRenderer
+                category="transitions"
+                id={ti.id}
+                params={{ ...params, direction: "in", totalFrames: durFrames }}
+              />
+            </Sequence>
+          );
+        })()}
+
+      {scene.parts.transition_out &&
+        (() => {
+          const to = scene.parts.transition_out;
+          const params = camelizeParams(to.params);
+          const durFrames = Math.max(1, Number(params.durationFrames ?? 12));
+          // scene 全体の frame 数から末尾 durFrames 分を取る
+          const sceneFrames = Math.max(1, toFrames(scene.duration_sec, fps));
+          const fromFrame = Math.max(0, sceneFrames - durFrames);
+          return (
+            <Sequence
+              key="transition-out"
+              from={fromFrame}
+              durationInFrames={durFrames}
+            >
+              <PartRenderer
+                category="transitions"
+                id={to.id}
+                params={{ ...params, direction: "out", totalFrames: durFrames }}
+              />
+            </Sequence>
+          );
+        })()}
     </AbsoluteFill>
   );
 };

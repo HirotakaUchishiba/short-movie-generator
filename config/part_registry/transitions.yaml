@@ -1,0 +1,61 @@
+# Layer 2 (= compositional parts) の transition (= scene 境界 effect)。
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4.1
+#
+# 各 entry は scene_parts.transition_in / transition_out の id として参照される。
+# transition_in: scene の **冒頭 N frame** で再生 (= 開始時の effect)
+# transition_out: scene の **末尾 N frame** で再生 (= 終了時の effect)
+# 既定 N = 12 frame (= 60fps で 0.2 秒)。params.duration_frames で上書き可能。
+#
+# 実装は parts/transitions/Transition.tsx の wrapper 群 (= 全画面 overlay の opacity 補間)。
+#
+# screenplay 例:
+#   "scene_parts": {
+#     "transition_in":  { "id": "dip_to_black", "params": { "duration_frames": 12 } },
+#     "transition_out": { "id": "dip_to_white", "params": { "duration_frames": 18 } }
+#   }
+
+version: 1
+parts:
+  - id: cut
+    description: |
+      identity (= 何もしない hard cut)。明示的に「transition なし」と書きたいときの用。
+    params_schema: {}
+    valid_contexts: [scene]
+    component: Cut
+    deprecated: false
+
+  - id: dip_to_black
+    description: |
+      黒の全画面 overlay を opacity 補間 (= in: 1→0、out: 0→1)。
+      シネマティックな区切り。
+    params_schema:
+      duration_frames:
+        type: number
+        default: 12
+        description: transition 全体の frame 数 (= 60fps で 0.2 秒)
+    valid_contexts: [scene]
+    component: DipToBlack
+    deprecated: false
+
+  - id: dip_to_white
+    description: |
+      白の全画面 overlay を opacity 補間。明るく区切る印象 (= 朝のシーン等)。
+    params_schema:
+      duration_frames:
+        type: number
+        default: 12
+    valid_contexts: [scene]
+    component: DipToWhite
+    deprecated: false
+
+  - id: fade_quick
+    description: |
+      薄い黒 (= peak opacity 0.35) の quick fade。subtle な視覚区切り。
+      dip と違って画面が完全に消えないので情報密度を維持できる。
+    params_schema:
+      duration_frames:
+        type: number
+        default: 12
+    valid_contexts: [scene]
+    component: FadeQuick
+    deprecated: false
