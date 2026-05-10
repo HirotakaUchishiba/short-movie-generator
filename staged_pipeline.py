@@ -266,6 +266,10 @@ def run_script(screenplay: dict, screenplay_name: str, ts_path: str,
         ts_path, screenplay_name,
         analyze_job_id=analyze_job_id, sha256=sha,
     )
+    # legacy template 経路 (= analyze pipeline を経由しない project) は Stage 0 を
+    # auto-skip して Stage 1 から開始する。analyze 経路 (= from-reference-video) は
+    # analyze.runner._on_save_complete が同じ操作を行うので idempotent。
+    progress_store.mark_analyze_completed(ts_path)
     progress_store.mark_generated(ts_path, "script")
     logger.info(
         "[台本] 検証完了 — %dシーン (snapshot=%s, sha=%s)",
@@ -518,6 +522,17 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
         return None
+
+    if nxt == "analyze":
+        # 防御: STAGES 拡張により Stage 0 が先頭に来たが、ここに到達するのは
+        # run_script / analyze hook が mark_analyze_completed を呼び忘れた場合
+        # のみ (= 旧 progress.json の project や CLI 経路)。auto-skip して
+        # Stage 1 を狙う。analyze 自体は別 endpoint で起動するもので、CLI から
+        # は呼ばない。
+        progress_store.mark_analyze_completed(ts_path)
+        nxt = progress_store.next_stage(ts_path)
+        if nxt is None:
+            return None
 
     if nxt in progress_store.EXTERNAL_ACTION_STAGES:
         return None

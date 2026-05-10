@@ -4,6 +4,7 @@ from datetime import datetime
 import io_utils
 
 STAGES = [
+    "analyze",  # Stage 0: 参考動画 → 台本 (= analyze pipeline、from-reference-video 経由でのみ立つ)
     "script", "tts", "bg", "kling", "scene", "overlay",
     "final_import", "publish",
 ]
@@ -65,6 +66,65 @@ def mark_approved(ts_path: str, stage: str) -> None:
     save(ts_path, progress)
 
 
+# ─── Stage 0 (analyze) 専用 helpers ─────────────────────
+# 通常の mark_generated/mark_approved は人間 confirm を介する 2 段ゲート用。
+# analyze は SSE event で完了が確定するため、save phase 完了 hook で
+# mark_analyze_completed を一発呼ぶだけで Stage 1 を unlock する。
+
+def mark_analyze_started(ts_path: str) -> None:
+    """Stage 0 (analyze) を running 状態にする。
+    POST /api/projects/from-reference-video から呼ばれる初期化。"""
+    progress = load(ts_path)
+    progress["stages"]["analyze"] = {
+        "generated_at": _now(),
+        "approved_at": None,
+        "regen_count": 0,
+        "status": "running",
+    }
+    save(ts_path, progress)
+
+
+def mark_analyze_completed(ts_path: str) -> None:
+    """Stage 0 (analyze) save phase 完了 → Stage 1 unlock。
+    人間 confirm を介さない (= save 完了 = 自動承認) ので generated と
+    approved を同時に立てる。analyze.runner._on_save_complete から呼ぶ。
+    """
+    progress = load(ts_path)
+    now = _now()
+    progress["stages"]["analyze"] = {
+        "generated_at": now,
+        "approved_at": now,
+        "regen_count": 0,
+        "status": "completed",
+    }
+    save(ts_path, progress)
+
+
+def mark_analyze_failed(ts_path: str, error: str) -> None:
+    """Stage 0 (analyze) を failed 状態にする。UI 側で retry / 削除を
+    選択させるため approved_at は None のまま。runner の except 経路から呼ぶ。
+    """
+    progress = load(ts_path)
+    progress["stages"]["analyze"] = {
+        "generated_at": _now(),
+        "approved_at": None,
+        "regen_count": 0,
+        "status": "failed",
+        "error": (error or "")[:500],
+    }
+    save(ts_path, progress)
+
+
+def analyze_status(ts_path: str) -> str | None:
+    """Stage 0 (analyze) の現在状態を返す。
+    "running" / "completed" / "failed" / None。None は legacy template 経由
+    project (= Stage 0 を経由しない) を意味する。
+    """
+    progress = load(ts_path)
+    block = progress["stages"].get("analyze") or {}
+    return block.get("status")
+
+
 def increment_regen(ts_path: str, stage: str) -> None:
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
@@ -123,13 +183,18 @@ def reset_stage(ts_path: str, stage: str) -> None:
 
 
 def revoke_all_approvals(ts_path: str) -> None:
-    """全 stage の承認だけを解除する。生成物 (assets) は保持したまま、
+    """Stage 1+ の承認だけを解除する。生成物 (assets) は保持したまま、
     再承認/再生成を促す。Stage 1「素材編集」セクションで抽象台本 / VideoStyle
     を差し替えたとき、後続 Stage が古い素材で承認済みのままにならないように
     するため。
+
+    Stage 0 (analyze) は対象外: 参考動画分析は素材編集の範囲ではなく、
+    再走は POST /api/projects/<ts>/retry-analyze で別 endpoint として扱う。
     """
     progress = load(ts_path)
     for s in STAGES:
+        if s == "analyze":
+            continue
         progress["stages"][s]["approved_at"] = None
     save(ts_path, progress)
 
