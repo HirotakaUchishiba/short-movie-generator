@@ -560,9 +560,10 @@ export function sceneAudioAssetUrl(
 ): string {
   return withVersion(`${API_BASE}/asset/${ts}/scene-audio/${scene}`, version);
 }
-export function overlayAssetUrl(ts: string, version?: number | string): string {
-  return withVersion(`${API_BASE}/asset/${ts}/overlay`, version);
-}
+// Phase 3-C で StageOverlay UI が <video src=overlaid.mp4> を撤廃して Player
+// primary preview に完全移行したため、overlayAssetUrl は呼び出し元無し。
+// /asset/<ts>/overlay endpoint 自体は preview_server に残っている (= サーバ
+// 内部経路 + 旧 ffmpeg backend で書く先) ため、必要になれば再エクスポート可。
 export function finalVersionAssetUrl(
   ts: string,
   filename: string,

@@ -1,4 +1,4 @@
-import { afterEach, beforeEach, describe, expect, it, vi } from "vitest";
+import { beforeEach, describe, expect, it, vi } from "vitest";
 import { renderHook, waitFor } from "@testing-library/react";
 
 // api をモジュールレベルで mock。
@@ -84,14 +84,12 @@ describe("useRenderPlan", () => {
     const firstPromise = new Promise((r) => {
       resolveFirst = r;
     });
-    mockedRenderPlan
-      .mockReturnValueOnce(firstPromise)
-      .mockResolvedValueOnce({
-        plan: {
-          ...samplePlan,
-          video: { ...samplePlan.video, duration_frames: 999 },
-        },
-      });
+    mockedRenderPlan.mockReturnValueOnce(firstPromise).mockResolvedValueOnce({
+      plan: {
+        ...samplePlan,
+        video: { ...samplePlan.video, duration_frames: 999 },
+      },
+    });
 
     const { result, rerender } = renderHook(({ ts }) => useRenderPlan(ts, 0), {
       initialProps: { ts: "ts5" },

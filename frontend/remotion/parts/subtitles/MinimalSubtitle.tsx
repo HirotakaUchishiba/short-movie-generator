@@ -1,5 +1,5 @@
 import React from "react";
-import { AbsoluteFill, useVideoConfig } from "remotion";
+import { AbsoluteFill } from "remotion";
 
 // "minimal" subtitle part.
 // 既存 ffmpeg compositor (compositor.py) の drawtext と同等の見た目を Remotion で再現する。
