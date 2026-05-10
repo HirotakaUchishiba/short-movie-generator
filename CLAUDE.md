@@ -32,7 +32,7 @@
 ## プロジェクトの前提
 
 - 言語は **日本語のみ** に限定。テーマは特定領域に固定しない。
-- 台本は `screenplays/<名前>.json` に配置する。人間が手で書くか、`scripts/analyze_video.py` で参考動画から自動生成する。
+- 台本は `screenplays/<名前>.json` に配置する。`scripts/analyze_video.py` で参考動画から自動生成する (= 現状の唯一の作成経路。screenplay を新規作成する UI は無く、手書きで起こす導線は廃止済み)。
 - 動画生成は **段階的ゲート方式**。台本作成後、`python main.py <台本名>` を起動するたびに **1ステージだけ** 実行して停止する。プレビューUIで成果物を確認・承認するまで次stageに進まない。一括生成モードは存在しない。
 
 ## 段階的ゲート方式 (8ステージ)
@@ -47,7 +47,7 @@
 
 **Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7** は auto_loop が pipeline raw を canonical 化する内部経路 (= `_import_raw_as_final()`)。**Stage 8** はユーザの公開アクションが起点で、`run-next` では自動起動しない。
 
-**Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の voice_overrides が自動推論される。手書き台本プロジェクト (analyze_job_id 無し) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
+**Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の `voice_overrides` が自動推論される。analyze 経由でないプロジェクト (= `analyze_job_id` 無し、legacy 残骸の screenplay template を選択した場合のみ発生) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
 
 ### 操作フロー
 
@@ -116,10 +116,10 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 台本は **2 つの場所** に存在する:
 
-| 種別                 | パス                        | git 管理 | 用途                                                                                                                                                             |
-| -------------------- | --------------------------- | -------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **template**         | `screenplays/<名前>.json`   | 追跡     | 新規 project 作成時の素材 (素の手書き台本 / analyze pipeline 出力 / StyleEditorPage の compose 結果)                                                             |
-| **project snapshot** | `temp/<TS>/screenplay.json` | ignore   | project 作成時に template からコピーされる **immutable な作業コピー**。Stage 1〜6 のすべて、UI の line/scene patch、再合成は **このファイルだけ** を読み書きする |
+| 種別                 | パス                        | git 管理 | 用途                                                                                                                                                                                                                 |
+| -------------------- | --------------------------- | -------- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **template**         | `screenplays/<名前>.json`   | 追跡     | 新規 project 作成時の素材。現状は **analyze pipeline 出力** (= `auto_<sha>.json`) のみが生成される。手書きや UI からの新規作成経路は無く、`compose` 結果も template には書き出されない (= project snapshot のみ更新) |
+| **project snapshot** | `temp/<TS>/screenplay.json` | ignore   | project 作成時に template からコピーされる **immutable な作業コピー**。Stage 1〜6 のすべて、UI の line/scene patch、再合成は **このファイルだけ** を読み書きする                                                     |
 
 ポイントは **project 作成時に template から snapshot がコピーされ、以後 template が外部で書き換わっても進行中 project は影響を受けない** こと:
 

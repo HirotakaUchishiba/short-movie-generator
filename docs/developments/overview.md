@@ -28,7 +28,7 @@
 
 ## 1. プロジェクト概要
 
-**Short Movie Generator** は、台本 (= 人間が手書き / 参考動画から逆算) から **YouTube Shorts / Instagram Reels / TikTok 用の縦型ショート動画 (1080×1920, 60fps, 日本語特化)** を生成する自動化ツール。
+**Short Movie Generator** は、参考動画から `scripts/analyze_video.py` で逆算生成した台本 (= 抽象台本) を入力に、**YouTube Shorts / Instagram Reels / TikTok 用の縦型ショート動画 (1080×1920, 60fps, 日本語特化)** を生成する自動化ツール。screenplay を手書きで起こす UI / API は無く、analyze pipeline が現状の唯一の作成経路 (= `screenplay_validator` / `load_template` のコードは legacy 互換で残るが、UI からは到達できない)。
 
 ### 1.1 設計の核 (= 4 つの分離原則)
 
@@ -194,10 +194,10 @@ screenplay の `character_refs` は **解決済み ref** (例: `f1__office` = `<
 
 ### 5.2 Template / Project Snapshot 分離
 
-| 種別                 | パス                        | git    | 用途                                                                                                                                        |
-| -------------------- | --------------------------- | ------ | ------------------------------------------------------------------------------------------------------------------------------------------- |
-| **template**         | `screenplays/<name>.json`   | 追跡   | 新規 project 作成時の素材 (= 手書き / analyze 出力 / StyleEditor compose 結果)                                                              |
-| **project snapshot** | `temp/<TS>/screenplay.json` | ignore | template から copy された **immutable な作業コピー**。Stage 1〜6 のすべて、UI の line/scene patch、再合成は **このファイルだけ** を読み書き |
+| 種別                 | パス                        | git    | 用途                                                                                                                                                                                                                       |
+| -------------------- | --------------------------- | ------ | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **template**         | `screenplays/<name>.json`   | 追跡   | 新規 project 作成時の素材。現状は **analyze pipeline 出力** (= `auto_<sha>.json`) のみが生成される。`compose` (= `PUT /api/projects/<ts>/abstract`) の結果は project snapshot を更新するだけで template には書き出されない |
+| **project snapshot** | `temp/<TS>/screenplay.json` | ignore | template から copy された **immutable な作業コピー**。Stage 1〜6 のすべて、UI の line/scene patch、再合成は **このファイルだけ** を読み書き                                                                                |
 
 **ポイント**: project 作成時に template から snapshot がコピーされ、以後 template が外部で書き換わっても進行中 project は影響を受けない。
 
