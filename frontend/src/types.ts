@@ -366,6 +366,25 @@ export interface SceneParts {
   sfx?: SfxPart[];
 }
 
+// Layer 1 (clip library) hard match キー。4 フィールドすべて揃えば
+// scene["identity"] として書き出され、cache lookup で hit すると AI 課金を回避。
+// 1 つでも欠けると compose で identity が undefined になり cold path (AI 生成) が走る。
+export interface Identity {
+  character_refs: string[];
+  location_ref: string;
+  start_emotion: string;
+  camera_distance: CameraDistance;
+}
+
+// Layer 1 soft rank に使う注釈。完全一致が無くても compatible_with 経由で fallback。
+// 全 field optional (= 1 field でも書かれていれば送信)。
+export interface Annotation {
+  visual_intent_id?: string;
+  duration_bucket?: 5 | 10;
+  motion_intensity?: "low" | "medium" | "high";
+  generation_seed?: number;
+}
+
 export interface AbstractScene {
   lines: AbstractLine[];
   duration?: number;
@@ -379,6 +398,9 @@ export interface AbstractScene {
   animation_style?: "subtle" | "standard" | "expressive";
   // Compositional Architecture: scene-level parts (= UI 2 で編集対象)
   scene_parts?: SceneParts;
+  // Layer 1 (clip library) identity + annotation
+  identity?: Identity;
+  annotation?: Annotation;
   // クライアント側で付与される React key 用 ID。API 送信時に strip される。
   _uid?: string;
 }

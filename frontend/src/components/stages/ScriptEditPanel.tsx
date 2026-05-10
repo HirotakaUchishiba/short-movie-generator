@@ -14,6 +14,8 @@ import type {
 import { freshUid } from "../../uid";
 import { GlobalPartsEditor } from "./GlobalPartsEditor";
 import { ScenePartsEditor } from "./ScenePartsEditor";
+import { IdentityEditor } from "../IdentityEditor";
+import { AnnotationEditor } from "../AnnotationEditor";
 
 const EMOTIONS = [
   "驚き",
@@ -636,6 +638,30 @@ function SceneEditor({
             transition / camera_move / lower_third / frame_layout)。
             ScenePartsEditor 内部で part_registry catalog を fetch して enum 選択。 */}
         <ScenePartsEditor scene={scene} onSceneChange={onSceneChange} />
+
+        {/* Layer 1 (clip library): identity (hard match キー) + annotation (soft rank) */}
+        <IdentityEditor
+          identity={scene.identity}
+          onChange={(next) =>
+            onSceneChange((s) => {
+              const ns = { ...s };
+              if (next) ns.identity = next;
+              else delete ns.identity;
+              return ns;
+            })
+          }
+        />
+        <AnnotationEditor
+          annotation={scene.annotation}
+          onChange={(next) =>
+            onSceneChange((s) => {
+              const ns = { ...s };
+              if (next) ns.annotation = next;
+              else delete ns.annotation;
+              return ns;
+            })
+          }
+        />
 
         {/* lines 編集 (各 line をカード化、シーン端の line に ▲▼) */}
         <ul className="space-y-2">
