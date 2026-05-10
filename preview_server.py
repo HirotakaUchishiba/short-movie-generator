@@ -151,15 +151,8 @@ def _load_screenplay_for_project(ts: str) -> tuple[dict, str]:
 
 
 def _ffprobe_duration(path: str) -> float:
-    try:
-        r = subprocess.run(
-            ["ffprobe", "-v", "quiet", "-print_format", "json",
-             "-show_format", path],
-            capture_output=True, text=True,
-        )
-        return float(json.loads(r.stdout)["format"]["duration"])
-    except Exception:
-        return 0.0
+    """互換 shim: routes._helpers.ffprobe_duration に移管済み。"""
+    return _route_helpers.ffprobe_duration(path)
 
 
 # /api/projects (= 一覧 + 作成 + 詳細) は routes/projects.py の Blueprint に
@@ -507,7 +500,8 @@ def api_upload_reference_video():
     """multipart で動画をアップロードし、content-addressed (sha256) で保存する。
 
     既存 sha256 と一致する場合は dedup され既存メタを返す (HTTP 200)。
-    新規なら 201。
+    新規なら 201。実体は routes._helpers.save_reference_video を経由
+    (= POST /api/projects/from-reference-video と共通経路)。
     """
     f = request.files.get("file")
     if not f:
@@ -516,55 +510,15 @@ def api_upload_reference_video():
             "file required (multipart 'file' field)",
             400,
         )
-
-    name = f.filename or "video"
-    ext = os.path.splitext(name)[1].lower()
-    if ext not in analyze_job.ALLOWED_VIDEO_EXTS:
+    try:
+        result = _route_helpers.save_reference_video(f)
+    except ValueError as e:
         return api_error(
-            "REFERENCE_VIDEO_UNSUPPORTED_EXT",
-            f"unsupported extension: {ext}",
-            400,
+            "REFERENCE_VIDEO_UNSUPPORTED_EXT", str(e), 400,
             allowed=list(analyze_job.ALLOWED_VIDEO_EXTS),
         )
-
-    ref_dir = analyze_job.reference_videos_dir()
-    tmp = ref_dir / f".tmp_{uuid.uuid4().hex}{ext}"
-    try:
-        f.save(str(tmp))
-        sha = file_sha256(str(tmp))
-        size = os.path.getsize(tmp)
-
-        existing = analyze_job.get_reference_video(sha)
-        if existing:
-            tmp.unlink(missing_ok=True)
-            analyze_job.touch_reference_video(sha)
-            return jsonify({
-                "sha256": sha,
-                "size_bytes": existing["size_bytes"],
-                "duration_sec": existing["duration_sec"],
-                "original_name": existing["original_name"],
-                "deduplicated": True,
-            }), 200
-
-        final_path = ref_dir / f"{sha}{ext}"
-        tmp.replace(final_path)
-
-        duration = _ffprobe_duration(str(final_path))
-        original = os.path.basename(name)
-        analyze_job.upsert_reference_video(
-            sha, original_name=original,
-            size_bytes=size, duration_sec=duration,
-        )
-        return jsonify({
-            "sha256": sha,
-            "size_bytes": size,
-            "duration_sec": duration,
-            "original_name": original,
-            "deduplicated": False,
-        }), 201
-    finally:
-        if tmp.exists():
-            tmp.unlink(missing_ok=True)
+    status = 200 if result["deduplicated"] else 201
+    return jsonify(result), status
 
 
 @app.route("/api/reference_videos", methods=["GET"])

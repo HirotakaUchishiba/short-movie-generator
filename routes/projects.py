@@ -18,6 +18,7 @@ import staged_pipeline
 
 from routes._helpers import (
     load_screenplay_for_project,
+    save_reference_video,
     ts_path,
     validate_ts,
 )
@@ -164,6 +165,72 @@ def api_create_project():
         return jsonify({"error": str(e)}), 500
 
     return jsonify({"timestamp": ts, "current_stage": "script"}), 201
+
+
+@projects_bp.route("/api/projects/from-reference-video", methods=["POST"])
+def api_create_project_from_reference_video():
+    """参考動画 + analyze ジョブを 1 トランザクションで起動する (= 主導フロー)。
+
+    multipart/form-data:
+      - reference_video: file (.mov / .mp4 / .webm / .mkv)
+      - instructions:    optional string (= analyze.options.instructions)
+      - fps:             optional float (default analyze pipeline 既定)
+
+    Response (201): {"ts": "<TS>", "analyze_job_id": "analyze_..."}
+
+    副作用:
+      1. assets/reference_videos/<sha>.<ext> に dedup 保存
+      2. analyze_jobs に project_ts=<TS> 付きで insert
+      3. temp/<TS>/metadata.json を screenplay_name 不在で初期化
+      4. progress_store.mark_analyze_started で Stage 0 = running
+      5. analyze.runner.start で daemon thread 起動 (= save 完了で hook 発火)
+    """
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    f = request.files.get("reference_video")
+    if not f:
+        return jsonify({
+            "error_code": "REFERENCE_VIDEO_REQUIRED",
+            "message": "reference_video (multipart) is required",
+        }), 400
+
+    try:
+        upload_result = save_reference_video(f)
+    except ValueError as e:
+        return jsonify({
+            "error_code": "REFERENCE_VIDEO_UNSUPPORTED_EXT",
+            "message": str(e),
+            "allowed": list(analyze_job.ALLOWED_VIDEO_EXTS),
+        }), 400
+
+    options: dict = {}
+    instr = (request.form.get("instructions") or "").strip()
+    if instr:
+        options["instructions"] = instr
+    fps_raw = request.form.get("fps")
+    if fps_raw:
+        try:
+            options["fps"] = float(fps_raw)
+        except ValueError:
+            return jsonify({
+                "error_code": "ANALYZE_INVALID_FPS",
+                "message": f"invalid fps: {fps_raw}",
+            }), 400
+
+    ts = datetime.now().strftime("%Y%m%d_%H%M%S")
+    project_path = ts_path(ts)
+    os.makedirs(project_path, exist_ok=True)
+
+    j = analyze_job.create_job(
+        upload_result["sha256"], options, project_ts=ts,
+    )
+    staged_pipeline.init_pending_metadata(project_path, j.id)
+    progress_store.mark_analyze_started(project_path)
+
+    analyze_runner.start(j.id)
+
+    return jsonify({"ts": ts, "analyze_job_id": j.id}), 201
 
 
 @projects_bp.route("/api/projects/<ts>", methods=["GET"])

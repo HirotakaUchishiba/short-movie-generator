@@ -165,3 +165,88 @@ def load_screenplay_for_project(
     except FileNotFoundError:
         abort(404, "プロジェクトの screenplay.json snapshot が見つかりません")
     return sp, name
+
+
+def ffprobe_duration(path: str) -> float:
+    """ffprobe で動画の duration を秒で返す。失敗時 0.0。
+
+    旧 preview_server._ffprobe_duration を移管 (= POST /api/reference_videos と
+    新 POST /api/projects/from-reference-video が共通利用)。
+    """
+    import json
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", path],
+            capture_output=True, text=True,
+        )
+        return float(json.loads(r.stdout)["format"]["duration"])
+    except Exception:
+        return 0.0
+
+
+def save_reference_video(file_storage) -> dict:
+    """multipart reference video を dedup + sha256 ベースで保存し、metadata を返す。
+
+    POST /api/reference_videos と POST /api/projects/from-reference-video の
+    共通経路。dedup hit なら touch_reference_video まで内部で完結、新規なら
+    ffprobe_duration で計測して upsert_reference_video まで行う。
+
+    Returns: dict = {
+        sha256, size_bytes, duration_sec, original_name, deduplicated: bool
+    }
+    Raises:
+        ValueError: 拡張子が ALLOWED_VIDEO_EXTS に無い (= caller は 400 で reject)
+    """
+    import os
+    import uuid
+
+    from analyze import job as analyze_job
+    from analyze.cache import file_sha256
+
+    name = file_storage.filename or "video"
+    ext = os.path.splitext(name)[1].lower()
+    if ext not in analyze_job.ALLOWED_VIDEO_EXTS:
+        raise ValueError(
+            f"unsupported extension: {ext}; "
+            f"allowed: {list(analyze_job.ALLOWED_VIDEO_EXTS)}",
+        )
+
+    ref_dir = analyze_job.reference_videos_dir()
+    tmp = ref_dir / f".tmp_{uuid.uuid4().hex}{ext}"
+    try:
+        file_storage.save(str(tmp))
+        sha = file_sha256(str(tmp))
+        size = os.path.getsize(tmp)
+        original = os.path.basename(name)
+
+        existing = analyze_job.get_reference_video(sha)
+        if existing:
+            tmp.unlink(missing_ok=True)
+            analyze_job.touch_reference_video(sha)
+            return {
+                "sha256": sha,
+                "size_bytes": existing["size_bytes"],
+                "duration_sec": existing["duration_sec"],
+                "original_name": existing["original_name"],
+                "deduplicated": True,
+            }
+
+        final_path = ref_dir / f"{sha}{ext}"
+        tmp.replace(final_path)
+        duration = ffprobe_duration(str(final_path))
+        analyze_job.upsert_reference_video(
+            sha, original_name=original,
+            size_bytes=size, duration_sec=duration,
+        )
+        return {
+            "sha256": sha,
+            "size_bytes": size,
+            "duration_sec": duration,
+            "original_name": original,
+            "deduplicated": False,
+        }
+    finally:
+        if tmp.exists():
+            tmp.unlink(missing_ok=True)
