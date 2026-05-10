@@ -10,6 +10,7 @@ import StageOverlay from "./components/stages/StageOverlay";
 import StageFinalImport from "./components/stages/StageFinalImport";
 import StagePublish from "./components/stages/StagePublish";
 import AnalyzePage from "./pages/AnalyzePage";
+import AnalyzeStage0Page from "./pages/AnalyzeStage0Page";
 import IntentCatalogPage from "./pages/IntentCatalogPage";
 
 export default function App() {
@@ -18,6 +19,8 @@ export default function App() {
       <Route path="/" element={<ProjectList />} />
       <Route path="/analyze" element={<AnalyzePage />} />
       <Route path="/intent-catalog" element={<IntentCatalogPage />} />
+      {/* Stage 0 page (= ProjectShell の outlet ではない、独立 layout) */}
+      <Route path="/project/:ts/analyze" element={<AnalyzeStage0Page />} />
       <Route path="/project/:ts" element={<ProjectShell />}>
         <Route index element={<Navigate to="script" replace />} />
         <Route path="script" element={<StageScript />} />

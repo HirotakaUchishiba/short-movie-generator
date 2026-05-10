@@ -78,6 +78,17 @@ export default function ProjectShell() {
     reload();
   }, [reload]);
 
+  // Stage 0 中の project は専用 page (= /project/<TS>/analyze) に redirect。
+  // detail を fetch した後で判定する (= analyze_status は Phase A backend が
+  // api_project_detail に乗せている)。
+  useEffect(() => {
+    if (!ts || !detail) return;
+    const s = detail.analyze_status;
+    if (s === "running" || s === "pending" || s === "failed") {
+      navigate(`/project/${ts}/analyze`, { replace: true });
+    }
+  }, [ts, detail, navigate]);
+
   useEffect(() => {
     if (!jobId) return;
     let stop = false;
