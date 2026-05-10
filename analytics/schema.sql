@@ -325,7 +325,9 @@ WHERE m.fetched_at IS NOT NULL
   AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
 GROUP BY e.strategy, e.axis, e.selected_value;
 
--- Performance summary (screenplay × platform latest metrics)
+-- Performance summary (screenplay × platform latest metrics).
+-- v_active_posts 経由で rollback 済 post を自動除外する (= schema v9 の v_active_posts
+-- 整備に追従)。dashboard / 概要集計が取り下げ済み投稿の metrics を混ぜないようにする。
 CREATE VIEW IF NOT EXISTS v_performance AS
 SELECT
     s.id AS screenplay_id,
@@ -351,5 +353,5 @@ SELECT
     m.fetched_at
 FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
-LEFT JOIN posts p ON p.video_id = v.id
+LEFT JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id;

@@ -72,12 +72,20 @@ def overview_tab(perf: pd.DataFrame) -> None:
         return
 
     st.subheader("投稿×成績テーブル")
+    perf_show = perf.copy()
+    if "generation_cost_usd" in perf_show.columns and "views" in perf_show.columns:
+        perf_show["cost_per_view_usd"] = (
+            perf_show["generation_cost_usd"]
+            .div(perf_show["views"].replace(0, pd.NA))
+        )
     show_cols = [c for c in [
         "screenplay_name", "platform", "url", "views", "likes",
-        "comments", "completion_rate", "fetched_at",
-    ] if c in perf.columns]
-    st.dataframe(perf[show_cols].sort_values("views", ascending=False, na_position="last"),
-                 use_container_width=True)
+        "comments", "completion_rate", "cost_per_view_usd", "fetched_at",
+    ] if c in perf_show.columns]
+    st.dataframe(
+        perf_show[show_cols].sort_values("views", ascending=False, na_position="last"),
+        use_container_width=True,
+    )
 
 
 def hook_tab(perf: pd.DataFrame) -> None:
@@ -113,6 +121,49 @@ def emotion_tab(perf: pd.DataFrame) -> None:
         st.bar_chart(grp.set_index("dominant_emotion")[["avg_views"]])
 
 
+_STRATEGY_AXES = ("hook_type", "tone", "dominant_emotion", "theme")
+
+
+def strategy_tab() -> None:
+    """戦略軸別 reward を v_strategy_performance / 軸別 view から表示する。
+
+    24h 経過後の metrics のみ採用するノイズ排除済 reward (= v_*_performance の
+    julianday filter) を読むので、自前 groupby より早期段階の歪みが少ない。
+    strategy フィルタで baseline / shadow / active を切り替えて A/B を見る。
+    """
+    metric = st.selectbox(
+        "metric", ["avg_completion", "avg_views", "avg_save"],
+        key="strategy_metric",
+    )
+    strategy = st.selectbox(
+        "strategy", [None, "baseline", "shadow", "active"],
+        format_func=lambda v: v or "all",
+        key="strategy_filter",
+    )
+    any_data = False
+    for axis in _STRATEGY_AXES:
+        try:
+            rows = db.query_axis_performance(
+                axis, metric=metric, strategy_prefix=strategy,
+            )
+        except Exception as e:
+            st.warning(f"{axis}: 取得失敗 ({e})")
+            continue
+        if not rows:
+            continue
+        any_data = True
+        df = pd.DataFrame(rows)
+        st.subheader(f"{axis} × {metric}")
+        st.dataframe(df, use_container_width=True)
+        if not df.empty:
+            st.bar_chart(df.set_index("axis_value")["metric"])
+    if not any_data:
+        st.info(
+            "投稿後 24h 以上経過した metrics が必要です。"
+            "scripts/fetch_metrics.py で取得後、時間を置いて再表示してください。"
+        )
+
+
 def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
     st.subheader("台本別の詳細")
     if screenplays.empty:
@@ -146,21 +197,130 @@ def detail_tab(perf: pd.DataFrame, screenplays: pd.DataFrame) -> None:
         st.text(sp_row.get("caption") or "")
 
     st.markdown("### 投稿と成績")
-    my_perf = perf[perf["screenplay_id"] == sp_id]
+    my_perf = perf[perf["screenplay_id"] == sp_id].copy()
     if my_perf.empty:
         st.info("この台本の投稿はまだありません")
     else:
+        if "generation_cost_usd" in my_perf.columns and "views" in my_perf.columns:
+            my_perf["cost_per_view_usd"] = (
+                my_perf["generation_cost_usd"]
+                .div(my_perf["views"].replace(0, pd.NA))
+            )
         show_cols = [c for c in [
             "platform", "url", "posted_at", "views", "likes", "comments",
-            "completion_rate", "avg_view_duration", "fetched_at",
+            "completion_rate", "avg_view_duration",
+            "cost_per_view_usd", "fetched_at",
         ] if c in my_perf.columns]
         st.dataframe(my_perf[show_cols], use_container_width=True)
+
+        post_options: list[str] = []
+        for _, row in my_perf.iterrows():
+            pid = row.get("post_id")
+            if pid:
+                platform = row.get("platform") or "?"
+                post_options.append(f"{pid}  ({platform})")
+        if post_options:
+            st.markdown("### 投稿後の伸び (= 時系列)")
+            selected_post = st.selectbox(
+                "post を選択", post_options, key=f"detail_post_{sp_id}",
+            )
+            if selected_post:
+                post_id = selected_post.split()[0]
+                series = db.query_post_metrics_timeseries(post_id)
+                if series:
+                    ts_df = pd.DataFrame(series)
+                    ts_df["fetched_at"] = pd.to_datetime(
+                        ts_df["fetched_at"], utc=True, errors="coerce",
+                    )
+                    ts_df = ts_df.dropna(subset=["fetched_at"]).sort_values("fetched_at")
+                    chart_cols = [c for c in [
+                        "views", "likes", "comments", "completion_rate",
+                    ] if c in ts_df.columns]
+                    if chart_cols and not ts_df.empty:
+                        st.line_chart(ts_df.set_index("fetched_at")[chart_cols])
+                    else:
+                        st.info("時系列に表示可能な数値カラムがありません。")
+                else:
+                    st.info("post_metrics の時系列データがありません。"
+                            "scripts/fetch_metrics.py を複数回実行すると蓄積されます。")
 
     st.markdown("### Raw JSON")
     try:
         st.json(json.loads(sp_row["raw_json"]))
     except Exception:
         st.text(sp_row.get("raw_json") or "")
+
+
+def experiments_tab() -> None:
+    """experiment_assignments の試行履歴と軸 × strategy 集計を表示する。"""
+    rows = db.list_experiment_assignments(limit=500)
+    if not rows:
+        st.info(
+            "experiment_assignments が空です。"
+            "Phase 3 closed-loop が走り始めると蓄積されます。"
+        )
+        return
+    df = pd.DataFrame(rows)
+
+    st.subheader("軸 × strategy の試行回数")
+    if {"axis", "strategy"}.issubset(df.columns):
+        pivot = df.groupby(["axis", "strategy"]).size().unstack(fill_value=0)
+        st.dataframe(pivot, use_container_width=True)
+
+    st.subheader("直近 200 件の履歴")
+    show_cols = [c for c in [
+        "id", "video_id", "axis", "selected_value", "strategy",
+        "observed_value", "scene_idx", "composition_id", "created_at",
+    ] if c in df.columns]
+    st.dataframe(df[show_cols].head(200), use_container_width=True)
+
+
+def quality_tab() -> None:
+    """qa_failures の stage 別件数 + generation_records.validator_scores 推移。"""
+    qa_rows = db.list_qa_failures(limit=500)
+    st.subheader("QA 失敗サマリ (= 直近 500 件)")
+    if qa_rows:
+        qa_df = pd.DataFrame(qa_rows)
+        if {"stage", "source"}.issubset(qa_df.columns):
+            agg = qa_df.groupby(["stage", "source"]).size().unstack(fill_value=0)
+            st.dataframe(agg, use_container_width=True)
+        st.markdown("#### 直近の QA 失敗")
+        show_cols = [c for c in [
+            "id", "ts", "stage", "scene_idx", "source", "tags",
+            "note", "artifact_path", "created_at",
+        ] if c in qa_df.columns]
+        st.dataframe(qa_df[show_cols].head(50), use_container_width=True)
+    else:
+        st.info("qa_failures が空です。")
+
+    st.subheader("validator_scores 推移 (= generation_records)")
+    gen_rows = db.list_generation_records(limit=200)
+    score_rows: list[dict] = []
+    for rec in gen_rows:
+        scores = rec.get("validator_scores")
+        if not isinstance(scores, dict):
+            continue
+        flat: dict = {"ts": rec.get("ts"), "created_at": rec.get("created_at")}
+        for k, v in scores.items():
+            if isinstance(v, (int, float)):
+                flat[k] = v
+        if len(flat) > 2:
+            score_rows.append(flat)
+    if score_rows:
+        score_df = pd.DataFrame(score_rows)
+        score_df["created_at"] = pd.to_datetime(
+            score_df["created_at"], utc=True, errors="coerce",
+        )
+        score_df = score_df.dropna(subset=["created_at"]).sort_values("created_at")
+        numeric_cols = [c for c in score_df.columns
+                        if c not in ("ts", "created_at")]
+        if numeric_cols and not score_df.empty:
+            st.line_chart(score_df.set_index("created_at")[numeric_cols])
+        st.dataframe(score_df.tail(50), use_container_width=True)
+    else:
+        st.info(
+            "generation_records.validator_scores が空または数値スコアを含みません。"
+        )
 
 
 PHASE_ORDER = (
@@ -258,16 +418,25 @@ def main() -> None:
     analyze_jobs = load_analyze_jobs()
     analyze_phases = load_analyze_phases()
 
-    tabs = st.tabs(["概要", "フック別", "感情別", "台本詳細", "分析ジョブ"])
+    tabs = st.tabs([
+        "概要", "戦略軸", "フック別", "感情別",
+        "実験", "品質", "台本詳細", "分析ジョブ",
+    ])
     with tabs[0]:
         overview_tab(perf)
     with tabs[1]:
-        hook_tab(perf)
+        strategy_tab()
     with tabs[2]:
-        emotion_tab(perf)
+        hook_tab(perf)
     with tabs[3]:
-        detail_tab(perf, screenplays)
+        emotion_tab(perf)
     with tabs[4]:
+        experiments_tab()
+    with tabs[5]:
+        quality_tab()
+    with tabs[6]:
+        detail_tab(perf, screenplays)
+    with tabs[7]:
         analyze_jobs_tab(analyze_jobs, analyze_phases)
 
 
