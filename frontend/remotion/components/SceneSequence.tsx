@@ -1,6 +1,7 @@
 import React from "react";
 import {
   AbsoluteFill,
+  Audio,
   OffthreadVideo,
   Sequence,
   staticFile,
@@ -196,6 +197,19 @@ export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
             </Sequence>
           );
         })()}
+
+      {/* Phase 5-B: sfx (= scene 内の効果音) を at 秒に Audio で重ねる。
+          duration は SFX 音声ファイル尺がそのまま使われる (= Remotion の <Audio> は
+          Sequence 配下では from から再生開始、durationInFrames は再生範囲を絞る場合のみ)。
+          指定なしなら音声全長まで再生される。 */}
+      {(scene.parts.sfx ?? []).map((s, i) => {
+        const fromFrame = Math.max(0, toFrames(s.at, fps));
+        return (
+          <Sequence key={`sfx-${i}`} from={fromFrame}>
+            <Audio src={resolveSrc(s.path)} volume={s.volume ?? 0.6} />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };

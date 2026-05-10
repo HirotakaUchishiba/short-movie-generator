@@ -588,6 +588,140 @@ class TestBuildRenderPlan:
         assert outro["duration_sec"] == 2.0
         assert outro["params"]["sub_text"] == "↓ 押すだけ"
 
+    def test_bgm_passed_through_with_constant_volume(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 5-B: bgm = {path, ducking_curve(number)} が plan に正規化される。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "bgm": {
+                    "path": "_audio/upbeat.mp3",
+                    "ducking_curve": 0.35,
+                },
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        bgm = plan["global_parts"]["bgm"]
+        assert bgm["path"] == "_audio/upbeat.mp3"
+        assert bgm["ducking_curve"] == 0.35
+
+    def test_bgm_passed_through_with_curve_array(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "bgm": {
+                    "path": "https://cdn.example.com/track.mp3",
+                    "ducking_curve": [[0.0, 0.4], [10.0, 0.2]],
+                },
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        bgm = plan["global_parts"]["bgm"]
+        assert bgm["path"].startswith("https://")
+        assert bgm["ducking_curve"] == [[0.0, 0.4], [10.0, 0.2]]
+
+    def test_bgm_default_ducking_when_unspecified(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """ducking_curve が無いと default 0.4 が入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "bgm": {"path": "x.mp3"},
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert plan["global_parts"]["bgm"]["ducking_curve"] == 0.4
+
+    def test_invalid_bgm_dropped(self, dummy_scene_videos: list[str]) -> None:
+        """path が無い bgm は静かにドロップ。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {"bgm": {"ducking_curve": 0.3}},
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert "bgm" not in plan["global_parts"]
+
+    def test_sfx_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 5-B: scene_parts.sfx[] が plan.scenes[].parts.sfx に
+        正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "sfx": [
+                            {"path": "_audio/whoosh.mp3", "at": 0.5, "volume": 0.7},
+                            {"path": "_audio/ding.mp3", "at": 1.5},
+                        ]
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        sfx = plan["scenes"][0]["parts"]["sfx"]
+        assert len(sfx) == 2
+        assert sfx[0]["path"] == "_audio/whoosh.mp3"
+        assert sfx[0]["at"] == 0.5
+        assert sfx[0]["volume"] == 0.7
+        assert sfx[1]["path"] == "_audio/ding.mp3"
+        assert "volume" not in sfx[1]
+        assert "sfx" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_sfx_entries_skipped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "sfx": [
+                            {"path": "x.mp3"},  # at 欠落
+                            {"at": 1.0},  # path 欠落
+                            "not_a_dict",
+                            {"path": "ok.mp3", "at": 0.5},
+                        ]
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        sfx = plan["scenes"][0]["parts"]["sfx"]
+        assert len(sfx) == 1
+        assert sfx[0]["path"] == "ok.mp3"
+
     def test_invalid_intro_outro_cards_dropped(
         self, dummy_scene_videos: list[str]
     ) -> None:
