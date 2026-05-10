@@ -303,9 +303,31 @@ def build_render_plan(
             "duration_frames": duration_frames,
         },
         "scenes": plan_scenes,
-        "global_parts": screenplay.get("global_parts") or {},
+        "global_parts": _normalize_global_parts(screenplay.get("global_parts")),
         "template": "base",
     }
+
+
+def _normalize_global_parts(raw: Any) -> dict[str, Any]:
+    """screenplay.global_parts を render_plan が受ける形に正規化する。
+
+    現状サポート (= Phase 4-C):
+      - filter_preset: {id, params}
+    Phase 5 以降で bgm / intro_card / outro_card を追加する。
+
+    未知のキーは静かにドロップ (= validator が事前 reject する想定だが defensive)。
+    """
+
+    if not isinstance(raw, dict):
+        return {}
+    out: dict[str, Any] = {}
+    fp = raw.get("filter_preset")
+    if isinstance(fp, dict) and isinstance(fp.get("id"), str):
+        out["filter_preset"] = {
+            "id": fp["id"],
+            "params": dict(fp.get("params") or {}),
+        }
+    return out
 
 
 def render_via_remotion(

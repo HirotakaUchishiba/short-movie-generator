@@ -1,0 +1,58 @@
+# Layer 2 (= compositional parts) の filter_preset (= 全画面 CSS filter) SSOT。
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4.1
+#
+# 各 entry は global_parts.filter_preset.id として screenplay から参照される
+# (= scene 単位ではなく screenplay 全体に被せる)。
+# 実装はすべて parts/filter_presets/FilterWrapper.tsx の薄いラッパで、
+# CSS filter プロパティ値だけが違う。
+# component フィールドは frontend/remotion/parts/filter_presets/index.ts の
+# export 名と一致させる。
+#
+# screenplay 例:
+#   "global_parts": {
+#     "filter_preset": { "id": "warm_cinematic", "params": {} }
+#   }
+
+version: 1
+parts:
+  - id: none
+    description: |
+      filter なし (= identity)。明示的に指定したいときに使う。デフォルト相当。
+    params_schema: {}
+    valid_contexts: [global]
+    component: NoneFilter
+    deprecated: false
+
+  - id: warm_cinematic
+    description: |
+      暖色寄りのシネマティックトーン。saturate 1.15 / contrast 1.05 /
+      sepia 0.12 / hue-rotate -6deg。
+    params_schema: {}
+    valid_contexts: [global]
+    component: WarmCinematic
+    deprecated: false
+
+  - id: cool_blue
+    description: |
+      寒色寄り。朝 / 夜 / 都会的な雰囲気。saturate 0.9 / hue-rotate +8deg /
+      brightness 0.97。
+    params_schema: {}
+    valid_contexts: [global]
+    component: CoolBlue
+    deprecated: false
+
+  - id: monochrome
+    description: |
+      モノクロ + 軽いコントラスト強調。grayscale(1) + contrast 1.08。
+    params_schema: {}
+    valid_contexts: [global]
+    component: Monochrome
+    deprecated: false
+
+  - id: vintage
+    description: |
+      退色 + 黄ばみ。sepia 0.4 / saturate 0.85 / contrast 0.95 / brightness 1.02。
+    params_schema: {}
+    valid_contexts: [global]
+    component: Vintage
+    deprecated: false
