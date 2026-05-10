@@ -263,6 +263,27 @@ def build_render_plan(
         scene_part["params"].setdefault("borderColor", config.TIME_BORDER_COLOR)
         scene_part["params"].setdefault("borderWidth", int(config.FONT_BORDER_WIDTH))
 
+        # Phase 4-B: stickers (= scene_parts.stickers[]) を passthrough。
+        # 各 entry は {id, at, duration?, params?}。at は scene 内相対秒。
+        # validator 整合性チェックは Phase 4 末で part_registry yaml と突き合わせ予定。
+        scene_parts_in = scene.get("scene_parts") or {}
+        plan_parts: dict[str, Any] = {"subtitle_style": scene_part}
+        if scene_parts_in.get("stickers"):
+            stickers_out: list[dict[str, Any]] = []
+            for s in scene_parts_in["stickers"]:
+                if not isinstance(s, dict) or "id" not in s or "at" not in s:
+                    continue
+                item: dict[str, Any] = {
+                    "id": str(s["id"]),
+                    "at": float(s["at"]),
+                    "params": dict(s.get("params") or {}),
+                }
+                if s.get("duration") is not None:
+                    item["duration"] = float(s["duration"])
+                stickers_out.append(item)
+            if stickers_out:
+                plan_parts["stickers"] = stickers_out
+
         plan_scenes.append(
             {
                 "index": s_idx,
@@ -270,9 +291,7 @@ def build_render_plan(
                 "offset_sec": float(scene_offset),
                 "duration_sec": float(scene_real),
                 "subtitle_lines": subtitle_lines,
-                "parts": {
-                    "subtitle_style": scene_part,
-                },
+                "parts": plan_parts,
             }
         )
 
