@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 9
+CURRENT_SCHEMA_VERSION = 10
 
 
 def _now() -> str:
@@ -97,6 +97,20 @@ def init_db() -> None:
         # post_metrics(post_id, fetched_at) UNIQUE 制約 (= 同タイムスタンプの
         # double-insert を抑止)。既存 DB に重複が残っている場合は最新 id のみ残す。
         _ensure_unique_post_metrics(conn)
+        # schema v10: PDCA 中核 KPI を post_metrics に追加 (= additive)。
+        # content-strategy.md がフック / 80-20 / アルゴリズム適合 / Halo proxy
+        # として要求する 6 指標。
+        _ensure_column(conn, "post_metrics", "impressions", "impressions INTEGER")
+        _ensure_column(conn, "post_metrics", "subscribers_gained",
+                       "subscribers_gained INTEGER")
+        _ensure_column(conn, "post_metrics", "traffic_browse_pct",
+                       "traffic_browse_pct REAL")
+        _ensure_column(conn, "post_metrics", "traffic_suggested_pct",
+                       "traffic_suggested_pct REAL")
+        _ensure_column(conn, "post_metrics", "traffic_search_pct",
+                       "traffic_search_pct REAL")
+        _ensure_column(conn, "post_metrics", "traffic_external_pct",
+                       "traffic_external_pct REAL")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -293,13 +307,21 @@ def insert_metrics(post_id: str, metrics: dict[str, Any]) -> None:
     UNIQUE(post_id, fetched_at) 制約により、同 post に同タイムスタンプで連続して
     呼ばれた場合 (= 同秒内の double-run) は INSERT OR IGNORE で 2 行目を握り潰す。
     1 時間 cron など別タイムスタンプの再呼出しは時系列として通常通り蓄積する。
+
+    schema v10 の追加列 (impressions / subscribers_gained / traffic_*_pct) は
+    metrics dict に含まれていなければ NULL のまま。retention curve は
+    別 table (= post_retention_curves) に persist する責務なので、ここでは扱わない。
     """
     with get_connection() as conn:
         conn.execute(
             """INSERT OR IGNORE INTO post_metrics
                (post_id, fetched_at, views, likes, comments, shares, saves,
-                watch_time_sec, avg_view_duration, completion_rate, ctr, raw_response)
-               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
+                watch_time_sec, avg_view_duration, completion_rate, ctr,
+                impressions, subscribers_gained,
+                traffic_browse_pct, traffic_suggested_pct,
+                traffic_search_pct, traffic_external_pct,
+                raw_response)
+               VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)""",
             (
                 post_id,
                 _now(),
@@ -312,6 +334,12 @@ def insert_metrics(post_id: str, metrics: dict[str, Any]) -> None:
                 metrics.get("avg_view_duration"),
                 metrics.get("completion_rate"),
                 metrics.get("ctr"),
+                metrics.get("impressions"),
+                metrics.get("subscribers_gained"),
+                metrics.get("traffic_browse_pct"),
+                metrics.get("traffic_suggested_pct"),
+                metrics.get("traffic_search_pct"),
+                metrics.get("traffic_external_pct"),
                 json.dumps(metrics.get("raw_response") or {}, ensure_ascii=False),
             ),
         )
@@ -369,6 +397,72 @@ def query_post_metrics_timeseries(
     if limit is not None:
         sql += " LIMIT ?"
         params.append(int(limit))
+    with get_connection() as conn:
+        rows = conn.execute(sql, params).fetchall()
+    return [dict(r) for r in rows]
+
+
+# ───────────── post_retention_curves (schema v10) ─────────────
+
+def insert_retention_curve(
+    post_id: str,
+    curve: list[dict[str, Any]],
+    *,
+    fetched_at: str | None = None,
+    raw_response: Any | None = None,
+) -> int:
+    """retention curve (= [{elapsed_pct, ratio, elapsed_sec?}, ...]) を一括 insert。
+
+    UNIQUE(post_id, fetched_at, elapsed_pct) なので同一 fetch を複数回入れても
+    重複しない (= INSERT OR IGNORE)。raw_response を保存するのは先頭行のみ。
+    fetched_at 省略時は _now() を使う (= insert_metrics と同パターン)。
+    Returns: 実際に insert された行数。
+    """
+    if not curve:
+        return 0
+    ts = fetched_at or _now()
+    raw_blob = json.dumps(raw_response, ensure_ascii=False) if raw_response is not None else None
+    inserted = 0
+    with get_connection() as conn:
+        for i, point in enumerate(curve):
+            elapsed_pct = float(point.get("elapsed_pct", 0.0))
+            ratio = float(point.get("ratio", 0.0))
+            elapsed_sec = point.get("elapsed_sec")
+            cur = conn.execute(
+                "INSERT OR IGNORE INTO post_retention_curves "
+                "(post_id, fetched_at, elapsed_pct, elapsed_sec, ratio, raw_response) "
+                "VALUES (?, ?, ?, ?, ?, ?)",
+                (post_id, ts, elapsed_pct,
+                 None if elapsed_sec is None else float(elapsed_sec),
+                 ratio,
+                 raw_blob if i == 0 else None),
+            )
+            inserted += int(cur.rowcount or 0)
+    return inserted
+
+
+def query_retention_curve(
+    post_id: str, *, fetched_at: str | None = None,
+) -> list[dict]:
+    """retention curve を返す。fetched_at 省略時は最新 batch のみ返す。
+
+    elapsed_pct 昇順で並ぶ (= dashboard line chart で素直に使える)。
+    """
+    if fetched_at is None:
+        sql = (
+            "SELECT * FROM post_retention_curves "
+            "WHERE post_id = ? AND fetched_at = ("
+            "  SELECT MAX(fetched_at) FROM post_retention_curves WHERE post_id = ?"
+            ") ORDER BY elapsed_pct ASC"
+        )
+        params: list[Any] = [post_id, post_id]
+    else:
+        sql = (
+            "SELECT * FROM post_retention_curves "
+            "WHERE post_id = ? AND fetched_at = ? "
+            "ORDER BY elapsed_pct ASC"
+        )
+        params = [post_id, fetched_at]
     with get_connection() as conn:
         rows = conn.execute(sql, params).fetchall()
     return [dict(r) for r in rows]

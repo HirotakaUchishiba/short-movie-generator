@@ -55,7 +55,13 @@ def main() -> int:
             continue
         try:
             metrics = fetcher(post)
+            # retention curve は別テーブル (= post_retention_curves) に persist する。
+            # post_metrics に混ぜると schema 違反になるので必ず pop してから insert。
+            retention_curve = metrics.pop("_retention_curve", None)
             db.insert_metrics(post["id"], metrics)
+            if retention_curve:
+                inserted = db.insert_retention_curve(post["id"], retention_curve)
+                logger.info("%s retention curve points=%d", post["id"], inserted)
             success += 1
             logger.info("%s views=%s likes=%s comments=%s",
                         post["id"], metrics.get("views"),

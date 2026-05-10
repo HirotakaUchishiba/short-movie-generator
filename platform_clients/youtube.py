@@ -18,6 +18,7 @@ import os
 import time
 from datetime import date, datetime, timedelta, timezone
 from pathlib import Path
+from typing import Any
 
 import io_utils
 
@@ -273,6 +274,9 @@ def fetch_analytics(video_id: str,
     if not end_date:
         end_date = date.today().isoformat()
 
+    # core metrics は単一 request で。`impressions` / `impressionsClickThroughRate`
+    # は同一 query に混ぜると YouTube 側で 400 になるケースがあるので別 request
+    # (= _fetch_impressions_metrics) に分離する。
     metrics = ",".join([
         "views", "likes", "comments", "shares",
         "averageViewDuration", "averageViewPercentage",
@@ -306,7 +310,7 @@ def fetch_analytics(video_id: str,
     avg_view_duration = float(m.get("averageViewDuration", 0) or 0)
     avg_view_pct = float(m.get("averageViewPercentage", 0) or 0)
 
-    return {
+    result: dict[str, Any] = {
         "views": int(m.get("views", 0) or 0),
         "likes": int(m.get("likes", 0) or 0),
         "comments": int(m.get("comments", 0) or 0),
@@ -314,8 +318,199 @@ def fetch_analytics(video_id: str,
         "watch_time_sec": watch_sec,
         "avg_view_duration": avg_view_duration,
         "completion_rate": avg_view_pct / 100.0 if avg_view_pct else None,
+        # schema v10: subscribersGained は core query に含まれるので即座に拾う。
+        "subscribers_gained": int(m.get("subscribersGained", 0) or 0),
         "raw_response": data,
     }
+
+    # impressions / CTR は別 query (= dimension / metrics 互換性の都合)。
+    # 失敗しても core 値の return は壊さず、None を残す。
+    try:
+        impressions_data = _fetch_impressions_metrics(
+            video_id, token, start_date, end_date,
+        )
+        result["impressions"] = impressions_data.get("impressions")
+        result["ctr"] = impressions_data.get("ctr")
+    except Exception as e:
+        logger.info("YouTube impressions/CTR 取得スキップ (%s): %s", video_id, e)
+        result["impressions"] = None
+        result["ctr"] = None
+
+    return result
+
+
+def _fetch_impressions_metrics(video_id: str, token: str,
+                               start_date: str, end_date: str) -> dict:
+    """impressions / impressionsClickThroughRate を別 request で取る。
+
+    YouTube Analytics は metrics 同居制約 (= 一部 metric は他と同 query 不可) が
+    あるため、core metrics とは分離した request にする。``rows`` が空の場合は
+    両方 None を返す (= 視聴閾値未満で API がデータを返さないケース)。
+    """
+    import requests
+
+    resp = requests.get(
+        f"{ANALYTICS_API_BASE}/reports",
+        params={
+            "ids": "channel==MINE",
+            "startDate": start_date,
+            "endDate": end_date,
+            "metrics": "impressions,impressionsClickThroughRate",
+            "filters": f"video=={video_id}",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+    rows = data.get("rows") or []
+    if not rows:
+        return {"impressions": None, "ctr": None}
+    headers = [h["name"] for h in data.get("columnHeaders", [])]
+    m = dict(zip(headers, rows[0]))
+    impressions_raw = m.get("impressions")
+    ctr_raw = m.get("impressionsClickThroughRate")
+    return {
+        "impressions": int(impressions_raw) if impressions_raw not in (None, "") else None,
+        "ctr": (float(ctr_raw) / 100.0) if ctr_raw not in (None, "") else None,
+    }
+
+
+# 主要 trafficSourceType ラベル → post_metrics の percent 列のマッピング。
+# YouTube Analytics の insightTrafficSourceType は他にも CHANNEL / NOTIFICATION
+# 等があるが、PDCA で見たい "アルゴリズム配信 vs 検索 vs 外部" を区別するための
+# 4 区分に集約する。未知のラベルは "other" 扱いで合計算出には使うが書き戻さない。
+_TRAFFIC_TYPE_TO_KEY = {
+    "YT_BROWSE": "traffic_browse_pct",
+    "RELATED_VIDEO": "traffic_suggested_pct",
+    "YT_SEARCH": "traffic_search_pct",
+    "EXT_URL": "traffic_external_pct",
+}
+
+
+def fetch_traffic_sources(video_id: str,
+                          start_date: str | None = None,
+                          end_date: str | None = None) -> dict:
+    """dimensions=insightTrafficSourceType で流入経路別の views share を返す。
+
+    Browse / Suggested / Search / External の 4 区分を percent (0.0-1.0) で
+    返す。``rows`` が空 (= 視聴数 0) の場合は raw_response のみ返す。
+    """
+    import requests
+
+    client_id, client_secret, refresh_token = _resolve_oauth_env()
+    if not all([client_id, client_secret, refresh_token]):
+        raise RuntimeError(
+            "YouTube Analytics認証情報が未設定 "
+            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
+        )
+
+    token = _oauth_access_token(client_id, client_secret, refresh_token)
+
+    if not start_date:
+        start_date = (date.today() - timedelta(days=30)).isoformat()
+    if not end_date:
+        end_date = date.today().isoformat()
+
+    resp = requests.get(
+        f"{ANALYTICS_API_BASE}/reports",
+        params={
+            "ids": "channel==MINE",
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": "insightTrafficSourceType",
+            "metrics": "views",
+            "filters": f"video=={video_id}",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    rows = data.get("rows") or []
+    if not rows:
+        return {"raw_response": data}
+
+    by_type: dict[str, int] = {}
+    total = 0
+    for row in rows:
+        if len(row) < 2:
+            continue
+        ts_type = str(row[0])
+        views = int(row[1] or 0)
+        by_type[ts_type] = views
+        total += views
+
+    if total <= 0:
+        return {"raw_response": data}
+
+    out: dict[str, Any] = {"raw_response": data}
+    for label, key in _TRAFFIC_TYPE_TO_KEY.items():
+        out[key] = by_type.get(label, 0) / total
+    return out
+
+
+def fetch_retention_curve(video_id: str,
+                          start_date: str | None = None,
+                          end_date: str | None = None,
+                          duration_sec: float | None = None) -> dict:
+    """dimensions=elapsedVideoTimeRatio で audience retention curve を返す。
+
+    Returns:
+        ``{"curve": [{elapsed_pct, ratio, elapsed_sec?}, ...], "raw_response": ...}``
+        視聴数が YouTube の閾値に届かない動画では空 curve が返る (= API 仕様)。
+        ``duration_sec`` を渡すと elapsed_sec も補完して dashboard の x 軸を
+        秒で書ける。
+    """
+    import requests
+
+    client_id, client_secret, refresh_token = _resolve_oauth_env()
+    if not all([client_id, client_secret, refresh_token]):
+        raise RuntimeError(
+            "YouTube Analytics認証情報が未設定 "
+            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
+        )
+
+    token = _oauth_access_token(client_id, client_secret, refresh_token)
+
+    if not start_date:
+        start_date = (date.today() - timedelta(days=30)).isoformat()
+    if not end_date:
+        end_date = date.today().isoformat()
+
+    resp = requests.get(
+        f"{ANALYTICS_API_BASE}/reports",
+        params={
+            "ids": "channel==MINE",
+            "startDate": start_date,
+            "endDate": end_date,
+            "dimensions": "elapsedVideoTimeRatio",
+            "metrics": "audienceWatchRatio,relativeRetentionPerformance",
+            "filters": f"video=={video_id}",
+        },
+        headers={"Authorization": f"Bearer {token}"},
+        timeout=30,
+    )
+    resp.raise_for_status()
+    data = resp.json()
+
+    rows = data.get("rows") or []
+    curve: list[dict] = []
+    for row in rows:
+        if len(row) < 2:
+            continue
+        try:
+            elapsed_pct = float(row[0])
+            ratio = float(row[1] or 0.0)
+        except (TypeError, ValueError):
+            continue
+        point: dict[str, Any] = {"elapsed_pct": elapsed_pct, "ratio": ratio}
+        if duration_sec is not None:
+            point["elapsed_sec"] = elapsed_pct * float(duration_sec)
+        curve.append(point)
+    curve.sort(key=lambda p: p["elapsed_pct"])
+    return {"curve": curve, "raw_response": data}
 
 
 def _load_upload_state(state_path: Path | None,
@@ -645,7 +840,13 @@ def _query_resumable_offset(upload_url: str, file_size: int):
 
 
 def fetch_metrics_for_post(post: dict) -> dict:
-    """dbから取った1 post dictに対してmetricsを取得。Analytics取れなければData APIで補完。"""
+    """db から取った 1 post dict に対して metrics を取得する。
+
+    schema v10 で追加された traffic source / retention curve も合流する:
+    - traffic_*_pct → 直接 result に積み、insert_metrics が post_metrics へ書き込む
+    - retention curve → underscore prefix キー ``_retention_curve`` で渡し、
+      caller (= fetch_metrics.py) が post_retention_curves へ別経路で persist する
+    """
     video_id = post["platform_post_id"]
     result: dict = {}
 
@@ -662,5 +863,22 @@ def fetch_metrics_for_post(post: dict) -> dict:
                 result[k] = v
     except Exception as e:
         logger.warning("YouTube public stats 取得失敗 (%s): %s", video_id, e)
+
+    try:
+        traffic = fetch_traffic_sources(video_id)
+        for k, v in traffic.items():
+            if k == "raw_response" or v is None:
+                continue
+            result[k] = v
+    except Exception as e:
+        logger.info("YouTube traffic source 取得スキップ (%s): %s", video_id, e)
+
+    duration_sec = result.get("duration_sec") or post.get("video_duration_sec")
+    try:
+        retention = fetch_retention_curve(video_id, duration_sec=duration_sec)
+        if retention.get("curve"):
+            result["_retention_curve"] = retention["curve"]
+    except Exception as e:
+        logger.info("YouTube retention curve 取得スキップ (%s): %s", video_id, e)
 
     return result
