@@ -293,6 +293,22 @@ def build_render_plan(
                 "params": dict(cam.get("params") or {}),
             }
 
+        # Phase 4-E: lower_third (= 画面下 1/3 の名前バナー等) を passthrough。
+        # {id, at, duration, params?}。1 scene につき 1 件のみ。
+        lt = scene_parts_in.get("lower_third")
+        if (
+            isinstance(lt, dict)
+            and isinstance(lt.get("id"), str)
+            and lt.get("at") is not None
+            and lt.get("duration") is not None
+        ):
+            plan_parts["lower_third"] = {
+                "id": lt["id"],
+                "at": float(lt["at"]),
+                "duration": float(lt["duration"]),
+                "params": dict(lt.get("params") or {}),
+            }
+
         plan_scenes.append(
             {
                 "index": s_idx,

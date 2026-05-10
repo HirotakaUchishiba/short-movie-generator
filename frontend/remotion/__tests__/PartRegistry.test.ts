@@ -68,6 +68,16 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.camera_moves).toBe(true);
     }
   });
+
+  it("contains lower_thirds category (Phase 4-E)", () => {
+    expect("lower_thirds" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 3 lower_third components (Phase 4-E)", () => {
+    for (const id of ["name_banner", "role_caption", "quote_box"]) {
+      expect(id in PART_REGISTRY.lower_thirds).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {
