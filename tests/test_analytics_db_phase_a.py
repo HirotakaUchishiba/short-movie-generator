@@ -130,6 +130,79 @@ def test_v_performance_excludes_rolled_back_posts(isolated_db):
     )
 
 
+def _seed_axis_post(db, *, ts: str, hook_type: str, tone: str,
+                    dominant_emotion: str, theme: str, views: int):
+    """軸別 view 用 seed: screenplay に 4 軸値を入れ、24h+1min 経過した
+    post_metrics を 1 件投入する。"""
+    sp_id = f"sp_{ts}"
+    v_id = f"v_{ts}"
+    p_id = f"p_{ts}"
+    with db.get_connection() as conn:
+        conn.execute(
+            "INSERT INTO screenplays (id, path, name, sha256, created_at, "
+            "raw_json, hook_type, tone, dominant_emotion, theme) "
+            "VALUES (?, '/x', 'x', ?, datetime('now'), '{}', ?, ?, ?, ?)",
+            (sp_id, sp_id + "_sha", hook_type, tone, dominant_emotion, theme),
+        )
+        conn.execute(
+            "INSERT INTO videos (id, screenplay_id, output_path, generated_at, "
+            "generation_cost_usd) VALUES (?, ?, '/x', datetime('now'), 5.0)",
+            (v_id, sp_id),
+        )
+        # posted_at は 2 日前にして 24h 経過 filter (julianday >= 1.0) を通す。
+        conn.execute(
+            "INSERT INTO posts (id, video_id, platform, platform_post_id, "
+            "posted_at, registered_at) "
+            "VALUES (?, ?, 'youtube', ?, datetime('now', '-2 days'), datetime('now'))",
+            (p_id, v_id, p_id),
+        )
+        conn.execute(
+            "INSERT INTO post_metrics (post_id, fetched_at, views) "
+            "VALUES (?, datetime('now'), ?)",
+            (p_id, views),
+        )
+    return p_id
+
+
+@pytest.mark.parametrize("view_name,axis_column,axis_value", [
+    ("v_hook_type_performance", "hook_type", "shock"),
+    ("v_tone_performance", "tone", "casual"),
+    ("v_dominant_emotion_performance", "dominant_emotion", "驚き"),
+    ("v_theme_performance", "theme", "tech"),
+])
+def test_axis_views_exclude_rolled_back_posts(
+    isolated_db, view_name, axis_column, axis_value,
+):
+    """schema v12 / D-1: 軸別 view 4 つが v_active_posts 経由で
+    rollback 済 post を集計から除外しているか。"""
+    db = isolated_db
+    common = dict(
+        hook_type="shock", tone="casual",
+        dominant_emotion="驚き", theme="tech",
+    )
+    p_active = _seed_axis_post(db, ts="active", views=100, **common)
+    p_rolled = _seed_axis_post(db, ts="rolled", views=999, **common)
+    db.mark_post_rolled_back(p_rolled, reason="test")
+
+    with db.get_connection() as conn:
+        rows = list(conn.execute(
+            f"SELECT axis_value, n, avg_views FROM {view_name} "
+            f"WHERE axis_value = ?",
+            (axis_value,),
+        ))
+
+    assert len(rows) == 1, f"{view_name} で {axis_column}={axis_value} が見つからない"
+    row = rows[0]
+    assert row["n"] == 1, (
+        f"{view_name} に rollback 済 post が混入している "
+        f"(n={row['n']}, expected=1, axis={axis_column})"
+    )
+    assert row["avg_views"] == 100.0, (
+        f"{view_name} の avg_views に rollback 済 post の views=999 が混じっている "
+        f"(actual={row['avg_views']}, expected=100.0)"
+    )
+
+
 def test_list_generation_records_handles_invalid_validator_scores(isolated_db):
     """validator_scores が壊れた JSON を保持していても落ちないことを確認。"""
     db = isolated_db

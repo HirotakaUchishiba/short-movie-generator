@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 11
+CURRENT_SCHEMA_VERSION = 12
 
 
 def _now() -> str:
@@ -65,6 +65,14 @@ def init_db() -> None:
         conn.execute("DROP VIEW IF EXISTS v_transformation_performance")
         conn.execute("DROP VIEW IF EXISTS v_performance")
         conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
+        # schema v12: 軸別 view 4 つを v_active_posts 経由に切り替え
+        # (= rollback 済 post を集計から除外する不変条件を遵守)。
+        # 既存 view は JOIN posts p のままなので drop してから schema.sql 適用で
+        # JOIN v_active_posts p の新定義で再作成する。
+        conn.execute("DROP VIEW IF EXISTS v_hook_type_performance")
+        conn.execute("DROP VIEW IF EXISTS v_tone_performance")
+        conn.execute("DROP VIEW IF EXISTS v_dominant_emotion_performance")
+        conn.execute("DROP VIEW IF EXISTS v_theme_performance")
         conn.execute("DROP VIEW IF EXISTS v_active_posts")
         # 既存 DB に rollback_at が無い間は v_active_posts の SELECT * が
         # 不整合を起こすので、schema.sql 実行前に列を追加しておく。
