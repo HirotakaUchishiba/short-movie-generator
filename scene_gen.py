@@ -143,12 +143,27 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
     """Kling 用 animation_prompt を合成する (SSOT準拠 / 完全英文)。
 
     優先順位:
+      0. scene._override_animation_prompt (= novel intent escape hatch)
       1. scene.animation_prompt (compose 由来 = subject speaks naturally ...)
       2. scene.action_id があれば actions/<id>.json の animation_motion (Phase X-2a)
       3. 無い場合は background_prompt をベースにフォールバック
 
     base に emotion arc (英訳) / Stage 4 用 dom_cues / audio_dynamics を注入。
+
+    `_override_animation_prompt` が設定されている場合は emotion arc / dom_cues /
+    audio_dynamics の追記を一切行わず文字列をそのまま base として使う (= ただし
+    `_augment_animation_prompt` で frontload + negative constraint は付く)。
+    compositional architecture の `clip_library` に該当 entry が無い scene を
+    1 回だけ generate して promote させる経路。
     """
+    override = scene.get("_override_animation_prompt")
+    if isinstance(override, str) and override.strip():
+        logger.info(
+            "[scene-gen] _override_animation_prompt 採用 (scene %s): %r",
+            s_idx if s_idx is not None else "?", override[:80],
+        )
+        return override.strip()
+
     explicit = scene.get("animation_prompt")
     base: str = ""
     if explicit:
@@ -341,7 +356,20 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
 
     衣装と人物特定は reference 画像が SSOT。動的情報 (audio_dynamics) は
     静止画には作用しないため Stage 4 (Kling) のみで使う。
+
+    `_override_background_prompt` (= novel intent / 緊急対応用 escape hatch) が
+    screenplay に設定されている場合は、location 注入や emotion cue を一切経由
+    せず文字列をそのまま採用する。compositional architecture の `clip_library`
+    に該当 entry が無い scene を 1 回だけ generate して promote させる経路。
     """
+    override = scene.get("_override_background_prompt")
+    if isinstance(override, str) and override.strip():
+        logger.info(
+            "[scene-gen] _override_background_prompt 採用 (scene %s): %r",
+            s_idx if s_idx is not None else "?", override[:80],
+        )
+        return override.strip()
+
     from analyze import location as loc_mod
 
     loc_parts: list[str] = []
