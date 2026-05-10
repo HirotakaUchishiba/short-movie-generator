@@ -3,12 +3,13 @@
 //
 // 詳細: docs/plannings/2026-05-10_compositional-architecture.md §4.3, §5.2
 
+import { STICKER_COMPONENTS } from "./parts/stickers";
 import { SUBTITLE_COMPONENTS } from "./parts/subtitles";
 
 export const PART_REGISTRY = {
   subtitle_styles: SUBTITLE_COMPONENTS,
-  // Phase 4 以降で追加:
-  //   stickers: STICKER_COMPONENTS,
+  stickers: STICKER_COMPONENTS,
+  // 将来追加:
   //   transitions: TRANSITION_COMPONENTS,
   //   lower_thirds: LOWER_THIRD_COMPONENTS,
   //   title_cards: TITLE_CARD_COMPONENTS,

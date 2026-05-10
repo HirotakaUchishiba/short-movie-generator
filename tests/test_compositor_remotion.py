@@ -239,6 +239,78 @@ class TestBuildRenderPlan:
         # explicit param が default を上書きする
         assert sty["params"]["fontColor"] == "#FF0000"
 
+    def test_scene_parts_stickers_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-B: scene_parts.stickers[] が plan.scenes[].parts.stickers に
+        正規化されて入る (= id / at / duration / params)。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [{"text": "y", "start": 0, "end": 1}],
+                    "scene_parts": {
+                        "stickers": [
+                            {
+                                "id": "exclaim_red",
+                                "at": 0.5,
+                                "duration": 1.5,
+                                "params": {"top": 0.3, "right": 0.1},
+                            },
+                            {
+                                "id": "sparkle",
+                                "at": 1.0,
+                                # duration 省略 → render 側 default 1.5 秒
+                            },
+                        ]
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        stickers = plan["scenes"][0]["parts"]["stickers"]
+        assert len(stickers) == 2
+        assert stickers[0]["id"] == "exclaim_red"
+        assert stickers[0]["at"] == 0.5
+        assert stickers[0]["duration"] == 1.5
+        assert stickers[0]["params"]["top"] == 0.3
+        # 2 件目: duration 未指定なら省略
+        assert stickers[1]["id"] == "sparkle"
+        assert "duration" not in stickers[1]
+        # scene 1 (= sticker 無し) は parts.stickers が無い
+        assert "stickers" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_sticker_entries_skipped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """id / at が欠けている sticker entry は静かにスキップ。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "stickers": [
+                            {"id": "exclaim_red"},  # at 欠落
+                            {"at": 1.0},  # id 欠落
+                            "not_a_dict",  # 型違い
+                            {"id": "sparkle", "at": 0.5},  # 正常
+                        ]
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        stickers = plan["scenes"][0]["parts"]["stickers"]
+        assert len(stickers) == 1
+        assert stickers[0]["id"] == "sparkle"
+
 
 # ───────────── render_via_remotion (= subprocess mock) ─────────────
 

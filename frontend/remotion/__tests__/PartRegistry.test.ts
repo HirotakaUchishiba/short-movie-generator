@@ -21,6 +21,22 @@ describe("PART_REGISTRY", () => {
   it("registers karaoke_bold subtitle component (Phase 4-A)", () => {
     expect("karaoke_bold" in PART_REGISTRY.subtitle_styles).toBe(true);
   });
+
+  it("contains stickers category (Phase 4-B)", () => {
+    expect("stickers" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 5 sticker components (Phase 4-B)", () => {
+    for (const id of [
+      "exclaim_red",
+      "question_mark",
+      "sparkle",
+      "thumbs_up",
+      "fire",
+    ]) {
+      expect(id in PART_REGISTRY.stickers).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {

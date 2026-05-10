@@ -66,6 +66,23 @@ export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
           );
         }),
       )}
+
+      {/* sticker レイヤ。`at` は scene 内相対秒 (= 0 が scene 頭)。
+          duration 既定 1.5 秒。z-index は字幕の上に来る (= 字幕より後に DOM 追加)。
+          詳細: docs/plannings/2026-05-10_compositional-architecture.md §4.1 */}
+      {(scene.parts.stickers ?? []).map((s, i) => {
+        const fromFrame = Math.max(0, toFrames(s.at, fps));
+        const durFrames = Math.max(1, toFrames(s.duration ?? 1.5, fps));
+        return (
+          <Sequence
+            key={`sticker-${i}`}
+            from={fromFrame}
+            durationInFrames={durFrames}
+          >
+            <PartRenderer category="stickers" id={s.id} params={s.params} />
+          </Sequence>
+        );
+      })}
     </AbsoluteFill>
   );
 };
