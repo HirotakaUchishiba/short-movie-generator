@@ -86,7 +86,7 @@ flowchart LR
 - **上層は下層に依存して良い**。下層は上層を知らない (= 逆方向依存禁止)
 - **同層間の依存は最小限に**。例えば `scene_gen.py` と `compositor.py` は直接互いを呼ばず、`staged_pipeline.py` が両方を呼ぶ
 - **外部 API クライアント層は副作用の入口**。テストではここをモックする
-- `analyze/` と `analytics/` は **orthogonal** (= メイン生成パイプラインから独立)。互いに知らない
+- `analyze/` と `analytics/` は **orthogonal** (= メイン生成パイプラインから独立)。互いの core logic は知らない。`analyze` は job 永続化のために analytics と同じ SQLite DB を物理共有しているが、その依存は `analyze/store.py` (= storage SSOT) に閉じ込められており、`analyze/` 配下で `analytics` を直接 import するファイルはこの 1 つだけ
 
 ---
 

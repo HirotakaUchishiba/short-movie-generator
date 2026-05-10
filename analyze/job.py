@@ -21,7 +21,7 @@ from pathlib import Path
 from typing import Any
 
 import config
-from analytics import db as _db
+from . import store as _store
 
 logger = logging.getLogger(__name__)
 
@@ -119,7 +119,7 @@ def create_job(
     options_json = json.dumps(options, ensure_ascii=False, sort_keys=True)
     created_at = _now()
 
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             """INSERT INTO analyze_jobs
                (id, video_sha256, options_json, status, project_ts, created_at)
@@ -141,7 +141,7 @@ def create_job(
 
 
 def get_job(job_id: str) -> AnalyzeJob:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM analyze_jobs WHERE id = ?", (job_id,),
         ).fetchone()
@@ -151,7 +151,7 @@ def get_job(job_id: str) -> AnalyzeJob:
 
 
 def list_jobs(limit: int = 50) -> list[AnalyzeJob]:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM analyze_jobs ORDER BY created_at DESC LIMIT ?", (limit,),
         ).fetchall()
@@ -163,7 +163,7 @@ def update_job(job_id: str, **kwargs: Any) -> None:
         return
     sets = ", ".join(f"{k} = ?" for k in kwargs)
     values = list(kwargs.values()) + [job_id]
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(f"UPDATE analyze_jobs SET {sets} WHERE id = ?", values)
 
 
@@ -196,7 +196,7 @@ def is_cancellation_requested(job_id: str) -> bool:
 
 
 def start_phase(job_id: str, phase: str) -> None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             """UPDATE analyze_phases
                SET status = 'running', started_at = ?
@@ -212,7 +212,7 @@ def start_phase(job_id: str, phase: str) -> None:
 def complete_phase(job_id: str, phase: str, *,
                     duration_ms: int | None = None,
                     cost_usd: float | None = None) -> None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             """UPDATE analyze_phases
                SET status = 'completed', finished_at = ?,
@@ -223,7 +223,7 @@ def complete_phase(job_id: str, phase: str, *,
 
 
 def fail_phase(job_id: str, phase: str, error: str) -> None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             """UPDATE analyze_phases
                SET status = 'failed', finished_at = ?, error = ?
@@ -233,7 +233,7 @@ def fail_phase(job_id: str, phase: str, error: str) -> None:
 
 
 def skip_phase(job_id: str, phase: str) -> None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             """UPDATE analyze_phases
                SET status = 'skipped', finished_at = ?
@@ -243,7 +243,7 @@ def skip_phase(job_id: str, phase: str) -> None:
 
 
 def get_phases(job_id: str) -> list[dict]:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM analyze_phases WHERE job_id = ? ORDER BY phase",
             (job_id,),
@@ -259,7 +259,7 @@ def upsert_reference_video(sha256: str, *, original_name: str,
                             duration_sec: float | None = None) -> None:
     """アップロード動画のメタデータを登録。既存の sha256 なら last_used_at を更新。"""
     now = _now()
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         existing = conn.execute(
             "SELECT 1 FROM reference_videos WHERE sha256 = ?", (sha256,),
         ).fetchone()
@@ -278,7 +278,7 @@ def upsert_reference_video(sha256: str, *, original_name: str,
 
 
 def get_reference_video(sha256: str) -> dict | None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         row = conn.execute(
             "SELECT * FROM reference_videos WHERE sha256 = ?", (sha256,),
         ).fetchone()
@@ -286,7 +286,7 @@ def get_reference_video(sha256: str) -> dict | None:
 
 
 def list_reference_videos() -> list[dict]:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         rows = conn.execute(
             "SELECT * FROM reference_videos ORDER BY uploaded_at DESC"
         ).fetchall()
@@ -294,7 +294,7 @@ def list_reference_videos() -> list[dict]:
 
 
 def touch_reference_video(sha256: str) -> None:
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         conn.execute(
             "UPDATE reference_videos SET last_used_at = ? WHERE sha256 = ?",
             (_now(), sha256),
@@ -311,7 +311,7 @@ def delete_reference_video(sha256: str, *, force: bool = False) -> bool:
     Returns:
         True なら削除成功、False は force=False かつ参照ジョブが残っている場合のみ。
     """
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         if not force:
             used = conn.execute(
                 "SELECT 1 FROM analyze_jobs WHERE video_sha256 = ? LIMIT 1",
@@ -329,7 +329,7 @@ def delete_reference_video(sha256: str, *, force: bool = False) -> bool:
 
 def count_jobs_for_video(sha256: str) -> int:
     """指定動画を参照する analyze_jobs の件数。409 エラー時の表示用。"""
-    with _db.get_connection() as conn:
+    with _store.get_connection() as conn:
         row = conn.execute(
             "SELECT COUNT(*) FROM analyze_jobs WHERE video_sha256 = ?",
             (sha256,),
