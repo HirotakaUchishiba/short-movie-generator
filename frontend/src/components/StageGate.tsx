@@ -23,8 +23,15 @@ interface ShellCtx {
 }
 
 export function useShellCtx() {
+  // ProjectShell が screenplay / screenplay_name の null を early-return で
+  // ガードしているので、Stage 1+ child では non-null 確定。Stage 0 中
+  // (= analyze pending) は AnalyzeStage0Page が別 layout で描画するので
+  // ここに到達しない。
   return useOutletContext() as ShellCtx & {
-    detail: import("../types").ProjectDetail;
+    detail: import("../types").ProjectDetail & {
+      screenplay: import("../types").Screenplay;
+      screenplay_name: string;
+    };
     serverConfig: import("../types").ServerConfig;
     reload: () => Promise<void>;
     reloadConfig: () => Promise<void>;

@@ -9,14 +9,24 @@ import {
 import { api } from "../api";
 import type {
   ProjectDetail,
+  Screenplay,
   StageName,
   ServerConfig,
   JobStatus,
 } from "../types";
 import StageProgressBar from "./StageProgressBar";
 
+// Stage 1+ child component に渡る context は **screenplay と screenplay_name が
+// non-null 確定** の状態。Stage 0 中 (= analyze pending) の project は
+// AnalyzeStage0Page (= /project/<TS>/analyze) が描画する別 layout なので
+// ProjectShell には到達しない (= Phase B Commit 4 で redirect 実装)。
+type LoadedProjectDetail = ProjectDetail & {
+  screenplay: Screenplay;
+  screenplay_name: string;
+};
+
 interface Ctx {
-  detail: ProjectDetail;
+  detail: LoadedProjectDetail;
   serverConfig: ServerConfig;
   reload: () => Promise<void>;
   reloadConfig: () => Promise<void>;
@@ -67,6 +77,17 @@ export default function ProjectShell() {
   useEffect(() => {
     reload();
   }, [reload]);
+
+  // Stage 0 中の project は専用 page (= /project/<TS>/analyze) に redirect。
+  // detail を fetch した後で判定する (= analyze_status は Phase A backend が
+  // api_project_detail に乗せている)。
+  useEffect(() => {
+    if (!ts || !detail) return;
+    const s = detail.analyze_status;
+    if (s === "running" || s === "pending" || s === "failed") {
+      navigate(`/project/${ts}/analyze`, { replace: true });
+    }
+  }, [ts, detail, navigate]);
 
   useEffect(() => {
     if (!jobId) return;
@@ -147,9 +168,17 @@ export default function ProjectShell() {
   if (!detail || !serverConfig) {
     return <div className="p-8 text-slate-400">読み込み中...</div>;
   }
+  if (!detail.screenplay || !detail.screenplay_name) {
+    // Stage 0 中の project が誤って ProjectShell に流れ込んだケース
+    // (= Phase B Commit 4 で /project/<TS>/analyze に redirect する)。
+    return (
+      <div className="p-8 text-slate-400">プロジェクトを読み込み中...</div>
+    );
+  }
 
+  const loadedDetail = detail as LoadedProjectDetail;
   const ctx: Ctx = {
-    detail,
+    detail: loadedDetail,
     serverConfig,
     reload,
     reloadConfig,
@@ -173,9 +202,9 @@ export default function ProjectShell() {
               ← プロジェクト一覧
             </Link>
             <h1 className="text-lg font-semibold mt-1">
-              {detail.screenplay_name}
+              {loadedDetail.screenplay_name}
               <span className="ml-3 text-xs text-slate-400">
-                {detail.timestamp}
+                {loadedDetail.timestamp}
               </span>
             </h1>
           </div>

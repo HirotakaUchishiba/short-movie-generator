@@ -266,3 +266,72 @@ describe("AnalyzeJobView annotation_stats", () => {
     expect(statsEl.textContent).toMatch(/low conf demoted: 4/);
   });
 });
+
+describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
+  let fakeEs: FakeEventSource;
+
+  beforeEach(() => {
+    fakeEs = makeFakeEventSource();
+    mockGetJob.mockReset();
+    mockEventSource.mockReset();
+    mockEventSource.mockReturnValue(fakeEs);
+  });
+  afterEach(() => {
+    vi.restoreAllMocks();
+  });
+
+  it("projectTs を渡すと完了時に AutoNavigateOnComplete が render される", async () => {
+    mockGetJob.mockResolvedValue(baseJobDetail());
+
+    render(
+      <MemoryRouter>
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mockGetJob).toHaveBeenCalled());
+
+    act(() => {
+      fakeEs.emit("phase_complete", {
+        phase: "save",
+        output_path: "/tmp/screenplays/auto_x.json",
+      });
+      fakeEs.emit("completed", {
+        output_path: "/tmp/screenplays/auto_x.json",
+      });
+    });
+
+    await waitFor(() => {
+      expect(
+        screen.getByText(/Stage 1 \(台本編集\) に自動遷移します/),
+      ).toBeInTheDocument();
+    });
+    // standalone モードのボタンは出ない
+    expect(screen.queryByText(/プロジェクト作成 →/)).toBeNull();
+  });
+
+  it("projectTs を渡さなければ従来の「プロジェクト作成」ボタンが render される", async () => {
+    mockGetJob.mockResolvedValue(baseJobDetail());
+
+    render(
+      <MemoryRouter>
+        <AnalyzeJobView jobId="job_test_1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => expect(mockGetJob).toHaveBeenCalled());
+
+    act(() => {
+      fakeEs.emit("phase_complete", {
+        phase: "save",
+        output_path: "/tmp/screenplays/auto_x.json",
+      });
+      fakeEs.emit("completed", {
+        output_path: "/tmp/screenplays/auto_x.json",
+      });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/プロジェクト作成 →/)).toBeInTheDocument();
+    });
+    expect(screen.queryByText(/自動遷移します/)).toBeNull();
+  });
+});
