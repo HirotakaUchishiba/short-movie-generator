@@ -283,6 +283,61 @@ class TestBuildRenderPlan:
         # scene 1 (= sticker 無し) は parts.stickers が無い
         assert "stickers" not in plan["scenes"][1]["parts"]
 
+    def test_global_filter_preset_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-C: global_parts.filter_preset が plan に正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "filter_preset": {
+                    "id": "warm_cinematic",
+                    "params": {"strength": 1.0},
+                },
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert plan["global_parts"]["filter_preset"]["id"] == "warm_cinematic"
+        assert plan["global_parts"]["filter_preset"]["params"]["strength"] == 1.0
+
+    def test_global_parts_empty_default(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """global_parts なしの screenplay でも空 dict が返る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert plan["global_parts"] == {}
+
+    def test_invalid_filter_preset_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """id が無い / dict でない filter_preset は静かにドロップ。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "filter_preset": {"params": {}},  # id 欠落
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert plan["global_parts"] == {}
+
     def test_invalid_sticker_entries_skipped(
         self, dummy_scene_videos: list[str]
     ) -> None:

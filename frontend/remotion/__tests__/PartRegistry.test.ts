@@ -37,6 +37,22 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.stickers).toBe(true);
     }
   });
+
+  it("contains filter_presets category (Phase 4-C)", () => {
+    expect("filter_presets" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 5 filter_preset components (Phase 4-C)", () => {
+    for (const id of [
+      "none",
+      "warm_cinematic",
+      "cool_blue",
+      "monochrome",
+      "vintage",
+    ]) {
+      expect(id in PART_REGISTRY.filter_presets).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {
