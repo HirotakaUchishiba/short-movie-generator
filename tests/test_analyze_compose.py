@@ -535,3 +535,133 @@ def test_compose_preserves_line_voice_overrides(isolated_dirs):
     # base.voice_id (= voice_p) は残しつつ、stability は line 個別優先
     assert line0["voice_overrides"]["voice_id"] == "voice_p"
     assert line0["voice_overrides"]["stability"] == 0.9
+
+
+# ─── Step 2: identity 派生 ───────────────────
+
+
+class TestIdentityDerivation:
+    """compose 後の scene["identity"] が clip_library cache 鍵として正しく
+    派生されること + 必須欠落時に identity を入れない契約を検証。"""
+
+    def test_full_fields_yields_identity(self, isolated_dirs):
+        _seed(isolated_dirs)
+        sp = compose_screenplay(_abstract_minimal())
+        ident = sp["scenes"][0].get("identity")
+        assert ident is not None
+        assert ident["character_refs"] == ["f1__office"]
+        assert ident["location_ref"] == "home_office"
+        assert ident["start_emotion"] == "焦り"   # lines[0].emotion
+        assert ident["camera_distance"] == "medium-close"  # location 既定
+
+    def test_camera_distance_from_scene_overrides_location(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["camera_distance"] = "wide"
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["identity"]["camera_distance"] == "wide"
+
+    def test_no_location_yields_no_identity(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0].pop("location_ref", None)
+        sp = compose_screenplay(abstract)
+        assert "identity" not in sp["scenes"][0]
+
+    def test_no_characters_yields_no_identity(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["featured_characters"] = []  # 0 人
+        sp = compose_screenplay(abstract)
+        assert "identity" not in sp["scenes"][0]
+
+    def test_no_emotion_yields_no_identity(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        for line in abstract["scenes"][0]["lines"]:
+            line.pop("emotion", None)
+        sp = compose_screenplay(abstract)
+        assert "identity" not in sp["scenes"][0]
+
+    def test_character_refs_sorted(self, isolated_dirs):
+        """char_refs は順不同性を担保するため sorted で正規化される
+        (= 同 cache 鍵の同等性保証)。"""
+        _seed(isolated_dirs)
+        abstract = {
+            "caption": "x",
+            "featured_characters": ["m1__suit", "f1__office"],  # 元順
+            "scenes": [{
+                "duration": 5,
+                "location_ref": "home_office",
+                "lines": [{"text": "t", "start": 0, "end": 1, "emotion": "中立"}],
+            }],
+        }
+        sp = compose_screenplay(abstract)
+        ident = sp["scenes"][0]["identity"]
+        # 元順は m1, f1 だが識別性のため alphabetical
+        assert ident["character_refs"] == ["f1__office", "m1__suit"]
+
+    def test_start_emotion_uses_first_non_empty(self, isolated_dirs):
+        """start_emotion は最初の非空 emotion を採用 (= 先頭が空なら次)。"""
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["lines"][0]["emotion"] = ""
+        # lines[1].emotion = "安堵" を採用するはず
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["identity"]["start_emotion"] == "安堵"
+
+
+class TestAnnotationPassThrough:
+    """compose は abstract.annotation を破壊せず scene にコピーする
+    (= Step 1 が書いた annotation を staged_pipeline 経由でも維持)。"""
+
+    def test_annotation_pass_through(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["annotation"] = {
+            "visual_intent_id": "talking_head_calm",
+            "duration_bucket": 5,
+            "motion_intensity": "low",
+        }
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["annotation"] == {
+            "visual_intent_id": "talking_head_calm",
+            "duration_bucket": 5,
+            "motion_intensity": "low",
+        }
+
+    def test_annotation_absent_when_not_provided(self, isolated_dirs):
+        _seed(isolated_dirs)
+        sp = compose_screenplay(_abstract_minimal())
+        # abstract に annotation 無し → compose 出力にも無し (= 旧経路互換)
+        assert "annotation" not in sp["scenes"][0]
+
+
+class TestOverridePassThrough:
+    """_override_* (= novel intent escape hatch) は abstract → compose で維持。"""
+
+    def test_override_background_pass_through(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["_override_background_prompt"] = "夕焼けの海"
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["_override_background_prompt"] == "夕焼けの海"
+
+    def test_empty_override_dropped(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["_override_animation_prompt"] = "   "
+        sp = compose_screenplay(abstract)
+        # 空白のみは bypass 判定されないので drop
+        assert "_override_animation_prompt" not in sp["scenes"][0]
+
+
+def test_clip_library_scene_has_identity_after_compose(isolated_dirs):
+    """E2E: compose 後の scene が clip_library.scene_has_identity で True を返す
+    (= cache hit 経路が構造的に発動できる状態になった)。"""
+    import clip_library
+
+    _seed(isolated_dirs)
+    sp = compose_screenplay(_abstract_minimal())
+    scene = sp["scenes"][0]
+    assert clip_library.scene_has_identity(scene) is True
