@@ -81,16 +81,12 @@ function formatDuration(ms: number): string {
 
 interface Props {
   jobId: string;
-  /** project-internal モード: 完了時に project の Stage 1 page に自動遷移する。
-   * 未指定 (= standalone モード = 旧 /analyze ページ) では「プロジェクト作成」
-   * ボタンを表示する。Phase E で standalone モードを削除する。
-   */
-  projectTs?: string | null;
+  /** Stage 0 page (= /project/<TS>/analyze) が渡す project の TS。完了時に
+   * `/project/<TS>/script` へ自動遷移する。 */
+  projectTs: string;
 }
 
 export default function AnalyzeJobView({ jobId, projectTs }: Props) {
-  const navigate = useNavigate();
-  const [composing, setComposing] = useState(false);
   const [job, setJob] = useState<AnalyzeJobDetail | null>(null);
   const [phases, setPhases] = useState<Record<AnalyzePhase, PhaseState>>(
     () =>
@@ -677,52 +673,7 @@ export default function AnalyzeJobView({ jobId, projectTs }: Props) {
               </span>
             </div>
           )}
-          {projectTs ? (
-            <AutoNavigateOnComplete ts={projectTs} />
-          ) : (
-            <>
-              <div className="mt-3 flex gap-2 flex-wrap">
-                <button
-                  type="button"
-                  className="btn-primary"
-                  disabled={composing}
-                  onClick={async () => {
-                    if (!completedPath) return;
-                    setComposing(true);
-                    try {
-                      const screenplayName = completedPath.split("/").pop();
-                      if (!screenplayName) return;
-                      const proj = await api.createProject(
-                        screenplayName,
-                        jobId,
-                      );
-                      navigate(`/project/${proj.timestamp}/script`);
-                    } catch (e) {
-                      alert(String(e));
-                    } finally {
-                      setComposing(false);
-                    }
-                  }}
-                >
-                  {composing ? "作成中…" : "プロジェクト作成 →"}
-                </button>
-                <Link to="/" className="btn-ghost">
-                  後で (プロジェクト一覧へ)
-                </Link>
-              </div>
-              <div className="mt-2 text-xs text-slate-400">
-                ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
-                作成後 台本タブで各シーンを編集できます。
-              </div>
-              <div
-                className="mt-2 text-xs text-amber-300"
-                data-testid="standalone-mode-deprecation-hint"
-              >
-                ※ 今後は TOP「📹 参考動画から作成」経由で 1 操作で完結します (=
-                analyze + project 作成を分けず、Stage 0 として統合予定)。
-              </div>
-            </>
-          )}
+          <AutoNavigateOnComplete ts={projectTs} />
         </div>
       )}
     </div>
