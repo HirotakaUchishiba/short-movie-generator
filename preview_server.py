@@ -48,6 +48,7 @@ from routes.assets import assets_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
 from routes.final_publish import final_publish_bp  # noqa: E402
+from routes.part_catalog import part_catalog_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.render_plan import render_plan_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
@@ -57,6 +58,7 @@ app.register_blueprint(analytics_bp)
 app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(render_plan_bp)
+app.register_blueprint(part_catalog_bp)
 app.register_blueprint(stages_bp)
 app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
