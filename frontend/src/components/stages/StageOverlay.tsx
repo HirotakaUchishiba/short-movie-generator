@@ -228,7 +228,26 @@ export default function StageOverlay() {
     });
   };
 
-  const onApply = async () => {
+  // Phase 3-C で Player を primary preview にした結果、字幕変更は Player 側で
+  // リアルタイム反映される。なので「保存」と「最終 mp4 を焼き直す (= 公開準備)」を
+  // 分離する。
+  // - onSave:    screenplay を PUT するだけ。Player の plan は再 fetch される
+  //              (= regen_count を bumpKey にしている)。AI 課金 0 / レンダリングなし
+  // - onRender:  保存 + ffmpeg/Remotion で最終 mp4 を生成。Stage 7 公開前に必要
+  const onSave = async () => {
+    setSaving(true);
+    setError(null);
+    try {
+      await api.saveScreenplay(ctx.detail.timestamp, draft);
+      await ctx.reload();
+    } catch (e) {
+      setError(String(e));
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  const onRender = async () => {
     setSaving(true);
     setError(null);
     try {
@@ -291,14 +310,33 @@ export default function StageOverlay() {
           </p>
         </div>
         <div className="card">
-          <div className="flex justify-between items-center mb-3">
+          <div className="flex justify-between items-center mb-3 gap-2 flex-wrap">
             <h3 className="font-semibold">
               字幕一覧 (line ごとに自動 / 手動切替)
             </h3>
-            <button className="btn-primary" disabled={saving} onClick={onApply}>
-              {saving ? "焼き直し中..." : "保存して焼き直し"}
-            </button>
+            <div className="flex items-center gap-2">
+              <button
+                className="btn-ghost text-xs"
+                disabled={saving}
+                onClick={onSave}
+                title="screenplay JSON を保存。Player の preview は即座に再 fetch される。最終 mp4 は焼き直さない (= AI 課金 0 / 数秒)"
+              >
+                {saving ? "..." : "💾 保存"}
+              </button>
+              <button
+                className="btn-primary text-xs"
+                disabled={saving}
+                onClick={onRender}
+                title="保存 + 最終 mp4 を再 render (= ffmpeg or Remotion)。Stage 7 公開前に実行する"
+              >
+                {saving ? "焼き直し中..." : "🎬 最終 mp4 を焼き直す"}
+              </button>
+            </div>
           </div>
+          <p className="text-[10px] text-slate-500 mb-2">
+            💾 保存だけなら Player の preview は即時反映 (= 焼き直し不要)。 🎬
+            焼き直しは Stage 7 公開 mp4 を更新する時のみ必要。
+          </p>
           {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
           <div className="max-h-[640px] overflow-auto space-y-3">
             {draft.scenes.map((scene, sIdx) => {
@@ -719,8 +757,8 @@ function SubtitleYPositionEditor({
         </span>
       </div>
       <p className="text-[10px] text-slate-500 mt-1.5">
-        スライダー変更後「保存して焼き直し」を押すと反映 ( ffmpeg overlay
-        のみ・無料)
+        スライダー変更は Player に即時反映。Stage 7 公開 mp4 を更新する場合は
+        「🎬 最終 mp4 を焼き直す」を押す
       </p>
     </div>
   );
