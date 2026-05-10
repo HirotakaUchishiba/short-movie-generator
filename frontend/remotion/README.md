@@ -131,27 +131,47 @@ rm -rf frontend/public/_smoke /tmp/hello.mp4
 
 ## Phase 完了状況 (= 2026-05-10 セッション末)
 
-| Phase | 内容                                                                            | status                                              |
-| ----- | ------------------------------------------------------------------------------- | --------------------------------------------------- |
-| 0     | Remotion セットアップ + HelloWorld                                              | ✅                                                  |
-| 1     | clip_library skeleton (= identity/annotation/provenance)                        | ✅                                                  |
-| 2-A   | ScreenplayBase + PartRenderer + MinimalSubtitle                                 | ✅                                                  |
-| 2-B   | compositor_remotion + OVERLAY_BACKEND dispatch                                  | ✅                                                  |
-| 3-A   | GET /api/projects/<TS>/render-plan endpoint                                     | ✅                                                  |
-| 3-B   | StageOverlay UI に Player を side-by-side 表示                                  | ✅                                                  |
-| 3-C   | video preview を Player に完全移行                                              | ✅                                                  |
-| 4-A   | subtitle_styles 拡充 (fade_in / karaoke_bold)                                   | ✅                                                  |
-| 4-B   | stickers (= EmojiSticker × 5 preset)                                            | ✅                                                  |
-| 4-C   | filter_presets + global_parts wiring                                            | ✅                                                  |
-| 4-D   | camera_moves (subtle_zoom_in / ken_burns / dolly_pull_back)                     | ✅                                                  |
-| 4-E   | lower_thirds (name_banner / role_caption / quote_box)                           | ✅                                                  |
-| 4-F   | title_cards (simple_intro / subscribe_outro / section_break)                    | ✅                                                  |
-| 4-G   | transitions (= cut / dip_to_black / dip_to_white / fade_quick)                  | ✅                                                  |
-| 4-H   | frame_layouts (= full / letterbox_top_bottom / centered_with_blur)              | ✅ (= single-video のみ。multi-video PiP は future) |
-| 5-A   | Screenplay{Youtube,Instagram,TikTok} platform composition                       | ✅                                                  |
-| 5-B   | bgm + sfx audio parts (= ScreenplayBase Audio + SceneSequence sfx)              | ✅                                                  |
-| 6     | analyze pipeline 統合 (= intent_resolver helper、LLM prompt 統合は次セッション) | ✅ (skeleton)                                       |
-| 7     | 旧 free-text 経路 deprecation                                                   | ⬜ (= 半年運用後)                                   |
+> ⚠️ **重要**: Phase 1 (clip_library) と Phase 6 (intent_resolver) は \*\*module 単体としては完成
+>
+> - テスト通過** だが、**production code (= scene_gen.py / analyze pipeline) からの呼び出し
+>   配線が未完了\*\* (= skeleton 状態)。詳細と修正計画は
+>   `docs/plannings/2026-05-10_architecture-mismatch-audit.md` を参照。
+
+| Phase | 内容                                                               | status                                              |
+| ----- | ------------------------------------------------------------------ | --------------------------------------------------- |
+| 0     | Remotion セットアップ + HelloWorld                                 | ✅                                                  |
+| 1     | clip_library (= identity/annotation/provenance)                    | ⚠️ skeleton (= module 完成、production wire 未着手) |
+| 2-A   | ScreenplayBase + PartRenderer + MinimalSubtitle                    | ✅                                                  |
+| 2-B   | compositor_remotion + OVERLAY_BACKEND dispatch                     | ✅                                                  |
+| 3-A   | GET /api/projects/<TS>/render-plan endpoint                        | ✅                                                  |
+| 3-B   | StageOverlay UI に Player を side-by-side 表示                     | ✅                                                  |
+| 3-C   | video preview を Player に完全移行                                 | ✅                                                  |
+| 4-A   | subtitle_styles 拡充 (fade_in / karaoke_bold)                      | ✅                                                  |
+| 4-B   | stickers (= EmojiSticker × 5 preset)                               | ✅                                                  |
+| 4-C   | filter_presets + global_parts wiring                               | ✅                                                  |
+| 4-D   | camera_moves (subtle_zoom_in / ken_burns / dolly_pull_back)        | ✅                                                  |
+| 4-E   | lower_thirds (name_banner / role_caption / quote_box)              | ✅                                                  |
+| 4-F   | title_cards (simple_intro / subscribe_outro / section_break)       | ✅                                                  |
+| 4-G   | transitions (= cut / dip_to_black / dip_to_white / fade_quick)     | ✅                                                  |
+| 4-H   | frame_layouts (= full / letterbox_top_bottom / centered_with_blur) | ✅ (= single-video のみ。multi-video PiP は future) |
+| 5-A   | Screenplay{Youtube,Instagram,TikTok} platform composition          | ✅                                                  |
+| 5-B   | bgm + sfx audio parts (= ScreenplayBase Audio + SceneSequence sfx) | ✅                                                  |
+| 6     | analyze pipeline に novel intent 自動検出                          | ⚠️ skeleton (= helper 完成、Claude prompt 統合未)   |
+| 7     | 旧 free-text 経路 deprecation                                      | ⬜ (= 半年運用後)                                   |
+
+### 未配線項目の補足
+
+- **Phase 1 (clip_library)** — `clip_library.py` の全関数は実装済み + 28 unit
+  tests pass。ただし `scene_gen.py` / `staged_pipeline.py` から `lookup_clip_pool()`
+  などが **import 0 件** のため、cache hit による cost 削減は発動していない。
+  修正ブランチ: `feat/wire-clip-library-to-scene-gen`
+- **Phase 6 (intent_resolver)** — `analyze/intent_resolver.py` の
+  `format_catalog_for_prompt()` / `parse_intent_assignment()` は完成しているが、
+  `scripts/analyze_video.py` から呼ばれていない。LLM 統合は次セッション (= 実
+  ANTHROPIC_API_KEY + 実 reference video が必要)
+- **新フィールド (`scene_parts` / `global_parts` / `_override_*`)** — validator は
+  受け入れるが Stage 1-5 の AI 生成では無視される。Stage 6 (Remotion) のみ
+  消費。修正は順次別 PR で
 
 新カテゴリ追加の手順は `2026-05-10_compositional-architecture.md` §4.4 と
 `config/part_registry/*.yaml` の既存 entry を参照。drift test (= part_registry_yaml_drift)
