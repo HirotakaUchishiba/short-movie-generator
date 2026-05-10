@@ -714,6 +714,13 @@ export default function AnalyzeJobView({ jobId, projectTs }: Props) {
                 ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
                 作成後 台本タブで各シーンを編集できます。
               </div>
+              <div
+                className="mt-2 text-xs text-amber-300"
+                data-testid="standalone-mode-deprecation-hint"
+              >
+                ※ 今後は TOP「📹 参考動画から作成」経由で 1 操作で完結します (=
+                analyze + project 作成を分けず、Stage 0 として統合予定)。
+              </div>
             </>
           )}
         </div>
