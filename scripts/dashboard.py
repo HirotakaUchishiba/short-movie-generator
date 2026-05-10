@@ -17,7 +17,7 @@ import streamlit as st
 
 from analytics import db
 
-st.set_page_config(page_title="Tensyoku Movie Analytics", layout="wide")
+st.set_page_config(page_title="Short Movie Analytics", layout="wide")
 
 db.init_db()
 
@@ -567,7 +567,7 @@ def analyze_jobs_tab(jobs: pd.DataFrame, phases: pd.DataFrame) -> None:
 
 
 def main() -> None:
-    st.title("Tensyoku Movie Analytics")
+    st.title("Short Movie Analytics")
 
     perf = load_performance()
     screenplays = load_screenplays()

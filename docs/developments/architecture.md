@@ -10,11 +10,9 @@
 flowchart LR
   subgraph 入力
     REF[参考動画 .mov/.mp4] -->|analyze| ABS[抽象台本 JSON]
-    HAND[手書き台本 JSON]
   end
 
   ABS --> TPL[(screenplays/&lt;name&gt;.json<br/>= template)]
-  HAND --> TPL
 
   TPL -->|create-project| SNAP[(temp/&lt;TS&gt;/screenplay.json<br/>= snapshot)]
 
