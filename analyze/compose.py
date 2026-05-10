@@ -223,6 +223,30 @@ def compose_screenplay(abstract: dict) -> dict:
         if src.get("camera_distance"):
             scene["camera_distance"] = src["camera_distance"]
 
+        # ── Step 2: identity 派生 (= clip_library cache 鍵) ──
+        # 必須 4 フィールド (character_refs / location_ref / start_emotion /
+        # camera_distance) がすべて揃ったときのみ scene["identity"] を入れる。
+        # 1 つでも欠けると clip_library.scene_has_identity が False を返し、
+        # cold path (= AI 生成) が走る。**部分 identity は誤 hit を生むので
+        # 入れない** (= 不変条件 #2)。
+        identity = _derive_identity(scene, src)
+        if identity is not None:
+            scene["identity"] = identity
+
+        # annotation は abstract 段階で Step 1 が書いたものを compose 後にも
+        # 維持する (= clip_library._scene_to_annotation_request が読む)。
+        # validator が enum を効かせるので不正値はここを通らない。
+        if isinstance(src.get("annotation"), dict):
+            scene["annotation"] = dict(src["annotation"])
+
+        # _override_background_prompt / _override_animation_prompt が abstract
+        # 側にあれば compose にも引き継ぐ (= novel intent escape hatch、
+        # clip_library._scene_has_override が True を返して bypass される)。
+        for k in ("_override_background_prompt", "_override_animation_prompt"):
+            v = src.get(k)
+            if isinstance(v, str) and v.strip():
+                scene[k] = v
+
         scene["background_prompt"] = _compose_background(scene, location_ref)
         scene["animation_prompt"] = _compose_animation(src, scene_anim)
 
@@ -256,6 +280,66 @@ def compose_screenplay(abstract: dict) -> dict:
         sp["scenes"].append(scene)
 
     return sp
+
+
+def _derive_identity(
+    composed_scene: dict, src_scene: dict
+) -> dict | None:
+    """clip_library の hard match キー (= identity) を派生する。
+
+    必須フィールド (character_refs / location_ref / start_emotion /
+    camera_distance) がすべて揃った場合のみ identity dict を返し、1 つでも
+    欠ければ None を返す (= scene に identity を入れない、cold path 経路)。
+
+    各フィールドの調達元:
+      - character_refs: composed scene が解決した list (= 順不同に sorted で
+        正規化、cache 鍵の同等性を確保)
+      - location_ref: src 由来の string、空文字列は不在扱い
+      - start_emotion: lines[0].emotion (= シーン冒頭の表情、bg.png 生成時点)
+      - camera_distance: src.camera_distance > location 既定 > "medium-close"
+
+    部分 identity を作らない理由: cache の hard match 鍵に半端な値を入れると
+    別シーンと誤 hit して見た目崩壊する (= 不変条件 #2)。
+    """
+
+    char_refs = composed_scene.get("character_refs") or []
+    if not char_refs:
+        return None
+
+    location_ref = composed_scene.get("location_ref") or ""
+    if not location_ref:
+        return None
+
+    lines = src_scene.get("lines") or []
+    start_emotion: str | None = None
+    for line in lines:
+        emo = line.get("emotion")
+        if isinstance(emo, str) and emo:
+            start_emotion = emo
+            break
+    if not start_emotion:
+        return None
+
+    camera_distance = composed_scene.get("camera_distance")
+    if not camera_distance:
+        # location 既定を引き当てる (= scene 未指定時の SSOT)
+        try:
+            base_loc = loc_mod.load_location(location_ref)
+            camera_distance = base_loc.camera_distance or None
+        except FileNotFoundError:
+            camera_distance = None
+    if not camera_distance:
+        camera_distance = "medium-close"
+
+    # 順不同性を保証して cache 鍵を安定化 (= clip_library.ClipIdentity も
+    # char_set() で順不同 match するが、scene["identity"] 自体も sorted で
+    # 統一しておくと register / lookup の dict 比較が偶然壊れない)
+    return {
+        "character_refs": sorted(char_refs),
+        "location_ref": location_ref,
+        "start_emotion": start_emotion,
+        "camera_distance": camera_distance,
+    }
 
 
 def _resolve_scene_characters(
