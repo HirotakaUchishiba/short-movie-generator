@@ -24,7 +24,7 @@ export const HelloWorld: React.FC<HelloWorldProps> = ({
   subtitleStart,
   subtitleEnd,
 }) => {
-  const { fps, height } = useVideoConfig();
+  const { fps } = useVideoConfig();
   const startFrame = Math.round(subtitleStart * fps);
   const durationFrames = Math.max(
     1,
