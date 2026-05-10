@@ -13,6 +13,7 @@ from datetime import datetime
 from flask import Blueprint, jsonify, request
 
 import config
+import io_utils
 import progress_store
 import staged_pipeline
 
@@ -231,6 +232,115 @@ def api_create_project_from_reference_video():
     analyze_runner.start(j.id)
 
     return jsonify({"ts": ts, "analyze_job_id": j.id}), 201
+
+
+@projects_bp.route("/api/projects/<ts>/retry-analyze", methods=["POST"])
+def api_retry_analyze(ts):
+    """Stage 0 (analyze) を再起動する。
+
+    既存の analyze_job (= failed / cancelled) は **保持** (= 課金履歴のため)。
+    新しい analyze_job を同じ video_sha256 + options + project_ts で作成し、
+    metadata.analyze_job_id を新 ID に更新、progress.stages.analyze を
+    running に戻して runner を起動。analyze cache (= content-addressed
+    frames / audio / whisper) が効くので追加課金は最小。
+
+    制約: 既存の analyze_status が "failed" の時のみ許可 (= "running"
+    中の二重起動防止)。
+    """
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return jsonify({
+            "error_code": "PROJECT_NOT_FOUND",
+            "message": "プロジェクトが存在しません",
+        }), 404
+
+    meta = staged_pipeline.read_metadata(project_path) or {}
+    old_job_id = meta.get("analyze_job_id")
+    if not old_job_id:
+        return jsonify({
+            "error_code": "ANALYZE_JOB_ID_MISSING",
+            "message": "このプロジェクトに analyze_job_id がありません (= legacy 経路)",
+        }), 400
+
+    status = progress_store.analyze_status(project_path)
+    if status not in ("failed", None):
+        return jsonify({
+            "error_code": "ANALYZE_NOT_RETRYABLE",
+            "message": f"current status={status}: failed のときのみ retry 可",
+        }), 409
+
+    try:
+        old_job = analyze_job.get_job(old_job_id)
+    except KeyError:
+        return jsonify({
+            "error_code": "ANALYZE_JOB_NOT_FOUND",
+            "message": f"old job not found: {old_job_id}",
+        }), 404
+
+    new_job = analyze_job.create_job(
+        old_job.video_sha256, old_job.options, project_ts=ts,
+    )
+
+    meta["analyze_job_id"] = new_job.id
+    if "analyze_hook_error" in meta:
+        del meta["analyze_hook_error"]
+    io_utils.atomic_write_json(
+        os.path.join(project_path, "metadata.json"), meta,
+    )
+
+    progress_store.mark_analyze_started(project_path)
+    analyze_runner.start(new_job.id)
+
+    return jsonify({"ok": True, "new_analyze_job_id": new_job.id}), 200
+
+
+@projects_bp.route("/api/projects/<ts>", methods=["DELETE"])
+def api_delete_project(ts):
+    """project ディレクトリと in-flight analyze_job をキャンセルして削除する。
+
+    reference_videos は dedup 済みなので **消さない** (= 他の project が
+    参照している可能性がある)。in-flight 状態 (running / pending /
+    dryrunning / awaiting_confirm) のジョブにはキャンセル要求を立てる。
+    """
+    import shutil
+
+    from analyze import job as analyze_job
+    from analyze import runner as analyze_runner
+
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return jsonify({
+            "error_code": "PROJECT_NOT_FOUND",
+            "message": "プロジェクトが存在しません",
+        }), 404
+
+    meta = staged_pipeline.read_metadata(project_path) or {}
+    job_id = meta.get("analyze_job_id")
+    if job_id:
+        try:
+            j = analyze_job.get_job(job_id)
+            if j.status in (
+                "running", "pending", "dryrunning", "awaiting_confirm",
+            ):
+                analyze_runner.cancel(job_id)
+        except KeyError:
+            pass
+
+    try:
+        shutil.rmtree(project_path)
+    except OSError as e:
+        logger.exception("project delete failed: %s", project_path)
+        return jsonify({
+            "error_code": "PROJECT_DELETE_FAILED",
+            "message": f"directory delete failed: {e}",
+        }), 500
+
+    return jsonify({"ts": ts, "deleted": True}), 200
 
 
 @projects_bp.route("/api/projects/<ts>", methods=["GET"])
