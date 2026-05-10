@@ -223,6 +223,7 @@ def _run_job_impl(job_id: str) -> None:
             on_progress=on_progress,
             cancel_token=cancel_token,
             on_cost_gate=_build_cost_gate(job_id),
+            analyze_job_id=job_id,
         )
         job.touch_reference_video(j.video_sha256)
 

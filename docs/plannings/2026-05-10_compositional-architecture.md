@@ -1021,24 +1021,21 @@ Claude が best match を返す。`confidence < 0.7` の場合 `_override_animat
 
 ### 8.2 vocabulary 提案 (= novel intent 検出)
 
-`confidence < 0.7` が連続するシーンが見つかると、analyze 出力に `suggested_intents.json` を
-併記:
+`confidence < 0.7` が連続するシーンが見つかると、analyze pipeline は `IntentSuggestionRecord`
+を `data/intent_suggestions.json` (= aggregated inbox) に upsert する。同 id が再検出
+されたら `occurrences` のみインクリメント (= status は変えない)。
 
-```json
-{
-  "suggested_intents": [
-    {
-      "category": "visual_intents",
-      "proposed_id": "frantic_typing_at_desk",
-      "description": "...",
-      "scene_examples": [3, 7],
-      "rationale": "..."
-    }
-  ]
-}
-```
+UI 側 (`/intent-catalog#suggestions`) で:
 
-運用者がレビューして yaml に追加 → `grow_clip_pool.py` で初期 N variants を生成 → 以後 hit。
+- `new` / `reviewing` / `accepted` / `dismissed` / `merged` のライフサイクルでトリアージ
+- `accepted` 時に visual_intents.yaml 用 snippet が生成されて clipboard にコピーされる
+- 運用者が yaml に貼り付け + PR → 次回 GET で `accepted` → `merged` 自動遷移
+
+詳細フロー: `docs/plannings/2026-05-10_intent-suggestion-flow.md`。
+
+旧 `<screenplay>.suggested_intents.json` の個別 file 書き込みは廃止。既存 file は
+`scripts/migrate_intent_suggestions.py` で archive 経由 inbox に吸収される (=
+preview_server 起動時に one-shot 自動実行)。
 
 ---
 

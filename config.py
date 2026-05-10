@@ -738,6 +738,17 @@ PART_REGISTRY_DIR = os.environ.get(
 INTENT_CONFIDENCE_THRESHOLD = float(
     os.getenv("INTENT_CONFIDENCE_THRESHOLD", "0.7"))
 
+# novel intent suggestion inbox (= analyze pipeline 検出 + UI トリアージの SSOT)。
+# 詳細は docs/plannings/2026-05-10_intent-suggestion-flow.md §2.3
+INTENT_SUGGESTIONS_PATH = os.environ.get(
+    "INTENT_SUGGESTIONS_PATH",
+    os.path.join(BASE_DIR, "data", "intent_suggestions.json"),
+)
+INTENT_SUGGESTIONS_ARCHIVE_DIR = os.environ.get(
+    "INTENT_SUGGESTIONS_ARCHIVE_DIR",
+    os.path.join(BASE_DIR, "data", "intent_suggestions_archive"),
+)
+
 # Layer 3 (Composition Engine) backend dispatch.
 # "ffmpeg" (= 既存 compositor.py、既定) または "remotion" (= 新設、Phase 2+ で
 # compositor_remotion.py を wire する)。

@@ -1,5 +1,4 @@
 """analyze.pipeline.run() の単体テスト。"""
-import json
 from unittest.mock import patch
 
 import pytest
@@ -352,11 +351,15 @@ def test_run_emits_suggested_intents_in_phase_complete_save(tmp_path) -> None:
     assert len(suggested) == 1
     assert suggested[0]["scene_indices"] == [1, 2]
     assert suggested[0]["proposed_id"].startswith("proposed_")
-    # ファイル併記も確認
-    sip_path = save_events[0]["suggested_intents_path"]
-    assert sip_path is not None
-    written = json.loads(open(sip_path, encoding="utf-8").read())
-    assert written["suggested_intents"][0]["scene_indices"] == [1, 2]
+    # 個別 file 書き込みは Phase 4 で廃止 (= aggregated inbox に統合)。
+    # `suggested_intents_path` は後方互換のため event に残るが常に None。
+    assert save_events[0]["suggested_intents_path"] is None
+    # 代わりに inbox (= data/intent_suggestions.json) に upsert されている
+    from analyze import suggestion_store
+    inbox = suggestion_store.load()
+    assert len(inbox) == 1
+    assert inbox[0].scene_indices == (1, 2)
+    assert inbox[0].status == "new"
 
 
 def test_run_omits_suggested_intents_file_when_no_candidates(tmp_path) -> None:

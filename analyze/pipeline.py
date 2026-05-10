@@ -28,6 +28,7 @@ from analyze.intent_resolver import (
     detect_novel_intent_candidates,
     load_intent_catalog,
 )
+from analyze.suggestion_store import SuggestionInput, upsert as suggestion_upsert
 from audio_features import (
     extract_phrase_features,
     wpm_from_text,
@@ -288,6 +289,7 @@ def run(
     cancel_token: CancelToken | None = None,
     on_cost_gate: CostGate | None = None,
     use_cache: bool = True,
+    analyze_job_id: str | None = None,
 ) -> dict:
     """参考動画から screenplay JSON を生成する。
 
@@ -508,25 +510,33 @@ def run(
             json.dump(screenplay, f, ensure_ascii=False, indent=2)
         annotation_stats = _summarize_annotation_stats(screenplay)
 
-        # 設計 §8.2: confidence 低が連続するシーン群から novel intent 候補を抽出。
-        # screenplay output と同じディレクトリに `<stem>.suggested_intents.json`
-        # として書き出し、SSE event にも全件含めて UI 即時表示できるようにする。
+        # 設計 §8.2 + 2026-05-10_intent-suggestion-flow §5: confidence 低が連続する
+        # シーン群から novel intent 候補を抽出し、aggregated inbox
+        # (= data/intent_suggestions.json) に upsert する。SSE event にも全件含めて
+        # UI 即時表示できるようにする (= AnalyzeJobView のリンクで IntentCatalog
+        # 画面の「💡 提案」セクションに飛べる)。
+        # 旧 `<stem>.suggested_intents.json` 個別 file write は廃止 (= 既存 file は
+        # `scripts/migrate_intent_suggestions.py` で archive 経由 inbox に吸収)。
         suggested_intents = _collect_novel_intent_candidates(screenplay)
-        suggested_intents_path: str | None = None
+        suggested_intents_path: str | None = None  # 後方互換: 常に None
         if suggested_intents:
-            sip = Path(output_path).with_suffix(".suggested_intents.json")
             try:
-                sip.write_text(
-                    json.dumps(
-                        {"suggested_intents": suggested_intents},
-                        ensure_ascii=False,
-                        indent=2,
-                    ),
-                    encoding="utf-8",
-                )
-                suggested_intents_path = str(sip)
-            except OSError as e:
-                logger.warning("[suggested_intents] write failed: %s", e)
+                inputs = [
+                    SuggestionInput(
+                        proposed_id=str(s["proposed_id"]),
+                        description=str(s["description"]),
+                        rationale=str(s.get("rationale") or ""),
+                        scene_indices=tuple(
+                            int(i) for i in s.get("scene_indices") or []
+                        ),
+                        source_screenplay=str(output_path),
+                        source_analyze_job_id=analyze_job_id,
+                    )
+                    for s in suggested_intents
+                ]
+                suggestion_upsert(inputs)
+            except (OSError, ValueError, TypeError) as e:
+                logger.warning("[suggested_intents] inbox upsert failed: %s", e)
         _emit(on_progress, "phase_complete", {
             "phase": "save",
             "output_path": output_path,
