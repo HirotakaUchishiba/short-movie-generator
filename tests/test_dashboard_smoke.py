@@ -44,6 +44,6 @@ def test_dashboard_tab_labels(isolated_db_for_dashboard):
     if not at.tabs:
         pytest.skip("AppTest API didn't expose tabs in this streamlit version")
     labels = [t.label for t in at.tabs]
-    for required in ("概要", "戦略軸", "フック別", "感情別",
-                     "実験", "品質", "台本詳細", "分析ジョブ"):
+    for required in ("概要", "Transformation", "戦略軸", "フック別", "感情別",
+                     "実験", "品質", "Halo", "台本詳細", "分析ジョブ"):
         assert required in labels, f"タブ {required!r} が見当たらない: {labels}"

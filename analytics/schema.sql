@@ -26,11 +26,20 @@ CREATE TABLE IF NOT EXISTS screenplays (
     dominant_emotion TEXT,
     theme TEXT,
     character_archetype TEXT,
-    auto_tagged_at TEXT
+    auto_tagged_at TEXT,
+    -- schema v11: content-strategy.md Phase 1 の概念モデル。flat な ``theme`` の
+    -- 上位概念として transformation (= 視聴者にもたらす変化) / tree_main_branch
+    -- (= 4 主要課題のいずれか) / pov_id (= クリエイター視点) を追加。Halo effect
+    -- 計測 (= v_halo_effect) は transformation を join key に使う。
+    transformation TEXT,
+    tree_main_branch TEXT,
+    pov_id TEXT
 );
 
 CREATE INDEX IF NOT EXISTS idx_screenplays_hook ON screenplays(hook_type);
 CREATE INDEX IF NOT EXISTS idx_screenplays_emotion ON screenplays(dominant_emotion);
+CREATE INDEX IF NOT EXISTS idx_screenplays_transformation ON screenplays(transformation);
+CREATE INDEX IF NOT EXISTS idx_screenplays_branch ON screenplays(tree_main_branch);
 
 CREATE TABLE IF NOT EXISTS videos (
     id TEXT PRIMARY KEY,
@@ -380,3 +389,47 @@ FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
 LEFT JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id;
+
+-- schema v11: transformation × branch 単位の集計。content-strategy.md Phase 1 の
+-- "Transformation 軸の一貫性" を経験ではなくデータで判定する正本 view。
+-- 24h 経過 metrics のみ採用 (= 軸別 view と同ノイズ排除ポリシー)。
+CREATE VIEW IF NOT EXISTS v_transformation_performance AS
+SELECT
+    s.transformation,
+    s.tree_main_branch,
+    COUNT(DISTINCT p.id) AS n,
+    AVG(m.views) AS avg_views,
+    AVG(m.completion_rate) AS avg_completion,
+    AVG(m.ctr) AS avg_ctr,
+    SUM(m.subscribers_gained) AS sum_subs_gained
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN v_active_posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+  AND s.transformation IS NOT NULL
+GROUP BY s.transformation, s.tree_main_branch;
+
+-- schema v11: Halo effect の簡易ビュー。SQLite に STDEV が無いため、ヒット動画の
+-- 厳密な統計検定は dashboard / app side に委ねる。view は transformation 別に
+-- peak (= ヒット候補) / avg (= 通常水準) / 合計獲得登録者を出すだけ。
+-- dashboard で peak/avg 比や total_subs_gained を見て halo の有無を判断する。
+CREATE VIEW IF NOT EXISTS v_halo_effect AS
+SELECT
+    s.transformation,
+    COUNT(DISTINCT p.id) AS n_posts,
+    AVG(m.views) AS avg_views,
+    MAX(m.views) AS peak_views,
+    COALESCE(SUM(m.subscribers_gained), 0) AS total_subs_gained,
+    MAX(p.posted_at) AS latest_post_at
+FROM screenplays s
+JOIN videos v ON v.screenplay_id = s.id
+JOIN v_active_posts p ON p.video_id = v.id
+LEFT JOIN v_latest_metrics m ON m.post_id = p.id
+WHERE s.transformation IS NOT NULL
+  AND m.fetched_at IS NOT NULL
+  AND p.posted_at IS NOT NULL
+  AND julianday(m.fetched_at) - julianday(p.posted_at) >= 1.0
+GROUP BY s.transformation;
