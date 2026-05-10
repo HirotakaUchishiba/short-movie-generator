@@ -452,6 +452,64 @@ class TestBuildRenderPlan:
         # lower_third 無し scene には key が立たない
         assert "lower_third" not in plan["scenes"][1]["parts"]
 
+    def test_intro_outro_cards_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-F: global_parts.intro_card / outro_card が render_plan に
+        正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "intro_card": {
+                    "id": "simple_intro",
+                    "duration_sec": 1.5,
+                    "params": {"text": "知らないと損する3つのコツ"},
+                },
+                "outro_card": {
+                    "id": "subscribe_outro",
+                    "duration_sec": 2.0,
+                    "params": {
+                        "text": "チャンネル登録お願いします",
+                        "sub_text": "↓ 押すだけ",
+                    },
+                },
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        intro = plan["global_parts"]["intro_card"]
+        outro = plan["global_parts"]["outro_card"]
+        assert intro["id"] == "simple_intro"
+        assert intro["duration_sec"] == 1.5
+        assert intro["params"]["text"] == "知らないと損する3つのコツ"
+        assert outro["id"] == "subscribe_outro"
+        assert outro["duration_sec"] == 2.0
+        assert outro["params"]["sub_text"] == "↓ 押すだけ"
+
+    def test_invalid_intro_outro_cards_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """id 欠落 / duration_sec 欠落 / dict でない card は静かにドロップ。"""
+
+        screenplay = {
+            "caption": "x",
+            "global_parts": {
+                "intro_card": {"params": {"text": "x"}},  # id / duration 欠落
+                "outro_card": {"id": "simple_intro"},  # duration_sec 欠落
+            },
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert "intro_card" not in plan["global_parts"]
+        assert "outro_card" not in plan["global_parts"]
+
     def test_invalid_lower_third_dropped(
         self, dummy_scene_videos: list[str]
     ) -> None:

@@ -8,6 +8,7 @@ import { FILTER_PRESET_COMPONENTS } from "./parts/filter_presets";
 import { LOWER_THIRD_COMPONENTS } from "./parts/lower_thirds";
 import { STICKER_COMPONENTS } from "./parts/stickers";
 import { SUBTITLE_COMPONENTS } from "./parts/subtitles";
+import { TITLE_CARD_COMPONENTS } from "./parts/title_cards";
 
 export const PART_REGISTRY = {
   subtitle_styles: SUBTITLE_COMPONENTS,
@@ -15,9 +16,9 @@ export const PART_REGISTRY = {
   filter_presets: FILTER_PRESET_COMPONENTS,
   camera_moves: CAMERA_MOVE_COMPONENTS,
   lower_thirds: LOWER_THIRD_COMPONENTS,
+  title_cards: TITLE_CARD_COMPONENTS,
   // 将来追加:
   //   transitions: TRANSITION_COMPONENTS,
-  //   title_cards: TITLE_CARD_COMPONENTS,
   //   frame_layouts: FRAME_LAYOUT_COMPONENTS,
 } as const;
 
