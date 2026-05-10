@@ -134,6 +134,21 @@ def revoke_all_approvals(ts_path: str) -> None:
     save(ts_path, progress)
 
 
+def revoke_overlay_only(ts_path: str) -> None:
+    """Stage 6 (overlay) の承認だけを解除する。Stage 2-5 (= TTS / 音声合成 /
+    動画生成) は承認状態を維持する。
+
+    `revoke_all_approvals` の overlay 限定版。abstract 保存時に Stage 6 にしか
+    影響しない field (= scene_parts / global_parts / subtitle_y_from_bottom 等)
+    だけが変わったケースで使う。CLAUDE.md「コストのかかる操作を安易に実行
+    しない」原則に従い、再 TTS / 再動画生成を促す承認解除を抑止する。
+    """
+    progress = load(ts_path)
+    if "overlay" in progress["stages"]:
+        progress["stages"]["overlay"]["approved_at"] = None
+    save(ts_path, progress)
+
+
 # cascade reset 対象は内部 stage のみ (script〜overlay)。
 # final_import / publish は外部アクション起点なのでチェーンに含めない。
 _CASCADE_STAGES = ["script", "tts", "bg", "kling", "scene", "overlay"]
