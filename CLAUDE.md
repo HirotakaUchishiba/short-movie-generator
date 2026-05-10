@@ -363,14 +363,18 @@ Composition Engine (= 新設 Remotion = 既製パーツ組立) の役割分担**
 重い (= AI 生成) パーツは引き続き Production Pipeline が担当し、Remotion は
 組立てに専念する (= AI 課金は減らす方向にしか動かない不変条件)。
 
-> ⚠️ **実装ステータスの注意**:
+> ℹ️ **実装ステータス (= 2026-05-10 audit 後)**:
 >
-> - Layer 2 (8 part categories) と Layer 3 (Remotion 描画) は **完全準拠**
-> - Layer 1 (clip_library) は **module 完成 + 28 unit tests pass** だが、
->   `scene_gen.py` への wire が未着手 (= cache hit による cost 削減はまだ発動しない)
+> - Layer 2 (8 part categories) / Layer 3 (Remotion 描画) は **完全準拠**
+> - Layer 1 (clip_library) は **wire 完了** (= `CLIP_LIBRARY_ENABLED=1` で
+>   `staged_pipeline.run_bg` から `satisfy_scenes_from_library` が動き、
+>   `run_scene` 直前で `register_cold_path_clips` が動く)
+> - `_override_background_prompt` / `_override_animation_prompt` も **wire 済み**
+>   (= scene_gen が早期 return)
 > - `screenplay.scene_parts` / `global_parts` は **Stage 6 (Remotion) のみが消費** し、
->   Stage 1-5 (AI 生成) では現状無視される
-> - ギャップの詳細と修正計画は `docs/plannings/2026-05-10_architecture-mismatch-audit.md` を参照
+>   Stage 1-5 (AI 生成) では現状無視される (= mismatch 1-2、別セッションで拡張)
+> - validator は **part_registry yaml と id 整合性チェック** を実施 (= 未定義 id を fast-fail)
+> - 詳細と残課題は `docs/plannings/2026-05-10_architecture-mismatch-audit.md` §5 修正履歴を参照
 
 ### 利用可能な part categories (= screenplay から enum 参照)
 

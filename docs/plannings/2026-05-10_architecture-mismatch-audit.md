@@ -152,3 +152,29 @@
   時点で未実現)
 - `frontend/remotion/README.md` — Phase 進捗表 (= 本 audit で修正予定)
 - `CLAUDE.md` — 利用可能な part categories 表 (= 修正不要、Layer 2 は完全準拠)
+
+---
+
+## 5. 修正履歴 (= 本 audit を起点に着手した PR)
+
+| 日付       | 観点    | 状態    | PR                                                                                                                                  | 内容                                                                                                         |
+| ---------- | ------- | ------- | ----------------------------------------------------------------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------ |
+| 2026-05-10 | 1-7     | ✅ 解消 | #131 [docs: phase status を honest 化](https://github.com/HirotakaUchishiba/short-movie-generator/pull/131)                         | README/CLAUDE.md の Phase 1 / 6 を ⚠️ skeleton に訂正                                                        |
+| 2026-05-10 | 1-4     | ✅ 解消 | #132 [feat(validator): part_registry 整合性チェック](https://github.com/HirotakaUchishiba/short-movie-generator/pull/132)           | screenplay の scene_parts / global_parts id を yaml と突合検証                                               |
+| 2026-05-10 | 1-3     | ✅ 解消 | #133 [feat(scene_gen): \_override\_\* fallback wiring](https://github.com/HirotakaUchishiba/short-movie-generator/pull/133)         | \_override_background_prompt / \_override_animation_prompt を採用                                            |
+| 2026-05-10 | **1-1** | ✅ 解消 | #134 [feat(clip_library): scene_gen / staged_pipeline に wire](https://github.com/HirotakaUchishiba/short-movie-generator/pull/134) | satisfy_scenes_from_library + register_cold_path_clips を Stage 3/5 に hook (CLIP_LIBRARY_ENABLED で opt-in) |
+
+### 残課題 (= 別セッション以降)
+
+| 観点 | 内容                                                                                | 理由                                             |
+| ---- | ----------------------------------------------------------------------------------- | ------------------------------------------------ |
+| 1-2  | Stage 1-5 で `scene_parts` / `global_parts` を消費する機能拡張                      | 1-1 wire と整合する形で順次拡張する設計検討要    |
+| 1-5  | analyze pipeline の intent_resolver LLM 統合                                        | 実 ANTHROPIC_API_KEY + 実 reference video が必要 |
+| 1-6  | StageScript UI で新フィールド (= scene_parts / global_parts) を編集できるようにする | UI 設計 + part_registry catalog API の追加が必要 |
+| 1-8  | e2e テスト (= identity 一致 2 screenplay の hit 検証を実 production 経路で)         | 実 AI 呼出の代替 fixture (= mock) 構築要         |
+
+### 準拠率の変化
+
+- **本 audit 開始時点**: 約 40-50%
+- **本セッション末**: 約 70-80% (= 中核 wire と validator 整合性が動くようになった。
+  UI / LLM 統合は残るが、CLI / API 経由では設計どおりに動作する)
