@@ -8,6 +8,7 @@
   ユーザー confirm or cancel を polling で待つ
 """
 import logging
+import os
 import threading
 import time
 from dataclasses import asdict
@@ -98,6 +99,10 @@ class _PhaseTracker:
                 logger.exception(
                     "complete_phase failed: %s/%s", self.job_id, phase,
                 )
+            # save phase 完了: from-reference-video 経路 (= job.project_ts あり)
+            # なら snapshot コピー + metadata + Stage 1 unlock を実施。
+            if phase == "save":
+                self._on_save_complete(data)
         elif event == "phase_skipped" and phase:
             try:
                 job.skip_phase(self.job_id, phase)
@@ -107,6 +112,85 @@ class _PhaseTracker:
                 )
         elif event == "claude_usage":
             self._record_claude_cost(data)
+
+    def _on_save_complete(self, data: dict) -> None:
+        """save phase 完了時、project_ts が紐付いていれば project を Stage 1 へ
+        unlock する。
+
+        1. screenplays/auto_<sha>.json (= analyze 出力) を temp/<TS>/screenplay.json
+           に snapshot コピー (バイト単位の shutil.copyfile = sha256 一致を保証)
+        2. metadata.json に screenplay_name / sha256 / screenplay_path を追記
+        3. progress_store.mark_analyze_completed で Stage 0 完了
+        4. progress_store.mark_generated/approved("script") で Stage 1 を unlock
+           (= snapshot がもう書かれているので run_script の手動実行は不要)
+
+        project_ts=None (= 旧 standalone analyze 経路) は no-op。
+        失敗時は metadata に analyze_hook_error を立てて UI に伝える (= analyze
+        自体は成功扱いのまま、ユーザーが retry / 削除を選べる状態)。
+        """
+        try:
+            j = job.get_job(self.job_id)
+        except KeyError:
+            logger.warning("save hook: job not found: %s", self.job_id)
+            return
+        if not j.project_ts:
+            return  # standalone analyze, no project to update
+
+        output_path = data.get("output_path")
+        if not output_path or not os.path.exists(output_path):
+            logger.error(
+                "save hook: output_path missing for job=%s project_ts=%s: %r",
+                self.job_id, j.project_ts, output_path,
+            )
+            return
+
+        import config as _config
+        ts_path = os.path.join(_config.TEMP_DIR, j.project_ts)
+        if not os.path.isdir(ts_path):
+            logger.error(
+                "save hook: project dir not found: %s", ts_path,
+            )
+            return
+
+        try:
+            import hashlib
+            import shutil
+
+            import progress_store
+            import staged_pipeline
+
+            snap_path = staged_pipeline.project_screenplay_path(ts_path)
+            shutil.copyfile(output_path, snap_path)
+            with open(snap_path, "rb") as f:
+                sha256 = hashlib.sha256(f.read()).hexdigest()
+            screenplay_name = os.path.basename(output_path)
+            staged_pipeline.update_metadata_after_analyze(
+                ts_path, screenplay_name, sha256,
+            )
+            progress_store.mark_analyze_completed(ts_path)
+            progress_store.mark_generated(ts_path, "script")
+            progress_store.mark_approved(ts_path, "script")
+            logger.info(
+                "[save-hook] project %s unlocked Stage 1 (sp=%s, sha=%s)",
+                j.project_ts, screenplay_name, sha256[:12],
+            )
+        except Exception:
+            logger.exception(
+                "save hook failed for project %s", j.project_ts,
+            )
+            try:
+                import io_utils
+
+                from project_state import read_metadata as _read_meta
+                meta = _read_meta(ts_path) or {}
+                meta["analyze_hook_error"] = (
+                    "save hook failed (see server log)"
+                )
+                io_utils.atomic_write_json(
+                    os.path.join(ts_path, "metadata.json"), meta,
+                )
+            except Exception:
+                logger.exception("write hook_error failed")
 
     def _record_claude_cost(self, data: dict) -> None:
         input_tokens = data.get("input_tokens")
@@ -179,6 +263,35 @@ def start(job_id: str) -> threading.Thread:
     return t
 
 
+def _mark_project_analyze_failed(project_ts: str, reason: str) -> None:
+    """from-reference-video 経路 project の Stage 0 を failed 状態にする。
+
+    cancellation / cost-gate timeout / runner error のいずれの経路からも
+    呼ぶ。UI (= AnalyzeStage0Page) は status="failed" を見て retry / 削除
+    アクションを表示する。temp/<TS>/ ディレクトリが既に消えていれば no-op。
+    """
+    import config as _config
+
+    import progress_store
+    ts_path = os.path.join(_config.TEMP_DIR, project_ts)
+    if not os.path.isdir(ts_path):
+        return
+    try:
+        progress_store.mark_analyze_failed(ts_path, reason)
+    except Exception:
+        logger.exception("mark_analyze_failed failed for %s", project_ts)
+
+
+def _safe_mark_failed_for_job(job_id: str, reason: str) -> None:
+    """job_id から project_ts を引いて failed mark する safe wrapper。"""
+    try:
+        j = job.get_job(job_id)
+    except Exception:
+        return
+    if j.project_ts:
+        _mark_project_analyze_failed(j.project_ts, reason)
+
+
 def _run_job(job_id: str) -> None:
     try:
         with _CONCURRENT:
@@ -191,6 +304,7 @@ def _run_job(job_id: str) -> None:
                               {"error": str(e), "phase": "runner"})
         except Exception:
             logger.exception("post-error update failed for %s", job_id)
+        _safe_mark_failed_for_job(job_id, f"runner error: {e}")
 
 
 def _run_job_impl(job_id: str) -> None:
@@ -239,10 +353,14 @@ def _run_job_impl(job_id: str) -> None:
         })
     except CostGateTimeout:
         # _wait_for_confirm で既に failed 遷移 + publish 済み
+        if j.project_ts:
+            _mark_project_analyze_failed(j.project_ts, "cost gate timeout")
         return
     except AnalyzeCancelled:
         job.transition_status(job_id, "cancelled")
         progress.publish(job_id, "cancelled", {})
+        if j.project_ts:
+            _mark_project_analyze_failed(j.project_ts, "cancelled by user")
 
 
 def confirm(job_id: str) -> None:
