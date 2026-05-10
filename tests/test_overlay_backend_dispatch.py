@@ -8,7 +8,6 @@ compositor_remotion.compose_video_remotion を呼ぶ。
 
 from __future__ import annotations
 
-import os
 from pathlib import Path
 from unittest.mock import MagicMock, patch
 

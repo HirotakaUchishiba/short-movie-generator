@@ -5,7 +5,6 @@
 
 from __future__ import annotations
 
-import os
 import subprocess
 from pathlib import Path
 
@@ -217,3 +216,95 @@ def test_subtitle_chunks_have_absolute_timecodes(
     assert plan["scenes"][0]["subtitle_lines"][0]["chunks"][0]["start_abs_sec"] >= 0
     # 2 つ目の scene の字幕は scene1 の duration (= 2s) 以降
     assert plan["scenes"][1]["subtitle_lines"][0]["chunks"][0]["start_abs_sec"] >= 2.0
+
+
+# ───────────── Phase B: pass-through E2E ─────────────
+#
+# Phase A (PR #157) で `analyze/compose.py:compose_screenplay()` を
+# `dict(abstract)` 起点に書き換え、`scene_parts` / `global_parts` /
+# `subtitle_y_from_bottom` 等の非派生フィールドを compose 後にも保持する
+# ように修正した。以下 3 件は API endpoint 経由で当該フィールドが
+# `compositor_remotion.build_render_plan` まで届くことを E2E で保証する。
+
+
+def test_subtitle_style_in_scene_parts_reaches_render_plan(
+    isolated_env: dict, client
+) -> None:
+    """scene_parts.subtitle_style が render_plan の scenes[i].parts.subtitle_style
+    に届くこと。compose で silent strip されないこと (= Phase A の不変条件)。"""
+
+    sp = {
+        "caption": "x",
+        "scenes": [
+            {
+                "duration": 2.0,
+                "background_prompt": "x",
+                "scene_parts": {
+                    "subtitle_style": {"id": "karaoke_bold"},
+                },
+                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+            },
+        ],
+    }
+    _make_project_with_scenes(isolated_env, "20260510_222222", sp, scene_count=1)
+
+    resp = client.get("/api/projects/20260510_222222/render-plan")
+    assert resp.status_code == 200
+    plan = resp.get_json()["plan"]
+
+    assert plan["scenes"][0]["parts"]["subtitle_style"]["id"] == "karaoke_bold"
+
+
+def test_global_parts_reaches_render_plan(
+    isolated_env: dict, client
+) -> None:
+    """global_parts.filter_preset が render_plan の global_parts に届くこと。"""
+
+    sp = {
+        "caption": "x",
+        "global_parts": {
+            "filter_preset": {"id": "warm_cinematic"},
+        },
+        "scenes": [
+            {
+                "duration": 2.0,
+                "background_prompt": "x",
+                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+            },
+        ],
+    }
+    _make_project_with_scenes(isolated_env, "20260510_333333", sp, scene_count=1)
+
+    resp = client.get("/api/projects/20260510_333333/render-plan")
+    assert resp.status_code == 200
+    plan = resp.get_json()["plan"]
+
+    assert plan["global_parts"]["filter_preset"]["id"] == "warm_cinematic"
+
+
+def test_subtitle_y_from_bottom_reaches_render_plan(
+    isolated_env: dict, client
+) -> None:
+    """root の subtitle_y_from_bottom が build_render_plan で
+    scenes[i].parts.subtitle_style.params.yFromBottom に流し込まれること。"""
+
+    sp = {
+        "caption": "x",
+        "subtitle_y_from_bottom": 800,
+        "scenes": [
+            {
+                "duration": 2.0,
+                "background_prompt": "x",
+                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+            },
+        ],
+    }
+    _make_project_with_scenes(isolated_env, "20260510_444444", sp, scene_count=1)
+
+    resp = client.get("/api/projects/20260510_444444/render-plan")
+    assert resp.status_code == 200
+    plan = resp.get_json()["plan"]
+
+    assert (
+        plan["scenes"][0]["parts"]["subtitle_style"]["params"]["yFromBottom"] == 800
+    )

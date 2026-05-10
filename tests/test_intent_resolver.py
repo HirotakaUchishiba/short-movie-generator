@@ -7,11 +7,9 @@ from __future__ import annotations
 
 from pathlib import Path
 
-import pytest
 
 from analyze.intent_resolver import (
     IntentEntry,
-    NovelIntentCandidate,
     SceneIntentAssignment,
     detect_novel_intent_candidates,
     format_catalog_for_prompt,
