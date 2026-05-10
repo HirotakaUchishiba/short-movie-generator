@@ -130,6 +130,26 @@ def test_options_property_parses_json(isolated_db) -> None:
     assert j.options == {"fps": 1.5, "instructions": "x"}
 
 
+def test_create_job_with_project_ts_persists(isolated_db) -> None:
+    """from-reference-video 経路: project_ts を analyze_jobs に紐付ける。
+    save phase 完了 hook (= analyze.runner._on_save_complete) が project の
+    metadata + Stage 1 unlock を行うため、ジョブから project へ back link する。
+    """
+    from analyze.job import create_job, get_job
+
+    j = create_job("sha", {}, project_ts="20260510_120000")
+    assert j.project_ts == "20260510_120000"
+    assert get_job(j.id).project_ts == "20260510_120000"
+
+
+def test_create_job_default_project_ts_is_none(isolated_db) -> None:
+    """legacy 経路 (= 既存 standalone analyze) は project_ts=None。"""
+    from analyze.job import create_job
+
+    j = create_job("sha", {})
+    assert j.project_ts is None
+
+
 # ─── reference_videos ───────────────────────────────────────────
 
 

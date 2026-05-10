@@ -74,6 +74,7 @@ class AnalyzeJob:
     actual_cost_usd: float | None = None
     screenplay_path: str | None = None
     style_name: str | None = None
+    project_ts: str | None = None
     created_at: str = ""
     started_at: str | None = None
     finished_at: str | None = None
@@ -101,8 +102,17 @@ def _new_job_id() -> str:
 # ─── Job CRUD ───────────────────────────────────────────────────
 
 
-def create_job(video_sha256: str, options: dict) -> AnalyzeJob:
-    """新規 analyze ジョブを作成し PHASES の行も初期化する。"""
+def create_job(
+    video_sha256: str, options: dict,
+    *, project_ts: str | None = None,
+) -> AnalyzeJob:
+    """新規 analyze ジョブを作成し PHASES の行も初期化する。
+
+    project_ts: from-reference-video 経路 (= POST /api/projects/from-reference-video)
+        で渡される project の TS (= temp/<TS>)。save phase 完了 hook が
+        この TS を見て metadata + Stage 1 unlock を行う。standalone analyze
+        (= 旧経路、Phase E で削除予定) は None。
+    """
     job_id = _new_job_id()
     options_json = json.dumps(options, ensure_ascii=False, sort_keys=True)
     created_at = _now()
@@ -110,9 +120,10 @@ def create_job(video_sha256: str, options: dict) -> AnalyzeJob:
     with _db.get_connection() as conn:
         conn.execute(
             """INSERT INTO analyze_jobs
-               (id, video_sha256, options_json, status, created_at)
-               VALUES (?, ?, ?, ?, ?)""",
-            (job_id, video_sha256, options_json, "pending", created_at),
+               (id, video_sha256, options_json, status, project_ts, created_at)
+               VALUES (?, ?, ?, ?, ?, ?)""",
+            (job_id, video_sha256, options_json, "pending",
+             project_ts, created_at),
         )
         for phase in PHASES:
             conn.execute(
@@ -120,7 +131,10 @@ def create_job(video_sha256: str, options: dict) -> AnalyzeJob:
                    VALUES (?, ?, ?)""",
                 (job_id, phase, "pending"),
             )
-    logger.info("analyze job created: %s (video=%s)", job_id, video_sha256[:12])
+    logger.info(
+        "analyze job created: %s (video=%s, project_ts=%s)",
+        job_id, video_sha256[:12], project_ts,
+    )
     return get_job(job_id)
 
 
