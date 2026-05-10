@@ -1,4 +1,4 @@
--- Analytics schema for tensyoku-movie-generator
+-- Analytics schema for short-movie-generator
 -- Tracks screenplays, generated videos, cross-platform posts, and time-series metrics.
 
 PRAGMA foreign_keys = ON;
