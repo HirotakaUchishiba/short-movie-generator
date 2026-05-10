@@ -1,0 +1,29 @@
+# Layer 2 (= compositional parts) の subtitle スタイル SSOT。
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4.1
+#
+# 各 entry は scene_parts.subtitle_style.id として screenplay から参照される。
+# component フィールドは frontend/remotion/parts/subtitles/index.ts の export 名と一致させる。
+
+version: 1
+parts:
+  - id: minimal
+    description: |
+      白文字 + 黒縁取り。現状の ffmpeg drawtext と同等の見た目。default。
+      アニメーションなし、可読性最優先。
+    params_schema:
+      font_size:
+        type: number
+        default: 76
+        description: フォントサイズ (px)
+      font_color:
+        type: string
+        default: "#FFFFFF"
+      border_color:
+        type: string
+        default: "#000000"
+      border_width:
+        type: number
+        default: 6
+    valid_contexts: [scene]
+    component: MinimalSubtitle
+    deprecated: false
