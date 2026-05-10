@@ -1,6 +1,6 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link } from "react-router-dom";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import type { AnalyzeJob, AnalyzeOptions, ReferenceVideo } from "../types";
 import AnalyzeJobView from "../components/AnalyzeJobView";
 
@@ -84,10 +84,15 @@ export default function AnalyzePage() {
     try {
       await finishDelete(false);
     } catch (e) {
-      const msg = String(e);
-      if (msg.includes("409")) {
-        const m = msg.match(/(\d+)\s*件/);
-        const n = m ? m[1] : "?";
+      // 409 は「この動画を参照する分析ジョブが残っている」状態。string match に
+      // 頼らず ApiError.status で判定する (= 別の error 本文に偶然 "409" が
+      // 出た場合の誤マッチを避ける)。
+      if (e instanceof ApiError && e.status === 409) {
+        const body = (e.body ?? {}) as { count?: number; message?: string };
+        // backend が count を返してくれていればそれを使い、なければ message から
+        // 抽出する (= legacy fallback)。
+        const fallbackCount = (e.bodyText.match(/(\d+)\s*件/) ?? [])[1];
+        const n = body.count ?? fallbackCount ?? "?";
         const ok = confirm(
           `この動画は ${n} 件の分析ジョブから参照されています。\n` +
             `関連ジョブも一緒に削除しますか? (ジョブ履歴とフェーズ記録も消えます)`,
@@ -100,7 +105,7 @@ export default function AnalyzePage() {
         }
         return;
       }
-      setError(msg);
+      setError(String(e));
     }
   };
 

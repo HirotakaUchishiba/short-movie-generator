@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import type {
   AnalyzeJobDetail,
   AnalyzePhase,
@@ -514,17 +514,17 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
                   setDryrun(null);
                   setError(null);
                 } catch (e) {
-                  const msg = String(e);
                   // 既に running (二重クリック等) は実害なし。状態を同期して
-                  // エラーを抑制する。
-                  if (msg.includes("409")) {
+                  // エラーを抑制する。string match に頼らず ApiError.status で
+                  // 判定 (= 別 error の本文に偶然 "409" が出ても誤抑制しない)。
+                  if (e instanceof ApiError && e.status === 409) {
                     setJob((prev) =>
                       prev ? { ...prev, status: "running" } : prev,
                     );
                     setDryrun(null);
                     setError(null);
                   } else {
-                    setError(msg);
+                    setError(String(e));
                   }
                 } finally {
                   setConfirmBusy(false);

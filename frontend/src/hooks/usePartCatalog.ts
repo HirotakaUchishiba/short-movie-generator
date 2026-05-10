@@ -9,16 +9,22 @@ export type PartEntry = {
   params_schema: PartParamSchema;
   valid_contexts: ("scene" | "global" | string)[];
   deprecated: boolean;
-  // visual_intents 専用 (= 他カテゴリでは [])
-  valid_start_emotions: string[];
-  duration_buckets: number[];
-  compatible_with: string[];
-  motion_intensity_bucket: string | null;
+  // 以下 4 つは visual_intents 専用フィールド。category=visual_intents 以外
+  // では backend が omit するため optional。
+  valid_start_emotions?: string[];
+  duration_buckets?: number[];
+  compatible_with?: string[];
+  motion_intensity_bucket?: string | null;
 };
+
+export type PartCategoryStatus = "ok" | "missing" | "parse_error";
 
 export type PartCategoryDoc = {
   category: string;
-  version?: number;
+  // status: yaml の存在 + 解析状況。"missing" = ファイル無し (= deploy 事故)、
+  // "parse_error" = ファイル破損。"ok" 以外は entries が空でも warn 表示する。
+  status: PartCategoryStatus;
+  // 後方互換: 旧 frontend は found を見ていた。status === "ok" と同義。
   found: boolean;
   entries: PartEntry[];
 };
@@ -38,6 +44,13 @@ let _inflight: Promise<PartCatalogResponse> | null = null;
 async function fetchCatalog(): Promise<PartCatalogResponse> {
   if (_cache) return _cache;
   if (_inflight) return _inflight;
+  // api.ts の http() ではなく直接 fetch を使う理由:
+  //   - usePartCatalog は app shell 起動の最初期に走り、このタイミングでは
+  //     authHeader() の VITE_PREVIEW_TOKEN はまだ環境変数からのみ参照可能で
+  //     api.ts と同じなので問題ないが、PartCatalog だけは module-level の
+  //     in-flight cache を持つ独自フローのため wrap せず直接 fetch している
+  //   - ただし error 表現は ApiError と同じ shape (`${status}: ${text}`) で
+  //     throw して呼出側の `String(e)` 互換を保つ
   _inflight = fetch("/api/parts/catalog")
     .then(async (r) => {
       if (!r.ok) throw new Error(`${r.status}: ${await r.text()}`);
@@ -99,6 +112,18 @@ export function useCategoryEntries(category: string): PartEntry[] {
   const state = usePartCatalog();
   if (state.kind !== "ready") return [];
   const cat = state.data.categories[category];
-  if (!cat || !cat.found) return [];
+  // status === "ok" 以外 (= missing / parse_error) は entries が空とみなす。
+  // backend が "missing" と "parse_error" を区別するので、UI で warn を出したい
+  // 場合は useCategoryStatus を別途使う。
+  if (!cat || cat.status !== "ok") return [];
   return cat.entries.filter((e) => !e.deprecated);
+}
+
+/** 特定 category の status (= "ok" / "missing" / "parse_error") を返す。
+ * deploy 事故と yaml 破損を区別したい IntentCatalog 等の管理画面で使う。 */
+export function useCategoryStatus(category: string): PartCategoryStatus | null {
+  const state = usePartCatalog();
+  if (state.kind !== "ready") return null;
+  const cat = state.data.categories[category];
+  return cat?.status ?? "missing";
 }
