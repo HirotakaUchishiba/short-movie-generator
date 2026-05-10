@@ -340,6 +340,29 @@ Stage 6 UI (`StageOverlay.tsx`) では:
 - 「auto に戻す」: そのチャンクの time を削除して文字数比例配分に戻す
 - 「自動に戻す」: subtitles 自体を削除して `_split_into_chunks` 経路に戻す
 
+### Stage 6 backend dispatch (= ffmpeg / Remotion)
+
+Stage 6 (overlay) は `OVERLAY_BACKEND` 環境変数で backend を切り替える。
+
+| 値                          | backend                                   | 動作                                                                                                                            |
+| --------------------------- | ----------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------- |
+| `ffmpeg` (= 既定、未設定時) | `compositor.py` (= 既存 drawtext)         | 従来通り。何も変わらない                                                                                                        |
+| `remotion`                  | `compositor_remotion.py` (= Remotion CLI) | `frontend/remotion/` の React Composition で字幕を焼く。AI 課金は発生しない (= scene_videos 再利用、字幕レンダリングのみ別経路) |
+
+```bash
+# 既存挙動
+python3 main.py --resume <TS>
+
+# Remotion backend (= 字幕表現を CSS 制御、将来パーツ拡張の入口)
+OVERLAY_BACKEND=remotion python3 main.py --resume <TS>
+```
+
+詳細設計は `docs/plannings/2026-05-10_compositional-architecture.md` を参照。
+本設計は **Production Pipeline (= 既存 Stage 1-5 = AI 生成によるパーツ製造) と
+Composition Engine (= 新設 Remotion = 既製パーツ組立) の役割分担** を導入する。
+重い (= AI 生成) パーツは引き続き Production Pipeline が担当し、Remotion は
+組立てに専念する (= AI 課金は減らす方向にしか動かない不変条件)。
+
 ## ログ
 
 `logging` モジュール経由で出力される (規約は `docs/developments/coding-rules.md` §2)。`LOG_LEVEL` 環境変数でレベル変更、`LOG_FILE` でファイル出力可。
