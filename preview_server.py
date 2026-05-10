@@ -1489,9 +1489,6 @@ def api_kling_cache_preview(key):
 # Blueprint に移管済み。
 
 
-# /api/analytics/pending(/sync) は routes/analytics.py の Blueprint に移管済み。
-
-
 # ───────────────── React 静的配信 ─────────────────
 
 @app.route("/", defaults={"path": ""})
