@@ -23,7 +23,11 @@ import atomic_assets
 import config
 import furigana_store
 from analyze import cache as _cache
-from analyze.intent_resolver import load_intent_catalog
+from analyze.intent_resolver import (
+    SceneIntentAssignment,
+    detect_novel_intent_candidates,
+    load_intent_catalog,
+)
 from audio_features import (
     extract_phrase_features,
     wpm_from_text,
@@ -189,6 +193,62 @@ def _summarize_annotation_stats(screenplay: dict) -> dict:
         "low_confidence_demoted": demoted,
         "by_intent_id": by_intent_id,
     }
+
+
+def _collect_novel_intent_candidates(screenplay: dict) -> list[dict]:
+    """設計 §8.2 の「novel intent 候補」を screenplay から抽出して dict 列で返す。
+
+    intent_resolver は normalize 段階で低 confidence / 未知 id の scene から
+    ``visual_intent_id`` を drop している。ここでは post-normalize の screenplay を
+    走査し、
+
+      - ``scene["annotation"]["visual_intent_id"]`` が string なら hit (= 既存 catalog
+        とマッチ済み)
+      - それ以外 (= annotation 自体無し / id だけ drop) は demoted (= 低 confidence)
+
+    として ``SceneIntentAssignment`` の列に変換し、``detect_novel_intent_candidates``
+    に流す。``confidence`` は post-normalize 時点で復元不能なので 1.0 / 0.0 の二値
+    で渡す (= ``visual_intent_id is None`` だけが streak 判定に使われるので影響なし)。
+    ``rationale`` は scene の ``background_prompt`` をフォールバック説明として使う
+    (= Claude が intent rationale を別 field で返さない仕様のため)。
+
+    返り値は SSE event / json file 両方で消費できる plain dict 列:
+      ``[{"proposed_id", "description", "scene_indices", "rationale"}]``
+
+    候補が無ければ空リスト。
+    """
+    scenes = screenplay.get("scenes") or []
+    assignments: list[SceneIntentAssignment] = []
+    for idx, scene in enumerate(scenes):
+        if not isinstance(scene, dict):
+            continue
+        ann = scene.get("annotation") if isinstance(scene, dict) else None
+        intent_id = ann.get("visual_intent_id") if isinstance(ann, dict) else None
+        has_id = isinstance(intent_id, str) and bool(intent_id)
+        rationale = (
+            scene.get("background_prompt")
+            or scene.get("animation_prompt")
+            or ""
+        )
+        assignments.append(
+            SceneIntentAssignment(
+                scene_idx=idx,
+                visual_intent_id=intent_id if has_id else None,
+                confidence=1.0 if has_id else 0.0,
+                rationale=str(rationale) if rationale else None,
+            )
+        )
+
+    candidates = detect_novel_intent_candidates(assignments)
+    return [
+        {
+            "proposed_id": c.proposed_id,
+            "description": c.description,
+            "scene_indices": list(c.scene_indices),
+            "rationale": c.rationale,
+        }
+        for c in candidates
+    ]
 
 
 def _normalize_scene_pronunciation_hints(screenplay: dict) -> int:
@@ -447,12 +507,34 @@ def run(
         with open(output_path, "w", encoding="utf-8") as f:
             json.dump(screenplay, f, ensure_ascii=False, indent=2)
         annotation_stats = _summarize_annotation_stats(screenplay)
+
+        # 設計 §8.2: confidence 低が連続するシーン群から novel intent 候補を抽出。
+        # screenplay output と同じディレクトリに `<stem>.suggested_intents.json`
+        # として書き出し、SSE event にも全件含めて UI 即時表示できるようにする。
+        suggested_intents = _collect_novel_intent_candidates(screenplay)
+        suggested_intents_path: str | None = None
+        if suggested_intents:
+            sip = Path(output_path).with_suffix(".suggested_intents.json")
+            try:
+                sip.write_text(
+                    json.dumps(
+                        {"suggested_intents": suggested_intents},
+                        ensure_ascii=False,
+                        indent=2,
+                    ),
+                    encoding="utf-8",
+                )
+                suggested_intents_path = str(sip)
+            except OSError as e:
+                logger.warning("[suggested_intents] write failed: %s", e)
         _emit(on_progress, "phase_complete", {
             "phase": "save",
             "output_path": output_path,
             "claude_drift": drift,
             "validation_warnings": len(errors),
             "annotation_stats": annotation_stats,
+            "suggested_intents": suggested_intents,
+            "suggested_intents_path": suggested_intents_path,
         })
 
         scenes_count = len(screenplay.get("scenes", []))

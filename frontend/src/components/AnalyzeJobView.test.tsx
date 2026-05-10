@@ -160,6 +160,77 @@ describe("AnalyzeJobView annotation_stats", () => {
     expect(screen.queryByTestId("annotation-stats")).toBeNull();
   });
 
+  it("suggested_intents が乗っていれば 候補件数 + IntentCatalog へのリンクを表示", async () => {
+    mockGetJob.mockResolvedValue(baseJobDetail());
+
+    render(
+      <MemoryRouter>
+        <AnalyzeJobView jobId="job_test_1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(mockGetJob).toHaveBeenCalled();
+    });
+
+    act(() => {
+      fakeEs.emit("phase_complete", {
+        phase: "save",
+        output_path: "/tmp/x.json",
+        annotation_stats: {
+          total_scenes: 5,
+          with_visual_intent_id: 2,
+          low_confidence_demoted: 3,
+          by_intent_id: { talking_head_calm: 2 },
+        },
+        suggested_intents: [
+          {
+            proposed_id: "proposed_subject_is_gardenin",
+            description: "subject is gardening with tools",
+            scene_indices: [1, 2],
+            rationale: "2 consecutive scenes had no good match",
+          },
+        ],
+      });
+      fakeEs.emit("completed", { output_path: "/tmp/x.json" });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByTestId("suggested-intents")).toBeInTheDocument();
+    });
+    const el = screen.getByTestId("suggested-intents");
+    expect(el.textContent).toMatch(/1 件/);
+    const link = el.querySelector("a");
+    expect(link).not.toBeNull();
+    expect(link?.getAttribute("href")).toBe("/intent-catalog");
+  });
+
+  it("suggested_intents が空 list なら表示しない", async () => {
+    mockGetJob.mockResolvedValue(baseJobDetail());
+
+    render(
+      <MemoryRouter>
+        <AnalyzeJobView jobId="job_test_1" />
+      </MemoryRouter>,
+    );
+    await waitFor(() => {
+      expect(mockGetJob).toHaveBeenCalled();
+    });
+
+    act(() => {
+      fakeEs.emit("phase_complete", {
+        phase: "save",
+        output_path: "/tmp/x.json",
+        suggested_intents: [],
+      });
+      fakeEs.emit("completed", { output_path: "/tmp/x.json" });
+    });
+
+    await waitFor(() => {
+      expect(screen.getByText(/台本作成完了/)).toBeInTheDocument();
+    });
+    expect(screen.queryByTestId("suggested-intents")).toBeNull();
+  });
+
   it("全シーンが demoted (= by_intent_id 空) でも demoted 件数だけは表示", async () => {
     mockGetJob.mockResolvedValue(baseJobDetail());
 

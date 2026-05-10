@@ -54,6 +54,13 @@ interface AnnotationStats {
   by_intent_id: Record<string, number>;
 }
 
+interface SuggestedIntent {
+  proposed_id: string;
+  description: string;
+  scene_indices: number[];
+  rationale: string;
+}
+
 const PHASE_ORDER: AnalyzePhase[] = [
   "frames",
   "audio",
@@ -96,6 +103,9 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
   const [claudeChars, setClaudeChars] = useState<number>(0);
   const [annotationStats, setAnnotationStats] =
     useState<AnnotationStats | null>(null);
+  const [suggestedIntents, setSuggestedIntents] = useState<SuggestedIntent[]>(
+    [],
+  );
   const esRef = useRef<EventSource | null>(null);
 
   // 初回詳細ロード
@@ -205,6 +215,22 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
               by_intent_id: (s.by_intent_id as Record<string, number>) ?? {},
             });
           }
+        }
+        // 設計 §8.2: novel intent 候補が乗っていれば取り込む (= 空 list でも上書き)
+        if (d.phase === "save" && Array.isArray(d.suggested_intents)) {
+          const items = (d.suggested_intents as unknown[]).filter(
+            (x): x is SuggestedIntent => {
+              if (!x || typeof x !== "object") return false;
+              const o = x as Record<string, unknown>;
+              return (
+                typeof o.proposed_id === "string" &&
+                typeof o.description === "string" &&
+                Array.isArray(o.scene_indices) &&
+                typeof o.rationale === "string"
+              );
+            },
+          );
+          setSuggestedIntents(items);
         }
       } catch {}
     });
@@ -623,6 +649,23 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
                     (low conf demoted: {annotationStats.low_confidence_demoted})
                   </span>
                 )}
+            </div>
+          )}
+          {suggestedIntents.length > 0 && (
+            <div
+              className="mt-2 text-xs text-amber-200"
+              data-testid="suggested-intents"
+            >
+              <Link
+                to="/intent-catalog"
+                className="text-amber-300 hover:text-amber-100 underline"
+              >
+                💡 新規 intent 候補 {suggestedIntents.length} 件
+              </Link>
+              <span className="ml-2 text-slate-400">
+                (= 連続して既存 catalog にマッチしないシーンが見つかりました。
+                IntentCatalog で yaml に追加検討)
+              </span>
             </div>
           )}
           <div className="mt-3 flex gap-2 flex-wrap">
