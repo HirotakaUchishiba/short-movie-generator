@@ -1,10 +1,15 @@
-import { useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { Player, type PlayerRef } from "@remotion/player";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api } from "../../api";
 import type { Screenplay, Line, SubtitleChunk } from "../../types";
 import { freshUid } from "../../uid";
 import { useRenderPlan } from "../../hooks/useRenderPlan";
+import {
+  replaceChunk,
+  replaceLine,
+  replaceScene,
+} from "../../utils/screenplayPath";
 import { ScreenplayBase } from "../../../remotion/compositions/ScreenplayBase";
 import { ScreenplayInstagram } from "../../../remotion/compositions/ScreenplayInstagram";
 import { ScreenplayTikTok } from "../../../remotion/compositions/ScreenplayTikTok";
@@ -28,10 +33,12 @@ const PLATFORM_LABELS: Record<PlatformId, string> = {
 export default function StageOverlay() {
   const ctx = useShellCtx();
   const sp = ctx.detail.screenplay;
-  const [draft, setDraft] = useState<Screenplay>(() =>
-    JSON.parse(JSON.stringify(sp)),
-  );
-  const [saving, setSaving] = useState(false);
+  const [draft, setDraft] = useState<Screenplay>(() => structuredClone(sp));
+  // dirty flag: ローカル draft が server snapshot と乖離している間は ctx.reload()
+  // で server 側 sp が更新されても上書きしない (= 編集中の作業を消さない)。
+  // 保存成功時に false に戻し、その後 useEffect で server snapshot を取り込む。
+  const [dirty, setDirty] = useState(false);
+  const [pending, setPending] = useState<"save" | "render" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
   // Phase 3-C: ffmpeg-baked overlaid.mp4 の <video> ref から、Remotion <Player>
@@ -40,6 +47,29 @@ export default function StageOverlay() {
   const playerRef = useRef<PlayerRef | null>(null);
   // Phase 5-A の 3 platform composition を Player から切替えて視覚比較できる。
   const [platform, setPlatform] = useState<PlatformId>("base");
+  // PrimaryPreviewPanel から render_plan の fps を bubble してもらう。
+  // ready 前は default 60 だが、ready 後は実 fps で snap が正確になる
+  // (= 30fps project で snap が 2 倍ズレるのを防ぐ)。
+  const [planFps, setPlanFps] = useState(60);
+
+  // server snapshot が変わったら **未編集なら** local draft に取り込む。
+  // ctx.reload() で sp は更新されるが旧コードは draft の lazy init で 1 回しか
+  // 同期しなかったため、別 stage / 別 tab での編集が反映されず、保存時に
+  // 古い draft で server 側を上書きする静かなデータロスト bug があった。
+  useEffect(() => {
+    if (!dirty) {
+      setDraft(structuredClone(sp));
+    }
+    // dirty を deps に入れない: 編集開始 (= dirty true) で sync を停止し、
+    // 保存成功で false に戻ると同時に直近の sp が反映される。
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [sp]);
+
+  // setDraft の薄い wrapper。すべての mutation 経路から dirty を立てる。
+  const editDraft = (mut: (d: Screenplay) => Screenplay) => {
+    setDraft((d) => mut(d));
+    setDirty(true);
+  };
 
   const sceneOffsets: number[] = [];
   let acc = 0;
@@ -49,11 +79,9 @@ export default function StageOverlay() {
   }
 
   // Player の現在再生位置 (= frame) を秒に直し、scene 内相対秒として返す。
-  // ffmpeg overlay は scene 想定 duration 累積で offset 計算してきたが、Remotion
-  // Player は実 timeline ベース (= scene_<S>.mp4 実尺累積) で再生される。
-  // sceneOffsets は依然 sp.scenes[].duration ベースなので、ズレた project では
-  // snap がわずかにずれる可能性がある。Phase 3-D で render_plan.scenes[].offset_sec
-  // を直接参照する形に refactor 予定。
+  // sceneOffsets は依然 sp.scenes[].duration ベースなので、scene 実尺と sp.duration
+  // が乖離した project では snap がわずかにずれる可能性がある。Phase 3-D で
+  // render_plan.scenes[].offset_sec を直接参照する形に refactor 予定。
   const sceneRelNow = (sIdx: number): number | null => {
     const p = playerRef.current;
     if (!p) return null;
@@ -61,9 +89,7 @@ export default function StageOverlay() {
     try {
       // PlayerRef.getCurrentFrame() は再生中の frame index。fps で割って秒に。
       const frame = p.getCurrentFrame();
-      // useRenderPlan が ready 前は plan.video.fps が分からないので default 60 で近似。
-      const fps = 60;
-      absSec = frame / fps;
+      absSec = frame / planFps;
     } catch {
       return null;
     }
@@ -73,12 +99,7 @@ export default function StageOverlay() {
   };
 
   const updateLine = (sIdx: number, lIdx: number, patch: Partial<Line>) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const line = next.scenes[sIdx].lines![lIdx];
-      next.scenes[sIdx].lines![lIdx] = { ...line, ...patch };
-      return next;
-    });
+    editDraft((d) => replaceLine(d, sIdx, lIdx, (l) => ({ ...l, ...patch })));
   };
 
   const enableManual = (sIdx: number, lIdx: number) => {
@@ -86,30 +107,26 @@ export default function StageOverlay() {
     // 初期: 1 chunk = line 全文 (時刻は未指定 = auto)
     const initial: SubtitleChunk[] = [{ text: line.text, _uid: freshUid() }];
     updateLine(sIdx, lIdx, { subtitles: initial });
-    setExpanded((e) => ({ ...e, [`${sIdx}-${lIdx}`]: true }));
+    const k = line._uid ?? `${sIdx}-${lIdx}`;
+    setExpanded((e) => ({ ...e, [k]: true }));
   };
 
   const disableManual = (sIdx: number, lIdx: number) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const line = next.scenes[sIdx].lines![lIdx];
-      delete line.subtitles;
-      return next;
-    });
+    editDraft((d) =>
+      replaceLine(d, sIdx, lIdx, (l) => {
+        const { subtitles: _drop, ...rest } = l;
+        return rest as Line;
+      }),
+    );
   };
 
   const writeChunk = (
     sIdx: number,
     lIdx: number,
     cIdx: number,
-    mutator: (c: SubtitleChunk) => void,
+    mutator: (c: SubtitleChunk) => SubtitleChunk,
   ) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
-      mutator(subs[cIdx]);
-      return next;
-    });
+    editDraft((d) => replaceChunk(d, sIdx, lIdx, cIdx, mutator));
   };
 
   const setChunkText = (
@@ -117,10 +134,7 @@ export default function StageOverlay() {
     lIdx: number,
     cIdx: number,
     text: string,
-  ) =>
-    writeChunk(sIdx, lIdx, cIdx, (c) => {
-      c.text = text;
-    });
+  ) => writeChunk(sIdx, lIdx, cIdx, (c) => ({ ...c, text }));
 
   const setChunkTime = (
     sIdx: number,
@@ -130,8 +144,10 @@ export default function StageOverlay() {
     value: number | undefined,
   ) =>
     writeChunk(sIdx, lIdx, cIdx, (c) => {
-      if (value === undefined) delete c[field];
-      else c[field] = value;
+      const next = { ...c };
+      if (value === undefined) delete next[field];
+      else next[field] = value;
+      return next;
     });
 
   // 動画プレイヤーの currentTime をこのチャンクの start / end に反映。
@@ -149,83 +165,88 @@ export default function StageOverlay() {
 
   const clearChunkTime = (sIdx: number, lIdx: number, cIdx: number) =>
     writeChunk(sIdx, lIdx, cIdx, (c) => {
-      delete c.start;
-      delete c.end;
+      const next = { ...c };
+      delete next.start;
+      delete next.end;
+      return next;
     });
 
   const splitChunk = (sIdx: number, lIdx: number, cIdx: number) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
-      const c = subs[cIdx];
-      const midText = Math.max(1, Math.floor(c.text.length / 2));
-      const left: SubtitleChunk = {
-        text: c.text.slice(0, midText),
-        _uid: freshUid(),
-      };
-      const right: SubtitleChunk = {
-        text: c.text.slice(midText),
-        _uid: freshUid(),
-      };
-      // 時刻が両方ある場合のみ中央分割で受け継ぐ。auto なら auto のまま。
-      if (c.start !== undefined && c.end !== undefined) {
-        const midTime = (c.start + c.end) / 2;
-        left.start = c.start;
-        left.end = midTime;
-        right.start = midTime;
-        right.end = c.end;
-      }
-      subs.splice(cIdx, 1, left, right);
-      return next;
-    });
+    editDraft((d) =>
+      replaceLine(d, sIdx, lIdx, (line) => {
+        const subs = (line.subtitles ?? []).slice();
+        const c = subs[cIdx];
+        const midText = Math.max(1, Math.floor(c.text.length / 2));
+        const left: SubtitleChunk = {
+          text: c.text.slice(0, midText),
+          _uid: freshUid(),
+        };
+        const right: SubtitleChunk = {
+          text: c.text.slice(midText),
+          _uid: freshUid(),
+        };
+        // 時刻が両方ある場合のみ中央分割で受け継ぐ。auto なら auto のまま。
+        if (c.start !== undefined && c.end !== undefined) {
+          const midTime = (c.start + c.end) / 2;
+          left.start = c.start;
+          left.end = midTime;
+          right.start = midTime;
+          right.end = c.end;
+        }
+        subs.splice(cIdx, 1, left, right);
+        return { ...line, subtitles: subs };
+      }),
+    );
   };
 
   const removeChunk = (sIdx: number, lIdx: number, cIdx: number) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const subs = next.scenes[sIdx].lines![lIdx].subtitles!;
-      subs.splice(cIdx, 1);
-      if (subs.length === 0) {
-        delete next.scenes[sIdx].lines![lIdx].subtitles;
-      }
-      return next;
-    });
+    editDraft((d) =>
+      replaceLine(d, sIdx, lIdx, (line) => {
+        const subs = (line.subtitles ?? []).slice();
+        subs.splice(cIdx, 1);
+        if (subs.length === 0) {
+          const { subtitles: _drop, ...rest } = line;
+          return rest as Line;
+        }
+        return { ...line, subtitles: subs };
+      }),
+    );
   };
 
   const appendChunk = (sIdx: number, lIdx: number) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const line = next.scenes[sIdx].lines![lIdx];
-      const subs = line.subtitles ?? [];
-      subs.push({ text: "", _uid: freshUid() });
-      line.subtitles = subs;
-      return next;
-    });
+    editDraft((d) =>
+      replaceLine(d, sIdx, lIdx, (line) => {
+        const subs = (line.subtitles ?? []).slice();
+        subs.push({ text: "", _uid: freshUid() });
+        return { ...line, subtitles: subs };
+      }),
+    );
   };
 
   const toggleLineHidden = (sIdx: number, lIdx: number) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const line = next.scenes[sIdx].lines![lIdx];
-      if (line.hidden) {
-        delete line.hidden;
-      } else {
-        line.hidden = true;
-      }
-      return next;
-    });
+    editDraft((d) =>
+      replaceLine(d, sIdx, lIdx, (line) => {
+        if (line.hidden) {
+          const { hidden: _drop, ...rest } = line;
+          return rest as Line;
+        }
+        return { ...line, hidden: true };
+      }),
+    );
   };
 
   const setSceneLinesHidden = (sIdx: number, hidden: boolean) => {
-    setDraft((d) => {
-      const next = JSON.parse(JSON.stringify(d)) as Screenplay;
-      const lines = next.scenes[sIdx].lines ?? [];
-      for (const line of lines) {
-        if (hidden) line.hidden = true;
-        else delete line.hidden;
-      }
-      return next;
-    });
+    editDraft((d) =>
+      replaceScene(d, sIdx, (scene) => {
+        const lines = (scene.lines ?? []).map((line) => {
+          if (hidden) return { ...line, hidden: true };
+          if (!line.hidden) return line;
+          const { hidden: _drop, ...rest } = line;
+          return rest as Line;
+        });
+        return { ...scene, lines };
+      }),
+    );
   };
 
   // Phase 3-C で Player を primary preview にした結果、字幕変更は Player 側で
@@ -235,29 +256,32 @@ export default function StageOverlay() {
   //              (= regen_count を bumpKey にしている)。AI 課金 0 / レンダリングなし
   // - onRender:  保存 + ffmpeg/Remotion で最終 mp4 を生成。Stage 7 公開前に必要
   const onSave = async () => {
-    setSaving(true);
+    setPending("save");
     setError(null);
     try {
       await api.saveScreenplay(ctx.detail.timestamp, draft);
+      // 保存成功で dirty を落とす → useEffect が server snapshot で sync する
+      setDirty(false);
       await ctx.reload();
     } catch (e) {
       setError(String(e));
     } finally {
-      setSaving(false);
+      setPending(null);
     }
   };
 
   const onRender = async () => {
-    setSaving(true);
+    setPending("render");
     setError(null);
     try {
       await api.saveScreenplay(ctx.detail.timestamp, draft);
+      setDirty(false);
       await ctx.reload();
       await ctx.regen({ stage: "overlay" });
     } catch (e) {
       setError(String(e));
     } finally {
-      setSaving(false);
+      setPending(null);
     }
   };
 
@@ -284,6 +308,7 @@ export default function StageOverlay() {
             }
             platform={platform}
             onPlatformChange={setPlatform}
+            onPlanFps={setPlanFps}
           />
           <SubtitleYPositionEditor
             current={
@@ -293,10 +318,10 @@ export default function StageOverlay() {
             videoHeight={ctx.serverConfig.video_height}
             isOverridden={draft.subtitle_y_from_bottom !== undefined}
             onChange={(value) =>
-              setDraft((d) => ({ ...d, subtitle_y_from_bottom: value }))
+              editDraft((d) => ({ ...d, subtitle_y_from_bottom: value }))
             }
             onReset={() =>
-              setDraft((d) => {
+              editDraft((d) => {
                 const next = { ...d };
                 delete next.subtitle_y_from_bottom;
                 return next;
@@ -317,19 +342,21 @@ export default function StageOverlay() {
             <div className="flex items-center gap-2">
               <button
                 className="btn-ghost text-xs"
-                disabled={saving}
+                disabled={pending !== null}
                 onClick={onSave}
                 title="screenplay JSON を保存。Player の preview は即座に再 fetch される。最終 mp4 は焼き直さない (= AI 課金 0 / 数秒)"
               >
-                {saving ? "..." : "💾 保存"}
+                {pending === "save" ? "保存中..." : "💾 保存"}
               </button>
               <button
                 className="btn-primary text-xs"
-                disabled={saving}
+                disabled={pending !== null}
                 onClick={onRender}
                 title="保存 + 最終 mp4 を再 render (= ffmpeg or Remotion)。Stage 7 公開前に実行する"
               >
-                {saving ? "焼き直し中..." : "🎬 最終 mp4 を焼き直す"}
+                {pending === "render"
+                  ? "焼き直し中..."
+                  : "🎬 最終 mp4 を焼き直す"}
               </button>
             </div>
           </div>
@@ -375,7 +402,11 @@ export default function StageOverlay() {
                     </div>
                   </div>
                   {lines.map((line, lIdx) => {
-                    const key = `${sIdx}-${lIdx}`;
+                    // _uid を expanded state の key に。index 起点だと line を
+                    // 並び替えると別 line に expanded フラグが貼り付く (= React
+                    // 公式 anti-pattern)。`_uid` は freshUid() で line ごとに
+                    // unique 採番される。
+                    const key = line._uid ?? `${sIdx}-${lIdx}`;
                     const isManual = !!line.subtitles;
                     const isHidden = !!line.hidden;
                     const isExpanded = !isHidden && (isManual || expanded[key]);
@@ -679,9 +710,14 @@ function TimeField({
 function SubtitleYPositionGuide({
   videoHeight,
   currentY,
+  controlsPx = 40,
 }: {
   videoHeight: number;
   currentY: number;
+  // <Player controls> の bottom bar 高さ。実映像領域はコンテナ高 - controlsPx
+  // となるため、`%` 基準の bottom にこの px を下駄として履かせないと、ガイドが
+  // controls bar に被って常に「実字幕より下」にズレて見える。
+  controlsPx?: number;
 }) {
   // 字幕の縦サイズはおおよそ画面高の 12% (固定)。中心が currentY に来るように描く。
   const heightPct = 12;
@@ -690,7 +726,7 @@ function SubtitleYPositionGuide({
     <div
       className="absolute left-0 right-0 pointer-events-none"
       style={{
-        bottom: `${bottomPct}%`,
+        bottom: `calc(${bottomPct}% + ${controlsPx}px)`,
         height: `${heightPct}%`,
         background: "rgba(56, 189, 248, 0.18)",
         borderTop: "1px dashed rgba(56, 189, 248, 0.6)",
@@ -777,6 +813,7 @@ function PrimaryPreviewPanel({
   currentSubtitleY,
   platform,
   onPlatformChange,
+  onPlanFps,
 }: {
   ts: string;
   bumpKey: number;
@@ -785,9 +822,16 @@ function PrimaryPreviewPanel({
   currentSubtitleY: number;
   platform: PlatformId;
   onPlatformChange: (next: PlatformId) => void;
+  // render_plan の fps を親に bubble (= sceneRelNow snap で正確な秒換算に使う)。
+  onPlanFps?: (fps: number) => void;
 }) {
   const state = useRenderPlan(ts, bumpKey);
   const Composition = PLATFORM_COMPOSITIONS[platform];
+
+  const planFps = state.kind === "ready" ? state.plan.video.fps : undefined;
+  useEffect(() => {
+    if (onPlanFps && planFps !== undefined) onPlanFps(planFps);
+  }, [planFps, onPlanFps]);
 
   return (
     <div className="max-w-md mx-auto mb-3">
