@@ -132,9 +132,19 @@ class TestProjectClipStatus:
         self, tmp_path: Path, scenes: list[dict],
         monkeypatch: pytest.MonkeyPatch,
     ) -> str:
-        """temp/<TS>/screenplay.json + metadata.json を直接書く (= staged_pipeline
-        の run_script を経由すると compose で identity フィールドが落ちる場合
-        があるため、テストでは生 snapshot を作る)。"""
+        """temp/<TS>/screenplay.json + metadata.json を直接書く。
+
+        PR #157 (Phase A) で routes の clip-library-status が compose 経由
+        (= load_screenplay_for_project) に統一されたため、abstract に
+        featured_characters / speaker_to_ref が無いと character_refs が
+        compose で空配列に上書きされる (= scene_has_identity が False になる)。
+
+        テスト fixture では各 scene の `character_refs` を抽出して
+        `featured_characters` に展開し、compose の `_resolve_scene_characters`
+        の fallback (= 全 available_ids) 経路で character_refs が再現される
+        ようにする。これで「テストの意図 (= scene が identity を持っている)」と
+        compose 派生結果が整合する。
+        """
 
         import json
 
@@ -145,10 +155,23 @@ class TestProjectClipStatus:
         monkeypatch.setattr("config.SCREENPLAYS_DIR", str(sp_dir))
         monkeypatch.setattr("config.TEMP_DIR", str(temp_dir))
 
+        # 各 scene の character_refs を集約して featured_characters に展開
+        # (= compose の _resolve_scene_characters fallback で character_refs を
+        # 再現させる)。speaker_to_ref は test 範囲外なので空。
+        all_chars: list[str] = []
+        seen: set[str] = set()
+        for s in scenes:
+            for c in s.get("character_refs") or []:
+                if c not in seen:
+                    seen.add(c)
+                    all_chars.append(c)
+
         ts = "20260510_120000"
         ts_path = temp_dir / ts
         ts_path.mkdir()
-        screenplay = {"caption": "x", "scenes": scenes}
+        screenplay: dict = {"caption": "x", "scenes": scenes}
+        if all_chars:
+            screenplay["featured_characters"] = all_chars
         (ts_path / "screenplay.json").write_text(
             json.dumps(screenplay, ensure_ascii=False),
             encoding="utf-8",

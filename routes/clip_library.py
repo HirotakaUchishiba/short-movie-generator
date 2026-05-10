@@ -10,7 +10,6 @@ from __future__ import annotations
 
 import json
 import logging
-import os
 from typing import Any
 
 from flask import Blueprint, abort, jsonify, request
@@ -123,24 +122,19 @@ def project_clip_status(ts: str):
       - entry_id: hit する場合の最有力 entry (= top-1)
     """
 
-    from routes._helpers import ts_path as _ts_path
-    from routes._helpers import validate_ts
+    from routes._helpers import load_screenplay_for_project, validate_ts
 
     validate_ts(ts)
-    # identity / scene_parts は abstract 形式 (= snapshot 直書き) にしか入らない
-    # ため、compose を経由する load_project_screenplay ではなく snapshot JSON を
-    # 直接読む。
-    sp_path = os.path.join(_ts_path(ts), "screenplay.json")
-    if not os.path.exists(sp_path):
-        abort(404, "screenplay.json snapshot が見つかりません")
-    try:
-        with open(sp_path, encoding="utf-8") as f:
-            sp = json.load(f)
-    except (OSError, json.JSONDecodeError):
-        # 内部例外の文字列 (= 絶対パス含む) を HTTP body に出さない (= 情報 leak)。
-        # 詳細はサーバ log に残す。
-        logger.exception("[clip-status] screenplay.json 読込失敗 (ts=%s)", ts)
-        abort(500, "screenplay.json 読込失敗")
+    # PR #157 (Phase A) で compose_screenplay() が identity / annotation /
+    # scene_parts を pass-through するようになったため、snapshot 直読み
+    # workaround を撤去し、他の route と同じ load_screenplay_for_project
+    # (= compose 経由) に統一する。
+    #
+    # 副次効果: snapshot に identity が手書きで書かれていない場合でも、
+    # compose の `_derive_identity()` が featured_characters + location_ref +
+    # lines[0].emotion + camera_distance から identity を派生するので、Stage 1
+    # UI で abstract を編集した直後でも clip_library hit 候補を判定できる。
+    sp, _name = load_screenplay_for_project(ts)
     enabled = bool(getattr(config, "CLIP_LIBRARY_ENABLED", False))
 
     out: list[dict[str, Any]] = []
