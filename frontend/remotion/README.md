@@ -16,27 +16,37 @@
 remotion/
   index.ts                   ← registerRoot エントリ
   Root.tsx                   ← Composition 一覧の登録
-  PartRegistry.ts            ← Layer 2 part dispatch table (= id → component)
+  PartRegistry.ts            ← Layer 2 part dispatch table (= category × id → component)
   compositions/
     HelloWorld.tsx           ← Phase 0 minimum viable (= 1 シーン + 1 字幕)
-    ScreenplayBase.tsx       ← Phase 2-A 本番 composition (= RenderPlan を受けて全 scene)
+    ScreenplayBase.tsx       ← Phase 2-A 本番 composition + Phase 4-C/F 拡張
+                                (filter_preset wrap + intro/outro_card)
     (将来) ScreenplayYoutube.tsx, ScreenplayInstagram.tsx, ScreenplayTikTok.tsx
   components/
     PartRenderer.tsx         ← category + id を resolve して params を spread
-    SceneSequence.tsx        ← 1 scene = OffthreadVideo + subtitle Sequences
-    (将来) GlobalPartsLayer.tsx
-  parts/
-    subtitles/
-      MinimalSubtitle.tsx    ← Phase 2-A: ffmpeg drawtext 相当
-      index.ts               ← id → component map
-    (将来) stickers/, transitions/, lower_thirds/, title_cards/, camera_moves/, filter_presets/
+    SceneSequence.tsx        ← 1 scene = camera_move-wrapped OffthreadVideo +
+                                subtitle / sticker / lower_third Sequences
+  parts/                     ← Phase 4 で 6 categories 実装済み
+    subtitles/               ← minimal / fade_in / karaoke_bold      (Phase 2-A, 4-A)
+    stickers/                ← exclaim_red / question_mark / sparkle / thumbs_up / fire (Phase 4-B)
+    filter_presets/          ← none / warm_cinematic / cool_blue / monochrome / vintage (Phase 4-C)
+    camera_moves/            ← none / subtle_zoom_in / ken_burns / dolly_pull_back (Phase 4-D)
+    lower_thirds/            ← name_banner / role_caption / quote_box (Phase 4-E)
+    title_cards/             ← simple_intro / subscribe_outro / section_break (Phase 4-F)
+    (将来) transitions/, frame_layouts/, bgm/, sfx/
   schemas/
     renderPlan.ts            ← Layer 3 への入力 Zod スキーマ (= compositor_remotion.py が組立)
   __tests__/
-    HelloWorld.test.ts       ← schema パース系の単体テスト
-    PartRegistry.test.ts     ← dispatch + isKnownPart テスト
-    ScreenplayBase.test.ts   ← RenderPlan schema パース
+    HelloWorld.test.ts                ← schema パース系の単体テスト
+    PartRegistry.test.ts              ← dispatch + isKnownPart テスト (= 全 6 categories)
+    ScreenplayBase.test.ts            ← RenderPlan schema パース
+    part_registry_yaml_drift.test.ts  ← yaml ↔ component の id 集合一致
+                                         (= 全 categories を自動 iterate)
 ```
+
+各 part category の SSOT は `config/part_registry/<category>.yaml`。
+yaml の `component` フィールドと `parts/<category>/index.ts` の export 名は
+drift test で常に一致が enforce される (= 片方だけ更新する事故を防ぐ)。
 
 ## 開発コマンド
 
@@ -114,3 +124,30 @@ ffprobe -v quiet -print_format json -show_format -show_streams /tmp/hello.mp4
 # 4. 後始末
 rm -rf frontend/public/_smoke /tmp/hello.mp4
 ```
+
+## Phase 完了状況 (= 2026-05-10 セッション末)
+
+| Phase | 内容                                                                        | status |
+| ----- | --------------------------------------------------------------------------- | ------ |
+| 0     | Remotion セットアップ + HelloWorld                                            | ✅     |
+| 1     | clip_library skeleton (= identity/annotation/provenance)                     | ✅     |
+| 2-A   | ScreenplayBase + PartRenderer + MinimalSubtitle                              | ✅     |
+| 2-B   | compositor_remotion + OVERLAY_BACKEND dispatch                               | ✅     |
+| 3-A   | GET /api/projects/<TS>/render-plan endpoint                                  | ✅     |
+| 3-B   | StageOverlay UI に Player を side-by-side 表示                                | ✅     |
+| 3-C   | video preview を Player に完全移行                                           | ⬜     |
+| 4-A   | subtitle_styles 拡充 (fade_in / karaoke_bold)                               | ✅     |
+| 4-B   | stickers (= EmojiSticker × 5 preset)                                         | ✅     |
+| 4-C   | filter_presets + global_parts wiring                                         | ✅     |
+| 4-D   | camera_moves (subtle_zoom_in / ken_burns / dolly_pull_back)                  | ✅     |
+| 4-E   | lower_thirds (name_banner / role_caption / quote_box)                        | ✅     |
+| 4-F   | title_cards (simple_intro / subscribe_outro / section_break)                 | ✅     |
+| 4-G   | transitions (= scene-to-scene cut / dip / slide)                             | ⬜     |
+| 4-H   | frame_layouts (= split_horizontal / pip_corner)                              | ⬜     |
+| 5     | Screenplay{Youtube,Instagram,TikTok} + bgm + sfx + outro_ctas                | ⬜     |
+| 6     | analyze pipeline 統合 (novel intent 自動検出)                                | ⬜     |
+| 7     | 旧 free-text 経路 deprecation                                                | ⬜     |
+
+新カテゴリ追加の手順は `2026-05-10_compositional-architecture.md` §4.4 と
+`config/part_registry/*.yaml` の既存 entry を参照。drift test (= part_registry_yaml_drift)
+で yaml と component の id 集合の一致が常に強制される。
