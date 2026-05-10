@@ -638,6 +638,32 @@ class TestBuildRenderPlan:
 # ───────────── render_via_remotion (= subprocess mock) ─────────────
 
 
+class TestCompositionIdForTemplate:
+    def test_known_templates(self) -> None:
+        assert (
+            compositor_remotion.composition_id_for_template("base")
+            == "ScreenplayBase"
+        )
+        assert (
+            compositor_remotion.composition_id_for_template("youtube")
+            == "ScreenplayYoutube"
+        )
+        assert (
+            compositor_remotion.composition_id_for_template("instagram")
+            == "ScreenplayInstagram"
+        )
+        assert (
+            compositor_remotion.composition_id_for_template("tiktok")
+            == "ScreenplayTikTok"
+        )
+
+    def test_unknown_template_falls_back_to_base(self) -> None:
+        assert (
+            compositor_remotion.composition_id_for_template("nonexistent")
+            == "ScreenplayBase"
+        )
+
+
 class TestRenderViaRemotion:
     def test_invokes_remotion_cli_with_correct_args(
         self, tmp_path: Path

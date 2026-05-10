@@ -4,8 +4,57 @@ import {
   ScreenplayBase,
   ScreenplayBaseProps,
 } from "./compositions/ScreenplayBase";
+import {
+  ScreenplayInstagram,
+  ScreenplayInstagramProps,
+} from "./compositions/ScreenplayInstagram";
+import {
+  ScreenplayTikTok,
+  ScreenplayTikTokProps,
+} from "./compositions/ScreenplayTikTok";
+import {
+  ScreenplayYoutube,
+  ScreenplayYoutubeProps,
+} from "./compositions/ScreenplayYoutube";
 
 // 詳細: docs/plannings/2026-05-10_compositional-architecture.md §5
+
+const DEFAULT_PLAN = {
+  plan: {
+    video: {
+      width: 1080,
+      height: 1920,
+      fps: 60,
+      duration_frames: 60 * 600,
+    },
+    scenes: [],
+    global_parts: {},
+    template: "base" as const,
+  },
+};
+
+const calc = async ({
+  props,
+}: {
+  props: {
+    plan: {
+      video: {
+        duration_frames: number;
+        fps: number;
+        width: number;
+        height: number;
+      };
+    };
+  };
+}) => {
+  const v = props.plan.video;
+  return {
+    durationInFrames: v.duration_frames,
+    fps: v.fps,
+    width: v.width,
+    height: v.height,
+  };
+};
 
 export const RemotionRoot: React.FC = () => {
   return (
@@ -29,7 +78,7 @@ export const RemotionRoot: React.FC = () => {
 
       {/* Phase 2-A: 本番用 base composition (= RenderPlan を受けて全 scene をレンダ)。
           実際の durationInFrames / fps / 解像度は plan.video.* で起動時に上書きする
-          (= async calculateMetadata で props 由来の値を返す) */}
+          (= async calculateMetadata で props 由来の値を返す)。 */}
       <Composition
         id="ScreenplayBase"
         component={ScreenplayBase}
@@ -40,28 +89,44 @@ export const RemotionRoot: React.FC = () => {
         width={1080}
         height={1920}
         schema={ScreenplayBaseProps}
-        calculateMetadata={async ({ props }) => {
-          const v = props.plan.video;
-          return {
-            durationInFrames: v.duration_frames,
-            fps: v.fps,
-            width: v.width,
-            height: v.height,
-          };
-        }}
-        defaultProps={{
-          plan: {
-            video: {
-              width: 1080,
-              height: 1920,
-              fps: 60,
-              duration_frames: 60 * 600,
-            },
-            scenes: [],
-            global_parts: {},
-            template: "base" as const,
-          },
-        }}
+        calculateMetadata={calc}
+        defaultProps={DEFAULT_PLAN}
+      />
+
+      {/* Phase 5-A: platform 別 wrapper composition。
+          ScreenplayBase をラップして global_parts / per-scene parts を上書き。 */}
+      <Composition
+        id="ScreenplayYoutube"
+        component={ScreenplayYoutube}
+        durationInFrames={60 * 600}
+        fps={60}
+        width={1080}
+        height={1920}
+        schema={ScreenplayYoutubeProps}
+        calculateMetadata={calc}
+        defaultProps={DEFAULT_PLAN}
+      />
+      <Composition
+        id="ScreenplayInstagram"
+        component={ScreenplayInstagram}
+        durationInFrames={60 * 600}
+        fps={60}
+        width={1080}
+        height={1920}
+        schema={ScreenplayInstagramProps}
+        calculateMetadata={calc}
+        defaultProps={DEFAULT_PLAN}
+      />
+      <Composition
+        id="ScreenplayTikTok"
+        component={ScreenplayTikTok}
+        durationInFrames={60 * 600}
+        fps={60}
+        width={1080}
+        height={1920}
+        schema={ScreenplayTikTokProps}
+        calculateMetadata={calc}
+        defaultProps={DEFAULT_PLAN}
       />
     </>
   );

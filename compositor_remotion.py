@@ -466,21 +466,52 @@ def render_via_remotion(
     return output_path
 
 
+_TEMPLATE_TO_COMPOSITION_ID: dict[str, str] = {
+    "base": "ScreenplayBase",
+    "youtube": "ScreenplayYoutube",
+    "instagram": "ScreenplayInstagram",
+    "tiktok": "ScreenplayTikTok",
+}
+
+
+def composition_id_for_template(template: str) -> str:
+    """plan["template"] (= base / youtube / instagram / tiktok) を Remotion の
+    Composition id (= ScreenplayBase / ScreenplayYoutube / ...) に変換。
+
+    未知の template は base にフォールバック。
+    """
+
+    return _TEMPLATE_TO_COMPOSITION_ID.get(template, "ScreenplayBase")
+
+
 def compose_video_remotion(
     scene_videos: list[str],
     screenplay: dict,
     temp_dir: str,
     output_path: str,
-    composition_id: str = "ScreenplayBase",
+    composition_id: str | None = None,
+    template: str = "base",
 ) -> str:
     """ffmpeg compositor.compose_video の Remotion 等価 entry point。
 
     `staged_pipeline.run_overlay` から OVERLAY_BACKEND=remotion 時に呼ばれる。
+
+    Args:
+        composition_id: 直接 Composition id を指定したい場合に使う (= 後方互換)
+        template: "base" / "youtube" / "instagram" / "tiktok" (= Stage 8 publish
+            から呼ばれた時に platform を渡す)。composition_id 未指定時に
+            template から自動解決する。
     """
 
     workspace, public_rel = _render_workspace_for(temp_dir)
     _link_scene_videos(scene_videos, workspace, public_rel)
     plan = build_render_plan(screenplay, scene_videos, public_relpath=public_rel)
+    # plan の template を上書き (= 呼び出し側からの指定を優先)
+    plan["template"] = template
+    if composition_id is None:
+        composition_id = composition_id_for_template(template)
     plan_path = os.path.join(temp_dir, "render_plan.json")
-    render_via_remotion(plan, output_path, composition_id=composition_id, plan_path=plan_path)
+    render_via_remotion(
+        plan, output_path, composition_id=composition_id, plan_path=plan_path
+    )
     return output_path
