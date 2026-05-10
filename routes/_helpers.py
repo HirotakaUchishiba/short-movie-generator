@@ -167,6 +167,34 @@ def load_screenplay_for_project(
     return sp, name
 
 
+def is_analyze_pending(ts: str, *, temp_dir: str | None = None) -> bool:
+    """analyze 経路 project が Stage 0 (analyze) を未完了かどうか。
+
+    True を返す条件 (= 全て満たす):
+      - `analyze_job_id` が metadata にある (= analyze 経路で作られた project)
+      - `screenplay_name` が metadata に無い (= snapshot がまだコピーされていない)
+      - `analyze_status` が "running" / "pending" / "failed" / None のいずれか
+        (= "completed" 以外。failed は retry endpoint 経路で別途扱う)
+
+    legacy template 経路 (= screenplay_name あり) は常に False。analyze_job_id
+    が無い project (= 壊れた / 古い project) も False (= 個別 endpoint の
+    load_screenplay_for_project で 404 を返させる)。
+
+    Stage 1+ stage runner / abstract endpoint で 403 ANALYZE_STAGE_NOT_READY
+    を返す前のチェックに使う。
+    """
+    import progress_store
+    import staged_pipeline
+    project_path = ts_path(ts, temp_dir=temp_dir)
+    meta = staged_pipeline.read_metadata(project_path) or {}
+    if meta.get("screenplay_name"):
+        return False
+    if not meta.get("analyze_job_id"):
+        return False
+    status = progress_store.analyze_status(project_path)
+    return status != "completed"
+
+
 def ffprobe_duration(path: str) -> float:
     """ffprobe で動画の duration を秒で返す。失敗時 0.0。
 

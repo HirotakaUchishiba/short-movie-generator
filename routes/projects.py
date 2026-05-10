@@ -129,6 +129,9 @@ def api_projects():
             "created_at": meta.get("created_at"),
             "current_stage": progress_store.current_stage(project_path),
             "progress": progress,
+            # Stage 0 バッジ表示 (= ProjectCard の analyze 進行中 / 失敗)
+            "analyze_status": progress_store.analyze_status(project_path),
+            "analyze_job_id": meta.get("analyze_job_id"),
         })
     return jsonify({"projects": items, "screenplays": _list_screenplays()})
 
@@ -349,9 +352,18 @@ def api_project_detail(ts):
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
         return jsonify({"error": "プロジェクトが存在しません"}), 404
-    sp, name = load_screenplay_for_project(ts)
-    progress = progress_store.load(project_path)
     meta = staged_pipeline.read_metadata(project_path) or {}
+    progress = progress_store.load(project_path)
+    analyze_status_val = progress_store.analyze_status(project_path)
+
+    sp: dict | None = None
+    name: str | None = None
+    if meta.get("screenplay_name"):
+        try:
+            sp, name = load_screenplay_for_project(ts)
+        except Exception as e:  # 404 abort も含めて defensive に拾う
+            logger.warning("screenplay load failed for %s: %s", ts, e)
+
     return jsonify({
         "timestamp": ts,
         "screenplay_name": name,
@@ -359,4 +371,5 @@ def api_project_detail(ts):
         "progress": progress,
         "current_stage": progress_store.current_stage(project_path),
         "analyze_job_id": meta.get("analyze_job_id"),
+        "analyze_status": analyze_status_val,
     })

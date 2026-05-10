@@ -141,6 +141,47 @@ def test_create_rejects_invalid_fps(client, runner_started_jobs) -> None:
     assert r.get_json()["error_code"] == "ANALYZE_INVALID_FPS"
 
 
+def test_api_projects_includes_analyze_status(
+    client, runner_started_jobs,
+) -> None:
+    """GET /api/projects レスポンスに analyze_status / analyze_job_id が含まれる
+    (= ProjectCard の Stage 0 バッジ表示用)。
+    """
+    body = client.post(
+        "/api/projects/from-reference-video",
+        data=_multipart("ref.mp4", b"\x00bytes"),
+        content_type="multipart/form-data",
+    ).get_json()
+
+    r = client.get("/api/projects")
+    assert r.status_code == 200
+    items = r.get_json()["projects"]
+    target = next(p for p in items if p["timestamp"] == body["ts"])
+    assert target["analyze_status"] == "running"
+    assert target["analyze_job_id"] == body["analyze_job_id"]
+    assert target["screenplay_name"] is None  # Stage 0 中
+
+
+def test_api_project_detail_returns_null_screenplay_during_stage_0(
+    client, runner_started_jobs,
+) -> None:
+    """GET /api/projects/<ts> は Stage 0 中なら screenplay=null + analyze_status を
+    返す (= 404 にしない)。AnalyzeStage0Page が読みに来る用。
+    """
+    body = client.post(
+        "/api/projects/from-reference-video",
+        data=_multipart("ref.mp4", b"\x00bytes"),
+        content_type="multipart/form-data",
+    ).get_json()
+    r = client.get(f"/api/projects/{body['ts']}")
+    assert r.status_code == 200
+    detail = r.get_json()
+    assert detail["screenplay"] is None
+    assert detail["screenplay_name"] is None
+    assert detail["analyze_status"] == "running"
+    assert detail["analyze_job_id"] == body["analyze_job_id"]
+
+
 def test_create_dedup_reuses_reference_video(
     client, isolated_env, runner_started_jobs,
 ) -> None:

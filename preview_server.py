@@ -828,6 +828,12 @@ def api_get_project_abstract(ts):
             "プロジェクトが存在しません",
             404,
         )
+    if _route_helpers.is_analyze_pending(ts, temp_dir=TEMP_DIR):
+        return api_error(
+            "ANALYZE_STAGE_NOT_READY",
+            "Stage 0 (analyze) が完了するまで abstract を読めません",
+            403,
+        )
     try:
         sp = staged_pipeline.load_project_abstract(_ts_path(ts))
     except FileNotFoundError:
@@ -864,6 +870,12 @@ def api_put_project_abstract(ts):
             "ANALYZE_PROJECT_NOT_FOUND",
             "プロジェクトが存在しません",
             404,
+        )
+    if _route_helpers.is_analyze_pending(ts, temp_dir=TEMP_DIR):
+        return api_error(
+            "ANALYZE_STAGE_NOT_READY",
+            "Stage 0 (analyze) が完了するまで abstract を更新できません",
+            403,
         )
     data = request.get_json(force=True) or {}
     abstract = data.get("abstract")
