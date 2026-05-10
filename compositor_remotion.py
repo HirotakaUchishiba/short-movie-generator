@@ -284,6 +284,15 @@ def build_render_plan(
             if stickers_out:
                 plan_parts["stickers"] = stickers_out
 
+        # Phase 4-D: camera_move (= scene 動画への post-effect 動き) を passthrough。
+        # {id, params?} を normalize。SceneSequence が OffthreadVideo を wrap する。
+        cam = scene_parts_in.get("camera_move")
+        if isinstance(cam, dict) and isinstance(cam.get("id"), str):
+            plan_parts["camera_move"] = {
+                "id": cam["id"],
+                "params": dict(cam.get("params") or {}),
+            }
+
         plan_scenes.append(
             {
                 "index": s_idx,

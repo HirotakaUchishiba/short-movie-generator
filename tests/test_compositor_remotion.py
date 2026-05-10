@@ -366,6 +366,56 @@ class TestBuildRenderPlan:
         assert len(stickers) == 1
         assert stickers[0]["id"] == "sparkle"
 
+    def test_camera_move_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-D: scene_parts.camera_move が plan.scenes[].parts.camera_move に
+        正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "camera_move": {
+                            "id": "subtle_zoom_in",
+                            "params": {"to_scale": 1.07},
+                        }
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        cam = plan["scenes"][0]["parts"]["camera_move"]
+        assert cam["id"] == "subtle_zoom_in"
+        assert cam["params"]["to_scale"] == 1.07
+        # camera_move 無し scene には key が立たない
+        assert "camera_move" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_camera_move_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """id 欠落 / dict でない camera_move は静かにドロップ。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "camera_move": {"params": {}},  # id 欠落
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert "camera_move" not in plan["scenes"][0]["parts"]
+
 
 # ───────────── render_via_remotion (= subprocess mock) ─────────────
 
