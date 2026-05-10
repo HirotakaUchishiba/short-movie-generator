@@ -205,31 +205,71 @@ def _refresh_metadata_sha(ts_path: str, sha256: str) -> None:
 
 # ───────────────── metadata ─────────────────
 
-def write_metadata(temp_dir: str, screenplay_name: str,
+def write_metadata(temp_dir: str, screenplay_name: str | None,
                     analyze_job_id: str | None = None,
                     sha256: str | None = None) -> None:
     """project 作成時の metadata.json を書く。
 
     screenplay_path は **project snapshot 相対パス** ("screenplay.json")。
     template (= 元 source) の名前は screenplay_template_name に分けて記録する。
+
+    screenplay_name=None は **Stage 0 (analyze) 進行中** の状態を表す
+    (= from-reference-video 経路の init)。snapshot もまだ書かれていないので
+    screenplay_path / screenplay_template_name / screenplay_sha256 もまとめて
+    omit する。analyze.runner._on_save_complete が完了時に
+    update_metadata_after_analyze 経由で残りを埋める。
     """
-    if sha256 is None:
+    if sha256 is None and screenplay_name:
         snap = project_screenplay_path(temp_dir)
         if os.path.exists(snap):
             with open(snap, "rb") as f:
                 sha256 = hashlib.sha256(f.read()).hexdigest()
     meta: dict = {
-        "screenplay_name": screenplay_name,
-        "screenplay_template_name": screenplay_name,
-        "screenplay_path": PROJECT_SCREENPLAY_FILENAME,
-        "screenplay_sha256": sha256 or "",
         "created_at": datetime.now().isoformat(timespec="seconds"),
     }
+    if screenplay_name:
+        meta["screenplay_name"] = screenplay_name
+        meta["screenplay_template_name"] = screenplay_name
+        meta["screenplay_path"] = PROJECT_SCREENPLAY_FILENAME
+        meta["screenplay_sha256"] = sha256 or ""
     if analyze_job_id:
         # analyze pipeline 経由で作られたプロジェクトのみ。Stage 1「素材編集」
         # セクションで抽象台本 + VideoStyle を編集して再合成するためのキー。
         meta["analyze_job_id"] = analyze_job_id
     os.makedirs(temp_dir, exist_ok=True)
+    io_utils.atomic_write_json(
+        os.path.join(temp_dir, "metadata.json"), meta,
+    )
+
+
+def init_pending_metadata(temp_dir: str, analyze_job_id: str) -> None:
+    """Stage 0 開始時の metadata.json 初期化 (= from-reference-video endpoint 起点)。
+
+    screenplay_name / screenplay_path / screenplay_sha256 は **omit**:
+    snapshot がまだ無いため。analyze save phase 完了 hook
+    (= analyze.runner._on_save_complete) が update_metadata_after_analyze で
+    後から埋める。
+    """
+    write_metadata(
+        temp_dir, screenplay_name=None,
+        analyze_job_id=analyze_job_id, sha256=None,
+    )
+
+
+def update_metadata_after_analyze(
+    temp_dir: str, screenplay_name: str, sha256: str,
+) -> None:
+    """analyze save phase 完了 hook から呼ばれる。
+
+    init_pending_metadata で書いた metadata に screenplay_name /
+    screenplay_template_name / screenplay_path / screenplay_sha256 を
+    書き足す (= 既存 analyze_job_id / created_at は維持)。
+    """
+    meta = read_metadata(temp_dir) or {}
+    meta["screenplay_name"] = screenplay_name
+    meta["screenplay_template_name"] = screenplay_name
+    meta["screenplay_path"] = PROJECT_SCREENPLAY_FILENAME
+    meta["screenplay_sha256"] = sha256
     io_utils.atomic_write_json(
         os.path.join(temp_dir, "metadata.json"), meta,
     )
@@ -266,6 +306,10 @@ def run_script(screenplay: dict, screenplay_name: str, ts_path: str,
         ts_path, screenplay_name,
         analyze_job_id=analyze_job_id, sha256=sha,
     )
+    # legacy template 経路 (= analyze pipeline を経由しない project) は Stage 0 を
+    # auto-skip して Stage 1 から開始する。analyze 経路 (= from-reference-video) は
+    # analyze.runner._on_save_complete が同じ操作を行うので idempotent。
+    progress_store.mark_analyze_completed(ts_path)
     progress_store.mark_generated(ts_path, "script")
     logger.info(
         "[台本] 検証完了 — %dシーン (snapshot=%s, sha=%s)",
@@ -518,6 +562,17 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
         return None
+
+    if nxt == "analyze":
+        # 防御: STAGES 拡張により Stage 0 が先頭に来たが、ここに到達するのは
+        # run_script / analyze hook が mark_analyze_completed を呼び忘れた場合
+        # のみ (= 旧 progress.json の project や CLI 経路)。auto-skip して
+        # Stage 1 を狙う。analyze 自体は別 endpoint で起動するもので、CLI から
+        # は呼ばない。
+        progress_store.mark_analyze_completed(ts_path)
+        nxt = progress_store.next_stage(ts_path)
+        if nxt is None:
+            return None
 
     if nxt in progress_store.EXTERNAL_ACTION_STAGES:
         return None

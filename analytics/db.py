@@ -82,6 +82,10 @@ def init_db() -> None:
         _ensure_column(conn, "videos", "final_filename", "final_filename TEXT")
         _ensure_column(conn, "videos", "final_audio_match_score",
                        "final_audio_match_score REAL")
+        # analyze_jobs に project_ts を後付け (= from-reference-video 経路で
+        # 生成された project の TS 紐付け、save hook の back link)。standalone
+        # analyze (= 旧経路) は NULL のまま。
+        _ensure_column(conn, "analyze_jobs", "project_ts", "project_ts TEXT")
         # schema v5: reference_videos に source_url / fetched_at / license_status を
         # 追加。既存 row は NULL / "unconfirmed" のまま (= UI upload 経路は影響なし)。
         _ensure_column(conn, "reference_videos", "source_url", "source_url TEXT")

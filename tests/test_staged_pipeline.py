@@ -93,6 +93,59 @@ def test_run_script_writes_snapshot_and_metadata(
     assert meta["screenplay_sha256"]
 
 
+def test_init_pending_metadata_omits_screenplay_fields(tmp_path) -> None:
+    """Stage 0 init: snapshot 未作成なので screenplay_* は dict に書かれない。"""
+    ts_path = str(tmp_path / "pending")
+    staged_pipeline.init_pending_metadata(ts_path, "analyze_xyz")
+    meta = staged_pipeline.read_metadata(ts_path)
+    assert meta["analyze_job_id"] == "analyze_xyz"
+    assert meta["created_at"]
+    assert "screenplay_name" not in meta
+    assert "screenplay_template_name" not in meta
+    assert "screenplay_path" not in meta
+    assert "screenplay_sha256" not in meta
+
+
+def test_update_metadata_after_analyze_preserves_existing(tmp_path) -> None:
+    """save hook: init で書いた analyze_job_id / created_at は維持。"""
+    ts_path = str(tmp_path / "afterhook")
+    staged_pipeline.init_pending_metadata(ts_path, "analyze_xyz")
+    created_at_before = staged_pipeline.read_metadata(ts_path)["created_at"]
+
+    staged_pipeline.update_metadata_after_analyze(
+        ts_path, "auto_abc.json", "sha_deadbeef",
+    )
+    meta = staged_pipeline.read_metadata(ts_path)
+    assert meta["analyze_job_id"] == "analyze_xyz"
+    assert meta["created_at"] == created_at_before
+    assert meta["screenplay_name"] == "auto_abc.json"
+    assert meta["screenplay_template_name"] == "auto_abc.json"
+    assert meta["screenplay_path"] == "screenplay.json"
+    assert meta["screenplay_sha256"] == "sha_deadbeef"
+
+
+def test_write_metadata_nullable_screenplay_name(tmp_path) -> None:
+    """write_metadata(screenplay_name=None) は screenplay_* を書かず、
+    後で str を渡し直すと埋められる (= retry endpoint の atomic 書き直し用)。
+    """
+    ts_path = str(tmp_path / "nullable")
+    os.makedirs(ts_path)
+    staged_pipeline.write_metadata(
+        ts_path, screenplay_name=None,
+        analyze_job_id="analyze_1", sha256=None,
+    )
+    meta = staged_pipeline.read_metadata(ts_path)
+    assert "screenplay_name" not in meta
+    # str に切り替えて再書き込み: screenplay_* が dict に入る
+    staged_pipeline.write_metadata(
+        ts_path, screenplay_name="auto_x.json",
+        analyze_job_id="analyze_1", sha256="sha_aaa",
+    )
+    meta2 = staged_pipeline.read_metadata(ts_path)
+    assert meta2["screenplay_name"] == "auto_x.json"
+    assert meta2["screenplay_sha256"] == "sha_aaa"
+
+
 def test_save_project_screenplay_updates_metadata_sha(
     fake_screenplays_dir, tmp_path,
 ) -> None:

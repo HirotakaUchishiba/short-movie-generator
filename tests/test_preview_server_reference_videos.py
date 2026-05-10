@@ -23,8 +23,11 @@ def isolated_env(tmp_path, monkeypatch):
 def client(isolated_env, monkeypatch):
     import preview_server
     preview_server.app.config["TESTING"] = True
-    # ffprobe を mock (テスト動画には実 metadata が無いので)
-    monkeypatch.setattr(preview_server, "_ffprobe_duration", lambda p: 12.5)
+    # ffprobe を mock (テスト動画には実 metadata が無いので)。
+    # save_reference_video helper は routes._helpers.ffprobe_duration を直接呼ぶ
+    # ので、preview_server の shim ではなく helper 側を mock する。
+    from routes import _helpers as _route_helpers
+    monkeypatch.setattr(_route_helpers, "ffprobe_duration", lambda p: 12.5)
     return preview_server.app.test_client()
 
 

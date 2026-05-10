@@ -35,6 +35,9 @@ def test_unknown_stage_fails(tmp_path) -> None:
 
 
 def test_next_stage_returns_first_ungenerated(tmp_path) -> None:
+    # Stage 0 (analyze) が STAGES の先頭。空 progress では analyze が next。
+    assert progress_store.next_stage(str(tmp_path)) == "analyze"
+    progress_store.mark_analyze_completed(str(tmp_path))
     assert progress_store.next_stage(str(tmp_path)) == "script"
     progress_store.mark_generated(str(tmp_path), "script")
     progress_store.mark_approved(str(tmp_path), "script")
@@ -42,6 +45,7 @@ def test_next_stage_returns_first_ungenerated(tmp_path) -> None:
 
 
 def test_next_stage_blocks_when_unapproved(tmp_path) -> None:
+    progress_store.mark_analyze_completed(str(tmp_path))
     progress_store.mark_generated(str(tmp_path), "script")
     assert progress_store.next_stage(str(tmp_path)) is None
 
@@ -80,16 +84,21 @@ def test_all_stages_complete_returns_none(tmp_path) -> None:
 
 def test_revoke_all_approvals_keeps_generated(tmp_path) -> None:
     """Stage 1「素材編集」で再合成した時に呼ぶ関数。承認だけ消えて assets は残る。"""
+    progress_store.mark_analyze_completed(str(tmp_path))
     for s in progress_store.STAGES:
+        if s == "analyze":
+            continue
         progress_store.mark_generated(str(tmp_path), s)
         progress_store.mark_approved(str(tmp_path), s)
     progress_store.revoke_all_approvals(str(tmp_path))
     p = progress_store.load(str(tmp_path))
     for s in progress_store.STAGES:
+        if s == "analyze":
+            continue
         assert p["stages"][s]["approved_at"] is None
         # generated_at (= asset 生成済みフラグ) は保持される
         assert p["stages"][s]["generated_at"] is not None
-    # next_stage は最初の未承認 = script で停止
+    # next_stage は最初の未承認 = script で停止 (= analyze は approved 維持で skip)
     assert progress_store.current_stage(str(tmp_path)) == "script"
 
 
@@ -166,3 +175,67 @@ def test_cascade_reset_after_unknown_stage_fails(tmp_path) -> None:
         progress_store.cascade_reset_after(str(tmp_path), "final_import")
     with pytest.raises(ValueError, match="cascade 対象外"):
         progress_store.cascade_reset_after(str(tmp_path), "bogus")
+
+
+# ─── Stage 0 (analyze) helpers ─────────────────────
+
+
+def test_mark_analyze_started_sets_running_status(tmp_path) -> None:
+    progress_store.mark_analyze_started(str(tmp_path))
+    p = progress_store.load(str(tmp_path))
+    block = p["stages"]["analyze"]
+    assert block["generated_at"]
+    assert block["approved_at"] is None
+    assert block["status"] == "running"
+    assert progress_store.analyze_status(str(tmp_path)) == "running"
+
+
+def test_mark_analyze_completed_unlocks_stage_1(tmp_path) -> None:
+    progress_store.mark_analyze_started(str(tmp_path))
+    progress_store.mark_analyze_completed(str(tmp_path))
+    p = progress_store.load(str(tmp_path))
+    block = p["stages"]["analyze"]
+    assert block["generated_at"]
+    assert block["approved_at"]
+    assert block["status"] == "completed"
+    assert progress_store.next_stage(str(tmp_path)) == "script"
+
+
+def test_mark_analyze_failed_keeps_unapproved(tmp_path) -> None:
+    progress_store.mark_analyze_started(str(tmp_path))
+    progress_store.mark_analyze_failed(str(tmp_path), "claude API timeout")
+    p = progress_store.load(str(tmp_path))
+    block = p["stages"]["analyze"]
+    assert block["status"] == "failed"
+    assert block["error"] == "claude API timeout"
+    assert block["approved_at"] is None
+    assert progress_store.analyze_status(str(tmp_path)) == "failed"
+
+
+def test_mark_analyze_failed_truncates_long_error(tmp_path) -> None:
+    progress_store.mark_analyze_started(str(tmp_path))
+    progress_store.mark_analyze_failed(str(tmp_path), "x" * 1000)
+    p = progress_store.load(str(tmp_path))
+    assert len(p["stages"]["analyze"]["error"]) == 500
+
+
+def test_analyze_status_returns_none_for_legacy_project(tmp_path) -> None:
+    """legacy template 経路 project (= mark_analyze_* 未呼出) は status=None。"""
+    assert progress_store.analyze_status(str(tmp_path)) is None
+    progress_store.mark_generated(str(tmp_path), "script")
+    assert progress_store.analyze_status(str(tmp_path)) is None
+
+
+def test_revoke_all_approvals_skips_analyze_stage(tmp_path) -> None:
+    """素材編集での再合成は Stage 0 を re-run しない (= retry-analyze 専用)。"""
+    ts = str(tmp_path)
+    for s in progress_store.STAGES:
+        progress_store.mark_generated(ts, s)
+        progress_store.mark_approved(ts, s)
+    progress_store.revoke_all_approvals(ts)
+    p = progress_store.load(ts)
+    assert p["stages"]["analyze"]["approved_at"] is not None
+    for s in progress_store.STAGES:
+        if s == "analyze":
+            continue
+        assert p["stages"][s]["approved_at"] is None

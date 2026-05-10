@@ -21,10 +21,18 @@ from qa import artifact_paths as qa_artifact_paths
 from qa import recorder as qa_recorder
 
 from routes._helpers import (
+    is_analyze_pending,
     load_screenplay_for_project,
     ts_path,
     validate_ts,
 )
+
+
+def _analyze_stage_not_ready_response():
+    return jsonify({
+        "error_code": "ANALYZE_STAGE_NOT_READY",
+        "message": "Stage 0 (analyze) が完了するまで他のステージを実行できません",
+    }), 403
 
 logger = logging.getLogger(__name__)
 
@@ -156,6 +164,8 @@ def api_run_next(ts):
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
         return jsonify({"error": "プロジェクトが存在しません"}), 404
+    if is_analyze_pending(ts):
+        return _analyze_stage_not_ready_response()
     sp, name = load_screenplay_for_project(ts)
     try:
         job_id = spawn_job(
@@ -179,6 +189,8 @@ def api_regen(ts):
     force_no_cache = bool(data.get("force_no_cache", False))
     if stage not in {"tts", "bg", "kling", "scene", "overlay"}:
         return jsonify({"error": f"このstageは再生成不可: {stage}"}), 400
+    if is_analyze_pending(ts):
+        return _analyze_stage_not_ready_response()
 
     sp, name = load_screenplay_for_project(ts)
     if force_no_cache and stage == "bg":
