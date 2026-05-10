@@ -79,7 +79,16 @@ function formatDuration(ms: number): string {
   return `${m}m ${s.toString().padStart(2, "0")}s`;
 }
 
-export default function AnalyzeJobView({ jobId }: { jobId: string }) {
+interface Props {
+  jobId: string;
+  /** project-internal モード: 完了時に project の Stage 1 page に自動遷移する。
+   * 未指定 (= standalone モード = 旧 /analyze ページ) では「プロジェクト作成」
+   * ボタンを表示する。Phase E で standalone モードを削除する。
+   */
+  projectTs?: string | null;
+}
+
+export default function AnalyzeJobView({ jobId, projectTs }: Props) {
   const navigate = useNavigate();
   const [composing, setComposing] = useState(false);
   const [job, setJob] = useState<AnalyzeJobDetail | null>(null);
@@ -668,38 +677,64 @@ export default function AnalyzeJobView({ jobId }: { jobId: string }) {
               </span>
             </div>
           )}
-          <div className="mt-3 flex gap-2 flex-wrap">
-            <button
-              type="button"
-              className="btn-primary"
-              disabled={composing}
-              onClick={async () => {
-                if (!completedPath) return;
-                setComposing(true);
-                try {
-                  const screenplayName = completedPath.split("/").pop();
-                  if (!screenplayName) return;
-                  const proj = await api.createProject(screenplayName, jobId);
-                  navigate(`/project/${proj.timestamp}/script`);
-                } catch (e) {
-                  alert(String(e));
-                } finally {
-                  setComposing(false);
-                }
-              }}
-            >
-              {composing ? "作成中…" : "プロジェクト作成 →"}
-            </button>
-            <Link to="/" className="btn-ghost">
-              後で (プロジェクト一覧へ)
-            </Link>
-          </div>
-          <div className="mt-2 text-xs text-slate-400">
-            ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
-            作成後 台本タブで各シーンを編集できます。
-          </div>
+          {projectTs ? (
+            <AutoNavigateOnComplete ts={projectTs} />
+          ) : (
+            <>
+              <div className="mt-3 flex gap-2 flex-wrap">
+                <button
+                  type="button"
+                  className="btn-primary"
+                  disabled={composing}
+                  onClick={async () => {
+                    if (!completedPath) return;
+                    setComposing(true);
+                    try {
+                      const screenplayName = completedPath.split("/").pop();
+                      if (!screenplayName) return;
+                      const proj = await api.createProject(
+                        screenplayName,
+                        jobId,
+                      );
+                      navigate(`/project/${proj.timestamp}/script`);
+                    } catch (e) {
+                      alert(String(e));
+                    } finally {
+                      setComposing(false);
+                    }
+                  }}
+                >
+                  {composing ? "作成中…" : "プロジェクト作成 →"}
+                </button>
+                <Link to="/" className="btn-ghost">
+                  後で (プロジェクト一覧へ)
+                </Link>
+              </div>
+              <div className="mt-2 text-xs text-slate-400">
+                ※ 抽象台本にはセリフ・感情・シーン構成が含まれます。プロジェクト
+                作成後 台本タブで各シーンを編集できます。
+              </div>
+            </>
+          )}
         </div>
       )}
+    </div>
+  );
+}
+
+function AutoNavigateOnComplete({ ts }: { ts: string }) {
+  const navigate = useNavigate();
+  useEffect(() => {
+    // backend save-phase hook (= snapshot copy + Stage 1 unlock) が
+    // 完了するまでのマージン。ユーザーが「完了」を視認できる時間も兼ねる。
+    const t = window.setTimeout(() => {
+      navigate(`/project/${ts}/script`);
+    }, 1500);
+    return () => window.clearTimeout(t);
+  }, [navigate, ts]);
+  return (
+    <div className="mt-3 text-xs text-slate-400">
+      Stage 1 (台本編集) に自動遷移します...
     </div>
   );
 }
