@@ -314,6 +314,18 @@ def build_render_plan(
                 "params": dict(lt.get("params") or {}),
             }
 
+        # Phase 4-G: transition_in / transition_out (= scene 境界 effect) を
+        # passthrough。{id, params?} のみ正規化。`direction` と
+        # `totalFrames` は SceneSequence 側で注入する (= Python 側で持つと
+        # frame 数依存になるため UI 経由の編集が複雑になる)。
+        for key in ("transition_in", "transition_out"):
+            tr = scene_parts_in.get(key)
+            if isinstance(tr, dict) and isinstance(tr.get("id"), str):
+                plan_parts[key] = {
+                    "id": tr["id"],
+                    "params": dict(tr.get("params") or {}),
+                }
+
         plan_scenes.append(
             {
                 "index": s_idx,
