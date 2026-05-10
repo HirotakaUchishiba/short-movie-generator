@@ -839,3 +839,126 @@ def test_part_registry_check_skipped_when_yaml_missing(monkeypatch, tmp_path) ->
     screenplay_validator.validate_screenplay(sp)
     # 後続テストに影響しないよう cache を戻す
     screenplay_validator.reset_part_registry_cache()
+
+
+# ───── G-8: validator part field categories ⊆ KNOWN_CATEGORIES drift 監査 ─────
+
+
+def test_scene_and_global_part_fields_are_subset_of_known_categories() -> None:
+    """validator の `_SCENE_PART_FIELDS_*` / `_GLOBAL_PART_FIELDS` が参照する
+    カテゴリは すべて `part_registry_loader.KNOWN_CATEGORIES` に含まれていなければ
+    ならない (= 新カテゴリ追加時に validator 側 mapping を更新し忘れる drift を検知)。
+    """
+
+    import part_registry_loader as loader
+
+    consumed: set[str] = set()
+    consumed.update(screenplay_validator._SCENE_PART_FIELDS_SINGLE.values())
+    consumed.update(screenplay_validator._SCENE_PART_FIELDS_ARRAY.values())
+    consumed.update(screenplay_validator._GLOBAL_PART_FIELDS.values())
+    missing = consumed - set(loader.KNOWN_CATEGORIES)
+    assert missing == set(), (
+        f"validator が参照するが KNOWN_CATEGORIES に未登録のカテゴリ: {missing}"
+    )
+
+
+# ───── G-9: identity.required に camera_distance 追加 ─────
+
+
+def test_identity_missing_camera_distance_fails() -> None:
+    """identity の 4 field 必須 (= 半端な identity を作らない設計 invariant #2)。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        "start_emotion": "中立",
+        # camera_distance missing
+    }
+    with pytest.raises(ValueError, match="camera_distance"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+# ───── G-10: visual_intent_id の valid_start_emotions 制約チェック ─────
+
+
+def test_visual_intent_start_emotion_in_valid_set_passes() -> None:
+    """talking_head_calm は valid_start_emotions=[中立, 喜び, 満足, 困惑]。中立 は OK。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+    }
+    sp["scenes"][0]["start_emotion"] = "中立"
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_start_emotion_outside_valid_set_fails() -> None:
+    """talking_head_calm に start_emotion=怒り を入れると reject (= valid_start_emotions に無い)。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+    }
+    sp["scenes"][0]["start_emotion"] = "怒り"
+    with pytest.raises(ValueError, match="valid_start_emotions"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_start_emotion_falls_back_to_lines_first_emotion() -> None:
+    """start_emotion 未指定時は lines[0].emotion を見て検証する。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+    }
+    sp["scenes"][0]["lines"][0]["emotion"] = "怒り"
+    with pytest.raises(ValueError, match="valid_start_emotions"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_check_skipped_when_no_emotion_info() -> None:
+    """start_emotion / lines[].emotion がどこにも無い scene は skip (= valid)。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+    }
+    # start_emotion 無し、lines[0].emotion 無し
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_check_uses_identity_start_emotion_when_present() -> None:
+    """identity.start_emotion があればそれが優先される。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        "start_emotion": "怒り",
+        "camera_distance": "medium-close",
+    }
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "talking_head_calm",
+    }
+    with pytest.raises(ValueError, match="valid_start_emotions"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_check_works_with_flat_alias() -> None:
+    """flat alias の visual_intent_id でも valid_start_emotions 制約が効く。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["visual_intent_id"] = "talking_head_calm"
+    sp["scenes"][0]["start_emotion"] = "怒り"
+    with pytest.raises(ValueError, match="valid_start_emotions"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_visual_intent_check_skipped_for_unknown_intent() -> None:
+    """id 不正は既存 G-8 (id 整合性) check が拒否するので、G-10 は valid id のみ対象。
+    yaml に無い intent では valid_start_emotions check 由来の error は出ない (= id 不整合 error のみ)。
+    """
+    sp = _valid_screenplay()
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "ghost_intent_xyz",
+    }
+    sp["scenes"][0]["start_emotion"] = "怒り"
+    errors = screenplay_validator.validate_screenplay(sp, strict=False)
+    # id 不整合 error は出る
+    assert any("ghost_intent_xyz" in e for e in errors)
+    # valid_start_emotions 由来の error は出ない
+    assert not any("valid_start_emotions" in e for e in errors)

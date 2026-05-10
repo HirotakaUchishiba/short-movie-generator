@@ -205,6 +205,7 @@ SCHEMA: dict = {
                             "character_refs",
                             "location_ref",
                             "start_emotion",
+                            "camera_distance",
                         ],
                     },
                     "annotation": {
@@ -651,13 +652,16 @@ def _check_part_registry(screenplay: dict) -> list[str]:
                 )
 
     # scenes[].annotation.visual_intent_id も同様にチェック
+    intent_ids = _load_part_registry_ids("visual_intents")
+    intent_valid_emotions = _load_visual_intent_valid_emotions()
     for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
         ann = scene.get("annotation") or {}
+        ann_vi: str | None = None
         if isinstance(ann, dict):
             vi = ann.get("visual_intent_id")
             if isinstance(vi, str):
-                ids = _load_part_registry_ids("visual_intents")
-                if ids and vi not in ids:
+                ann_vi = vi
+                if intent_ids and vi not in intent_ids:
                     errors.append(
                         f"scenes/{s_idx}/annotation/visual_intent_id: "
                         f"'{vi}' は config/part_registry/visual_intents.yaml に未定義"
@@ -665,14 +669,68 @@ def _check_part_registry(screenplay: dict) -> list[str]:
         # 旧スキーマ alias (= flat field)
         flat_vi = scene.get("visual_intent_id")
         if isinstance(flat_vi, str):
-            ids = _load_part_registry_ids("visual_intents")
-            if ids and flat_vi not in ids:
+            if intent_ids and flat_vi not in intent_ids:
                 errors.append(
                     f"scenes/{s_idx}/visual_intent_id: "
                     f"'{flat_vi}' は config/part_registry/visual_intents.yaml に未定義"
                 )
 
+        # G-10: visual_intent_id の valid_start_emotions 制約チェック。
+        # annotation 側を優先し、無ければ flat alias を見る。id 不正は上で
+        # reject 済みなので、ここでは valid id 前提で start_emotion だけ見る。
+        effective_vi = ann_vi if ann_vi is not None else flat_vi
+        if isinstance(effective_vi, str) and effective_vi in intent_valid_emotions:
+            valid_emos = intent_valid_emotions[effective_vi]
+            if valid_emos:
+                start_emo = _resolve_scene_start_emotion(scene)
+                if start_emo is not None and start_emo not in valid_emos:
+                    field_path = (
+                        f"scenes/{s_idx}/annotation/visual_intent_id"
+                        if ann_vi is not None
+                        else f"scenes/{s_idx}/visual_intent_id"
+                    )
+                    allowed = ", ".join(sorted(valid_emos))
+                    errors.append(
+                        f"{field_path}: '{effective_vi}' の valid_start_emotions "
+                        f"({allowed}) に start_emotion='{start_emo}' は含まれない"
+                    )
+
     return errors
+
+
+def _load_visual_intent_valid_emotions() -> dict[str, frozenset[str]]:
+    """visual_intents.yaml の id → valid_start_emotions(frozenset) map を返す。"""
+
+    out: dict[str, frozenset[str]] = {}
+    for entry in _registry.load_registry("visual_intents"):
+        eid = entry.get("id")
+        if not isinstance(eid, str):
+            continue
+        emos = entry.get("valid_start_emotions") or []
+        if isinstance(emos, list):
+            out[eid] = frozenset(e for e in emos if isinstance(e, str))
+    return out
+
+
+def _resolve_scene_start_emotion(scene: dict) -> str | None:
+    """scene から start_emotion を解決する (= identity / flat / lines[0].emotion の順)。"""
+
+    ident = scene.get("identity")
+    if isinstance(ident, dict):
+        emo = ident.get("start_emotion")
+        if isinstance(emo, str) and emo:
+            return emo
+    flat = scene.get("start_emotion")
+    if isinstance(flat, str) and flat:
+        return flat
+    lines = scene.get("lines") or []
+    for line in lines:
+        if not isinstance(line, dict):
+            continue
+        emo = line.get("emotion")
+        if isinstance(emo, str) and emo:
+            return emo
+    return None
 
 
 def _check_composed_required(screenplay: dict) -> list[str]:
