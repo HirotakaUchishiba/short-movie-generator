@@ -54,6 +54,10 @@ def init_db() -> None:
         # schema v9: v_active_posts / v_strategy_performance は posts.rollback_at の
         # 列追加後に作り直す必要があるので、既存 view を drop してから schema.sql の
         # CREATE VIEW IF NOT EXISTS が新スキーマで再生成する形にする。
+        # v_performance は v_active_posts に依存するので先に drop する (= Phase A
+        # で LEFT JOIN posts → LEFT JOIN v_active_posts に変更したため、旧 DB の
+        # 既存 view も作り直す必要がある)。
+        conn.execute("DROP VIEW IF EXISTS v_performance")
         conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
         conn.execute("DROP VIEW IF EXISTS v_active_posts")
         # 既存 DB に rollback_at が無い間は v_active_posts の SELECT * が
