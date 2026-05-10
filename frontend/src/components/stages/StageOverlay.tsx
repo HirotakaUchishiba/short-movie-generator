@@ -1,7 +1,7 @@
 import { useRef, useState } from "react";
-import { Player } from "@remotion/player";
+import { Player, type PlayerRef } from "@remotion/player";
 import StageGate, { useShellCtx } from "../StageGate";
-import { overlayAssetUrl, api } from "../../api";
+import { api } from "../../api";
 import type { Screenplay, Line, SubtitleChunk } from "../../types";
 import { freshUid } from "../../uid";
 import { useRenderPlan } from "../../hooks/useRenderPlan";
@@ -16,7 +16,10 @@ export default function StageOverlay() {
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  const videoRef = useRef<HTMLVideoElement | null>(null);
+  // Phase 3-C: ffmpeg-baked overlaid.mp4 の <video> ref から、Remotion <Player>
+  // ref に primary preview を完全移行。snap 機能は Player の getCurrentFrame()
+  // を使って同等の「現在再生位置を chunk start/end に反映」を維持する。
+  const playerRef = useRef<PlayerRef | null>(null);
 
   const sceneOffsets: number[] = [];
   let acc = 0;
@@ -25,12 +28,26 @@ export default function StageOverlay() {
     acc += s.duration;
   }
 
-  // 動画 element の currentTime をシーン内相対秒に変換。
-  // overlaid.mp4 の絶対時刻 - sceneOffsets[sIdx] を返す。
+  // Player の現在再生位置 (= frame) を秒に直し、scene 内相対秒として返す。
+  // ffmpeg overlay は scene 想定 duration 累積で offset 計算してきたが、Remotion
+  // Player は実 timeline ベース (= scene_<S>.mp4 実尺累積) で再生される。
+  // sceneOffsets は依然 sp.scenes[].duration ベースなので、ズレた project では
+  // snap がわずかにずれる可能性がある。Phase 3-D で render_plan.scenes[].offset_sec
+  // を直接参照する形に refactor 予定。
   const sceneRelNow = (sIdx: number): number | null => {
-    const v = videoRef.current;
-    if (!v) return null;
-    const rel = v.currentTime - sceneOffsets[sIdx];
+    const p = playerRef.current;
+    if (!p) return null;
+    let absSec: number;
+    try {
+      // PlayerRef.getCurrentFrame() は再生中の frame index。fps で割って秒に。
+      const frame = p.getCurrentFrame();
+      // useRenderPlan が ready 前は plan.video.fps が分からないので default 60 で近似。
+      const fps = 60;
+      absSec = frame / fps;
+    } catch {
+      return null;
+    }
+    const rel = absSec - sceneOffsets[sIdx];
     if (rel < 0) return null;
     return Math.round(rel * 100) / 100;
   };
@@ -214,26 +231,19 @@ export default function StageOverlay() {
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded mb-3 max-w-md mx-auto relative">
-            <video
-              ref={videoRef}
-              key={ctx.detail.progress.stages.overlay.regen_count}
-              src={overlayAssetUrl(
-                ctx.detail.timestamp,
-                ctx.detail.progress.stages.overlay.regen_count,
-              )}
-              controls
-              playsInline
-              className="w-full h-full"
-            />
-            <SubtitleYPositionGuide
-              videoHeight={ctx.serverConfig.video_height}
-              currentY={
-                draft.subtitle_y_from_bottom ??
-                ctx.serverConfig.subtitle_y_from_bottom
-              }
-            />
-          </div>
+          {/* Phase 3-C: 既存 ffmpeg-baked <video> を撤廃し、Remotion <Player> を
+              primary preview に。chunk 編集が即時反映 + サーバ render との見た目一致。
+              プレビュー位置 ↔ snap 機能は Player ref 経由。 */}
+          <PrimaryPreviewPanel
+            ts={ctx.detail.timestamp}
+            bumpKey={ctx.detail.progress.stages.overlay.regen_count}
+            playerRef={playerRef}
+            videoHeight={ctx.serverConfig.video_height}
+            currentSubtitleY={
+              draft.subtitle_y_from_bottom ??
+              ctx.serverConfig.subtitle_y_from_bottom
+            }
+          />
           <SubtitleYPositionEditor
             current={
               draft.subtitle_y_from_bottom ??
@@ -257,15 +267,6 @@ export default function StageOverlay() {
             現在の再生位置をスナップ。空欄のチャンクは line
             全体を文字数比例で自動配分。
           </p>
-
-          {/* Phase 3-B: Remotion <Player> 並列プレビュー (= 焼き直し不要)。
-              既存 video preview を残し、Player を下に追加して比較できるようにする。
-              編集 (= chunk text) は Player 側に即時反映、字幕 Y 位置は Player 側でも
-              再 fetch 後に反映 (= regen_count を bumpKey に流用)。 */}
-          <RemotionPreviewPanel
-            ts={ctx.detail.timestamp}
-            bumpKey={ctx.detail.progress.stages.overlay.regen_count}
-          />
         </div>
         <div className="card">
           <div className="flex justify-between items-center mb-3">
@@ -703,56 +704,61 @@ function SubtitleYPositionEditor({
   );
 }
 
-// Phase 3-B: Remotion <Player> による Stage 6 リアルタイムプレビュー。
-// 既存 ffmpeg-baked video の下に side-by-side で表示する (= 並べて比較できる)。
-// 焼き直し不要で字幕を即時確認できるが、まだ video 置き換えはしない (= Phase 3-C)。
-function RemotionPreviewPanel({
+// Phase 3-C: 既存の ffmpeg-baked <video> を撤廃して Remotion <Player> を
+// primary preview にした。playerRef を親 (StageOverlay) で保持して chunk snap に使う。
+// SubtitleYPositionGuide は Player 領域上に重ねたままにし、Y 位置編集の視覚的
+// フィードバックは維持する。Stage 5 完了前 (= scene_<S>.mp4 無し) は loading /
+// not_ready / error メッセージで graceful degrade。
+function PrimaryPreviewPanel({
   ts,
   bumpKey,
+  playerRef,
+  videoHeight,
+  currentSubtitleY,
 }: {
   ts: string;
   bumpKey: number;
+  playerRef: React.MutableRefObject<PlayerRef | null>;
+  videoHeight: number;
+  currentSubtitleY: number;
 }) {
   const state = useRenderPlan(ts, bumpKey);
 
   return (
-    <div className="card border-emerald-700/40 bg-emerald-900/10 max-w-md mx-auto mt-4">
-      <div className="flex items-center justify-between mb-2">
-        <h4 className="text-sm font-semibold text-emerald-200">
-          🎬 Remotion プレビュー (= 焼き直し不要、開発中)
-        </h4>
-        <span className="text-[10px] text-emerald-400">Phase 3-B</span>
-      </div>
+    <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded mb-3 max-w-md mx-auto relative">
       {state.kind === "loading" && (
-        <div className="text-[11px] text-slate-400">
+        <div className="w-full h-full flex items-center justify-center text-[12px] text-slate-400">
           render plan を取得中…
         </div>
       )}
       {state.kind === "not_ready" && (
-        <div className="text-[11px] text-amber-300">{state.message}</div>
-      )}
-      {state.kind === "error" && (
-        <div className="text-[11px] text-rose-400">{state.message}</div>
-      )}
-      {state.kind === "ready" && (
-        <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded">
-          <Player
-            component={ScreenplayBase}
-            inputProps={{ plan: state.plan }}
-            durationInFrames={Math.max(1, state.plan.video.duration_frames)}
-            fps={state.plan.video.fps}
-            compositionWidth={state.plan.video.width}
-            compositionHeight={state.plan.video.height}
-            controls
-            loop
-            style={{ width: "100%", height: "100%" }}
-          />
+        <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-amber-300">
+          {state.message}
         </div>
       )}
-      <p className="text-[10px] text-slate-500 mt-2">
-        上の動画 (= ffmpeg 焼き込み) と並列の比較ビュー。「保存して焼き直し」
-        を押すたびに最新 plan が再 fetch される。
-      </p>
+      {state.kind === "error" && (
+        <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-rose-400">
+          {state.message}
+        </div>
+      )}
+      {state.kind === "ready" && (
+        <Player
+          ref={playerRef}
+          component={ScreenplayBase}
+          inputProps={{ plan: state.plan }}
+          durationInFrames={Math.max(1, state.plan.video.duration_frames)}
+          fps={state.plan.video.fps}
+          compositionWidth={state.plan.video.width}
+          compositionHeight={state.plan.video.height}
+          controls
+          loop
+          style={{ width: "100%", height: "100%" }}
+        />
+      )}
+      <SubtitleYPositionGuide
+        videoHeight={videoHeight}
+        currentY={currentSubtitleY}
+      />
     </div>
   );
 }
