@@ -326,6 +326,16 @@ def build_render_plan(
                     "params": dict(tr.get("params") or {}),
                 }
 
+        # Phase 4-H: frame_layout (= scene 動画の framing 戦略) を passthrough。
+        # {id, params?}。1 scene につき 1 件。default は "full" だが書かないなら
+        # frame_layout キー自体省略し SceneSequence 側で AbsoluteFill 直配置に。
+        fl = scene_parts_in.get("frame_layout")
+        if isinstance(fl, dict) and isinstance(fl.get("id"), str):
+            plan_parts["frame_layout"] = {
+                "id": fl["id"],
+                "params": dict(fl.get("params") or {}),
+            }
+
         plan_scenes.append(
             {
                 "index": s_idx,

@@ -58,6 +58,7 @@ export const ScenePartsBundle = z.object({
   stickers: z.array(StickerPart).optional(),
   lower_third: LowerThirdPart.optional(),
   camera_move: PartReference.optional(),
+  frame_layout: PartReference.optional(),
   transition_in: PartReference.optional(),
   transition_out: PartReference.optional(),
   sfx: z.array(SfxPart).optional(),

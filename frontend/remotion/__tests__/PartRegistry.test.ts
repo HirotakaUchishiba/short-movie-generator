@@ -98,6 +98,16 @@ describe("PART_REGISTRY", () => {
       expect(id in PART_REGISTRY.transitions).toBe(true);
     }
   });
+
+  it("contains frame_layouts category (Phase 4-H)", () => {
+    expect("frame_layouts" in PART_REGISTRY).toBe(true);
+  });
+
+  it("registers all 3 frame_layout components (Phase 4-H)", () => {
+    for (const id of ["full", "letterbox_top_bottom", "centered_with_blur"]) {
+      expect(id in PART_REGISTRY.frame_layouts).toBe(true);
+    }
+  });
 });
 
 describe("isKnownPart", () => {

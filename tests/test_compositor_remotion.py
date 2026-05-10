@@ -485,6 +485,50 @@ class TestBuildRenderPlan:
         # 2 つ目 scene には key 無し
         assert "transition_in" not in plan["scenes"][1]["parts"]
 
+    def test_frame_layout_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-H: scene_parts.frame_layout が plan に正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "frame_layout": {
+                            "id": "letterbox_top_bottom",
+                            "params": {"video_height_ratio": 0.7},
+                        }
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        fl = plan["scenes"][0]["parts"]["frame_layout"]
+        assert fl["id"] == "letterbox_top_bottom"
+        assert fl["params"]["video_height_ratio"] == 0.7
+        assert "frame_layout" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_frame_layout_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {"frame_layout": {"params": {}}},  # id 欠落
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        assert "frame_layout" not in plan["scenes"][0]["parts"]
+
     def test_invalid_transitions_dropped(
         self, dummy_scene_videos: list[str]
     ) -> None:
