@@ -573,55 +573,20 @@ _GLOBAL_PART_FIELDS: dict[str, str] = {
 }
 
 
-def _load_part_registry_ids_uncached(category: str) -> frozenset[str]:
-    """指定 category の yaml から id 集合を返す。
-
-    yaml が無い / 解析失敗時は空集合 (= 該当カテゴリの validation を実質
-    スキップする保険動作)。pyyaml が無い環境でも crash しない。
-    """
-
-    import os
-    import config as _cfg
-
-    yaml_dir = getattr(_cfg, "PART_REGISTRY_DIR", "")
-    yaml_path = os.path.join(yaml_dir, f"{category}.yaml")
-    if not os.path.exists(yaml_path):
-        logger.warning(
-            "[part-registry] %s.yaml not found at %s — skipping integrity check",
-            category, yaml_path,
-        )
-        return frozenset()
-    try:
-        import yaml  # type: ignore[import-not-found]
-    except ImportError:
-        logger.warning("[part-registry] pyyaml not installed — skipping integrity check")
-        return frozenset()
-    try:
-        with open(yaml_path, encoding="utf-8") as f:
-            data = yaml.safe_load(f)
-    except (yaml.YAMLError, OSError) as e:
-        logger.warning("[part-registry] %s.yaml parse error: %s", category, e)
-        return frozenset()
-    ids: list[str] = []
-    for entry in (data or {}).get("parts") or []:
-        if isinstance(entry, dict) and isinstance(entry.get("id"), str):
-            ids.append(entry["id"])
-    return frozenset(ids)
-
-
-# モジュール起動時の cache。テストでは reset_part_registry_cache() で再ロード可能。
-_PART_REGISTRY_CACHE: dict[str, frozenset[str]] = {}
+# yaml load + cache は part_registry_loader (= SSOT) に集約。
+# 旧 _PART_REGISTRY_CACHE / _load_part_registry_ids_uncached は削除済み。
+# テストからは reset_part_registry_cache() を呼ぶと SSOT cache がクリアされる。
+import part_registry_loader as _registry
 
 
 def _load_part_registry_ids(category: str) -> frozenset[str]:
-    if category not in _PART_REGISTRY_CACHE:
-        _PART_REGISTRY_CACHE[category] = _load_part_registry_ids_uncached(category)
-    return _PART_REGISTRY_CACHE[category]
+    return _registry.list_ids(category)
 
 
 def reset_part_registry_cache() -> None:
-    """テスト用: yaml を読み直すための cache クリア。"""
-    _PART_REGISTRY_CACHE.clear()
+    """テスト用: yaml を読み直すための cache クリア (= SSOT cache を消す)。"""
+
+    _registry.reset_cache()
 
 
 def _check_part_registry(screenplay: dict) -> list[str]:

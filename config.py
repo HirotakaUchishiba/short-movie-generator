@@ -744,6 +744,10 @@ INTENT_CONFIDENCE_THRESHOLD = float(
 OVERLAY_BACKEND = os.environ.get("OVERLAY_BACKEND", "ffmpeg")
 # Remotion render 時の並列度 (= --concurrency)。
 REMOTION_CONCURRENCY = int(os.environ.get("REMOTION_CONCURRENCY", "4"))
+# Remotion render 全体の timeout (秒)。長尺 / 高解像度時は伸ばす。
+REMOTION_RENDER_TIMEOUT_SEC = int(
+    os.environ.get("REMOTION_RENDER_TIMEOUT_SEC", "1800")
+)
 
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")

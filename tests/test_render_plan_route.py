@@ -163,8 +163,9 @@ def test_returns_409_when_scenes_not_ready(
     resp = client.get("/api/projects/20260510_999999/render-plan")
     assert resp.status_code == 409
     data = resp.get_json()
-    assert "error" in data
-    assert "Stage 5" in data["error"]
+    assert data["error_code"] == "scene_videos_not_ready"
+    assert "Stage 5" in data["message"]
+    assert data["missing_scene_indices"] == [0]
 
 
 def test_returns_409_when_scenes_empty(isolated_env: dict, client) -> None:
@@ -183,6 +184,8 @@ def test_returns_409_when_scenes_empty(isolated_env: dict, client) -> None:
 
     resp = client.get("/api/projects/20260510_888888/render-plan")
     assert resp.status_code == 409
+    data = resp.get_json()
+    assert data["error_code"] == "scenes_empty"
 
 
 def test_subtitle_chunks_have_absolute_timecodes(
