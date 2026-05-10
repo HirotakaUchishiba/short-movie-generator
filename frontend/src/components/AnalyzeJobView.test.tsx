@@ -305,11 +305,12 @@ describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
         screen.getByText(/Stage 1 \(台本編集\) に自動遷移します/),
       ).toBeInTheDocument();
     });
-    // standalone モードのボタンは出ない
+    // standalone モードのボタンと deprecation hint は出ない
     expect(screen.queryByText(/プロジェクト作成 →/)).toBeNull();
+    expect(screen.queryByTestId("standalone-mode-deprecation-hint")).toBeNull();
   });
 
-  it("projectTs を渡さなければ従来の「プロジェクト作成」ボタンが render される", async () => {
+  it("projectTs を渡さなければ従来の「プロジェクト作成」ボタン + Phase D hint が出る", async () => {
     mockGetJob.mockResolvedValue(baseJobDetail());
 
     render(
@@ -333,5 +334,8 @@ describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
       expect(screen.getByText(/プロジェクト作成 →/)).toBeInTheDocument();
     });
     expect(screen.queryByText(/自動遷移します/)).toBeNull();
+    // Phase D: 主導フローへの誘導 hint が standalone モードで出る
+    const hint = screen.getByTestId("standalone-mode-deprecation-hint");
+    expect(hint.textContent).toMatch(/参考動画から作成/);
   });
 });

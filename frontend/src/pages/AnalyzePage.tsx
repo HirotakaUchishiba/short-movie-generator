@@ -121,6 +121,30 @@ export default function AnalyzePage() {
         </Link>
       </header>
 
+      <div
+        className="card border border-amber-500/40 bg-amber-900/20"
+        data-testid="standalone-analyze-deprecation-banner"
+      >
+        <div className="text-sm text-amber-200">
+          <strong>📢 ご案内: </strong>
+          このページは <strong>「Stage 0 として project に統合」</strong>
+          される予定です (= 今後数週間で削除)。
+          <br />
+          新規プロジェクトは
+          <Link to="/" className="underline mx-1">
+            TOP の「📹 参考動画から作成」
+          </Link>
+          から作成してください (= 1 操作で project + analyze まで完結)。
+          <br />
+          既存の analyze 出力 (= screenplays/auto_*.json) を別 project で
+          再利用したい場合は
+          <Link to="/" className="underline mx-1">
+            TOP の「既存 template から作成」
+          </Link>
+          を開いてください。
+        </div>
+      </div>
+
       {error && (
         <div className="card border border-rose-500/40 text-rose-200 text-sm whitespace-pre-wrap">
           {error}
