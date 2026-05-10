@@ -161,6 +161,63 @@ def emotion_tab(perf: pd.DataFrame) -> None:
         st.bar_chart(grp.set_index("dominant_emotion")[["avg_views"]])
 
 
+def transformation_tab() -> None:
+    """v_transformation_performance を表示。content-strategy.md Phase 1 の概念
+    モデル (= transformation × tree_main_branch) 別 reward を 24h 経過 metrics で集計。
+    """
+    rows = db.query_transformation_performance()
+    if not rows:
+        st.info(
+            "transformation がまだ tag されていません。"
+            "scripts/ingest_screenplay.py で auto_tag を実行すると蓄積されます。"
+        )
+        return
+    df = pd.DataFrame(rows)
+    st.subheader("transformation × tree_main_branch 別 reward (= 24h 経過 metrics)")
+    st.dataframe(df, use_container_width=True)
+
+    if "avg_views" in df.columns and not df.empty:
+        agg = df.groupby("transformation").agg(
+            n=("n", "sum"),
+            avg_views=("avg_views", "mean"),
+            avg_completion=("avg_completion", "mean"),
+            avg_ctr=("avg_ctr", "mean"),
+        ).reset_index()
+        st.subheader("transformation 単位の集計")
+        st.dataframe(agg, use_container_width=True)
+        if not agg.empty:
+            st.bar_chart(agg.set_index("transformation")[["avg_views"]])
+
+
+def halo_tab() -> None:
+    """v_halo_effect を表示。transformation 別の peak / avg / total_subs_gained で
+    "Transformation 軸の一貫性が活きているか" を peak/avg ratio から読み取る。
+    """
+    rows = db.query_halo_effect()
+    if not rows:
+        st.info(
+            "Halo effect 計測には transformation tag + 投稿後 24h の metrics が必要です。"
+        )
+        return
+    df = pd.DataFrame(rows).copy()
+    if {"peak_views", "avg_views"}.issubset(df.columns):
+        df["peak_to_avg_ratio"] = (
+            df["peak_views"].div(df["avg_views"].replace(0, pd.NA))
+        )
+    st.subheader("transformation 別 Halo summary")
+    show_cols = [c for c in [
+        "transformation", "n_posts", "avg_views", "peak_views",
+        "peak_to_avg_ratio", "total_subs_gained", "latest_post_at",
+    ] if c in df.columns]
+    st.dataframe(df[show_cols], use_container_width=True)
+    if "peak_to_avg_ratio" in df.columns and not df.empty:
+        chart_df = df.dropna(subset=["peak_to_avg_ratio", "transformation"])
+        if not chart_df.empty:
+            st.bar_chart(
+                chart_df.set_index("transformation")["peak_to_avg_ratio"],
+            )
+
+
 _STRATEGY_AXES = ("hook_type", "tone", "dominant_emotion", "theme")
 
 
@@ -518,24 +575,28 @@ def main() -> None:
     analyze_phases = load_analyze_phases()
 
     tabs = st.tabs([
-        "概要", "戦略軸", "フック別", "感情別",
-        "実験", "品質", "台本詳細", "分析ジョブ",
+        "概要", "Transformation", "戦略軸", "フック別", "感情別",
+        "実験", "品質", "Halo", "台本詳細", "分析ジョブ",
     ])
     with tabs[0]:
         overview_tab(perf)
     with tabs[1]:
-        strategy_tab()
+        transformation_tab()
     with tabs[2]:
-        hook_tab(perf)
+        strategy_tab()
     with tabs[3]:
-        emotion_tab(perf)
+        hook_tab(perf)
     with tabs[4]:
-        experiments_tab()
+        emotion_tab(perf)
     with tabs[5]:
-        quality_tab()
+        experiments_tab()
     with tabs[6]:
-        detail_tab(perf, screenplays)
+        quality_tab()
     with tabs[7]:
+        halo_tab()
+    with tabs[8]:
+        detail_tab(perf, screenplays)
+    with tabs[9]:
         analyze_jobs_tab(analyze_jobs, analyze_phases)
 
 

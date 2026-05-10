@@ -14,7 +14,7 @@ logger = logging.getLogger(__name__)
 
 SCHEMA_PATH = Path(__file__).resolve().parent / "schema.sql"
 DEFAULT_DB_PATH = Path(config.BASE_DIR) / "data" / "analytics.db"
-CURRENT_SCHEMA_VERSION = 10
+CURRENT_SCHEMA_VERSION = 11
 
 
 def _now() -> str:
@@ -57,6 +57,12 @@ def init_db() -> None:
         # v_performance は v_active_posts に依存するので先に drop する (= Phase A
         # で LEFT JOIN posts → LEFT JOIN v_active_posts に変更したため、旧 DB の
         # 既存 view も作り直す必要がある)。
+        # schema v11: v_transformation_performance / v_halo_effect は screenplays
+        # に新列追加後に再生成する必要がある (= 既存 DB に列が無い間に view を
+        # 作ると不整合になるので drop してから後段の _ensure_column 経路で列を
+        # 確保し、schema.sql 適用時に view を新規作成する)。
+        conn.execute("DROP VIEW IF EXISTS v_halo_effect")
+        conn.execute("DROP VIEW IF EXISTS v_transformation_performance")
         conn.execute("DROP VIEW IF EXISTS v_performance")
         conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
         conn.execute("DROP VIEW IF EXISTS v_active_posts")
@@ -111,6 +117,13 @@ def init_db() -> None:
                        "traffic_search_pct REAL")
         _ensure_column(conn, "post_metrics", "traffic_external_pct",
                        "traffic_external_pct REAL")
+        # schema v11: content-strategy.md Phase 1 の概念モデルを screenplays に
+        # 追加 (= transformation / tree_main_branch / pov_id)。Halo effect 計測
+        # と "Transformation 軸の一貫性" 評価の根。既存 DB は NULL のまま。
+        _ensure_column(conn, "screenplays", "transformation", "transformation TEXT")
+        _ensure_column(conn, "screenplays", "tree_main_branch",
+                       "tree_main_branch TEXT")
+        _ensure_column(conn, "screenplays", "pov_id", "pov_id TEXT")
         row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
         current = (row["v"] or 0) if row else 0
         if current < CURRENT_SCHEMA_VERSION:
@@ -211,11 +224,21 @@ def upsert_screenplay(path: str) -> str:
 
 
 def update_screenplay_tags(screenplay_id: str, tags: dict) -> None:
+    """auto_tag が抽出した分類タグを screenplays に書き込む。
+
+    schema v11 で追加された transformation / tree_main_branch / pov_id も
+    tags dict に含まれていれば書き込む (= 含まれない場合は NULL のまま、
+    旧 prompt で再 tagging しても既存値は壊れない)。
+    """
     with get_connection() as conn:
         conn.execute(
             """UPDATE screenplays
                SET hook_type = ?, tone = ?, dominant_emotion = ?,
-                   theme = ?, character_archetype = ?, auto_tagged_at = ?
+                   theme = ?, character_archetype = ?,
+                   transformation = COALESCE(?, transformation),
+                   tree_main_branch = COALESCE(?, tree_main_branch),
+                   pov_id = COALESCE(?, pov_id),
+                   auto_tagged_at = ?
                WHERE id = ?""",
             (
                 tags.get("hook_type"),
@@ -223,6 +246,9 @@ def update_screenplay_tags(screenplay_id: str, tags: dict) -> None:
                 tags.get("dominant_emotion"),
                 tags.get("theme"),
                 tags.get("character_archetype"),
+                tags.get("transformation"),
+                tags.get("tree_main_branch"),
+                tags.get("pov_id"),
                 _now(),
                 screenplay_id,
             ),
@@ -385,6 +411,25 @@ def query_performance() -> list[dict]:
     with get_connection() as conn:
         rows = conn.execute("SELECT * FROM v_performance").fetchall()
         return [dict(r) for r in rows]
+
+
+def query_transformation_performance() -> list[dict]:
+    """v_transformation_performance を読む (= transformation × branch の集計)。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM v_transformation_performance "
+            "ORDER BY n DESC, avg_views DESC"
+        ).fetchall()
+    return [dict(r) for r in rows]
+
+
+def query_halo_effect() -> list[dict]:
+    """v_halo_effect を読む (= transformation 別の peak / avg / 累計獲得登録)。"""
+    with get_connection() as conn:
+        rows = conn.execute(
+            "SELECT * FROM v_halo_effect ORDER BY peak_views DESC NULLS LAST"
+        ).fetchall()
+    return [dict(r) for r in rows]
 
 
 def query_post_metrics_timeseries(

@@ -1,0 +1,52 @@
+# Transformation taxonomy (= content-strategy.md Phase 1 の概念モデル)
+# 運用者が新しい transformation / tree_main_branch / pov を追加するための SSOT。
+# auto_tag (= analytics/auto_tag.py) はこの YAML を読んで Claude の prompt に
+# 候補リストを inject する。Claude は候補から 1 つ選ぶか、適合する候補が無ければ
+# 自由文字列で返す (= taxonomy の網羅性に依存しない)。
+#
+# 新しい id を追加する際は、id を duplicate しないこと、description は 1 文で
+# 簡潔に書くこと。YAML 書き換え後は次回 ingest_screenplay 実行から反映される。
+
+# Transformation: 視聴者にもたらすスキル or 信念の変化。
+# 例: "寿司屋オーナーが客を増やせるようになる"。 ニッチではなく "誰が何ができる
+# ようになるか" を 1 行で書く。
+transformations:
+  - id: career_pivot
+    description: "業界 / 職種を変えるための具体的な手順を学ぶ"
+  - id: salary_up
+    description: "現職に留まったまま年収 / 待遇を上げる手段を知る"
+  - id: skill_acquisition
+    description: "新しいスキル / ツール / 言語を習得する道筋を知る"
+  - id: industry_decoding
+    description: "業界の裏側 / 構造を理解してキャリア判断する"
+  - id: self_improvement
+    description: "自己啓発 / 習慣化 / マインドセット改善"
+  - id: side_hustle
+    description: "副業 / 個人事業を立ち上げる"
+  - id: parenting_career
+    description: "育児 / ライフイベントとキャリアを両立する"
+
+# Tree main branch (= 4 つの主要課題のいずれか)。1 動画 = 1 branch を選ぶ。
+# 同じ transformation でも branch 違いで動画フォーマットが変わる。
+tree_main_branches:
+  - id: problem_diagnosis
+    description: "問題発見 / 課題自覚 (= 視聴者がまだ気づいていない問題を可視化)"
+  - id: how_to_solve
+    description: "実装解説 / ハウツー (= 具体的な解決手段を提示)"
+  - id: failure_case
+    description: "失敗事例共有 (= リアルな失敗から学ぶ)"
+  - id: tool_intro
+    description: "ツール / サービス紹介 (= 知らないツールの存在を知らせる)"
+
+# POV (= 独自視点。クリエイターの個人ブランド)
+povs:
+  - id: data_driven
+    description: "データ / 数字に基づく分析"
+  - id: lived_experience
+    description: "実体験ベースの語り"
+  - id: contrarian
+    description: "通説 / 業界の常識への反論"
+  - id: practical
+    description: "明日からできる実践的助言"
+  - id: holistic
+    description: "全体像 / システム視点"
