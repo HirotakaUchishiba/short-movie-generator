@@ -103,13 +103,43 @@ def load_intent_catalog(yaml_path: Path | None = None) -> list[IntentEntry]:
     """`config/part_registry/visual_intents.yaml` から IntentEntry のリストを返す。
 
     deprecated=True のものはフィルタ済み。yaml が無い / 解析失敗時は空リスト。
+
+    yaml load + cache は `part_registry_loader` (= SSOT) に集約。test 用に
+    `yaml_path` を渡された場合のみ legacy 経路 (= 直接 yaml 読込) で返す。
     """
 
-    if yaml_path is None:
-        yaml_path = (
-            Path(getattr(config, "PART_REGISTRY_DIR", ""))
-            / "visual_intents.yaml"
+    if yaml_path is not None:
+        return _load_intent_catalog_from_path(yaml_path)
+
+    import part_registry_loader as _registry
+
+    out: list[IntentEntry] = []
+    for entry in _registry.load_registry("visual_intents"):
+        if entry.get("deprecated"):
+            continue
+        out.append(
+            IntentEntry(
+                id=entry["id"],
+                description=str(entry.get("description") or ""),
+                valid_start_emotions=tuple(
+                    entry.get("valid_start_emotions") or ()
+                ),
+                duration_buckets=tuple(
+                    int(d) for d in (entry.get("duration_buckets") or [])
+                ),
+                motion_intensity_bucket=str(
+                    entry.get("motion_intensity_bucket") or "low"
+                ),
+                compatible_with=tuple(entry.get("compatible_with") or ()),
+                deprecated=False,
+            )
         )
+    return out
+
+
+def _load_intent_catalog_from_path(yaml_path: Path) -> list[IntentEntry]:
+    """test fixture から直接 yaml を読み込むための legacy 経路。"""
+
     if not yaml_path.exists():
         logger.warning("[intent] visual_intents.yaml not found: %s", yaml_path)
         return []

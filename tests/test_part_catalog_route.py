@@ -79,10 +79,18 @@ class TestCatalogEndpoint:
     def test_missing_category_returns_found_false(
         self, client, tmp_path: Path, monkeypatch: pytest.MonkeyPatch
     ) -> None:
-        # 一時的に PART_REGISTRY_DIR を空ディレクトリに切替えると found:false になる
+        # 一時的に PART_REGISTRY_DIR を空ディレクトリに切替え + SSOT cache を
+        # reset すると found:false / status:missing になる
+        import part_registry_loader
+
         monkeypatch.setattr("config.PART_REGISTRY_DIR", str(tmp_path))
-        resp = client.get("/api/parts/catalog")
-        data = resp.get_json()
-        for cat_name, cat_data in data["categories"].items():
-            assert cat_data["found"] is False
-            assert cat_data["entries"] == []
+        part_registry_loader.reset_cache()
+        try:
+            resp = client.get("/api/parts/catalog")
+            data = resp.get_json()
+            for cat_name, cat_data in data["categories"].items():
+                assert cat_data["found"] is False
+                assert cat_data["status"] == "missing"
+                assert cat_data["entries"] == []
+        finally:
+            part_registry_loader.reset_cache()

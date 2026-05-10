@@ -449,48 +449,15 @@ def select_variant(pool: list[ClipEntry], ts: str, scene_idx: int) -> ClipEntry:
 # ───────────── intent_compatible (= part_registry yaml 経由) ─────────────
 
 
-_INTENT_COMPAT_CACHE: dict[str, frozenset[str]] | None = None
+# yaml load + cache は part_registry_loader (= SSOT) に集約。
+# 旧 _INTENT_COMPAT_CACHE / _load_intent_compat_map は削除済み。
+import part_registry_loader as _registry
 
 
 def _load_intent_compat_map() -> dict[str, frozenset[str]]:
-    """`config/part_registry/visual_intents.yaml` から id → compatible_with set を構築。
+    """visual_intents.yaml の id → compatible_with frozenset を返す (= SSOT 経由)。"""
 
-    yaml が無い / 解析失敗時は空辞書を返す (= 互換採用 0、完全一致のみ score 加算)。
-    """
-
-    global _INTENT_COMPAT_CACHE
-    if _INTENT_COMPAT_CACHE is not None:
-        return _INTENT_COMPAT_CACHE
-
-    yaml_path = Path(getattr(config, "PART_REGISTRY_DIR", "")) / "visual_intents.yaml"
-    if not yaml_path.exists():
-        logger.info("[clip-library] visual_intents.yaml not found, no compat map")
-        _INTENT_COMPAT_CACHE = {}
-        return _INTENT_COMPAT_CACHE
-
-    try:
-        import yaml  # type: ignore[import-not-found]
-    except ImportError:
-        logger.warning("[clip-library] pyyaml not installed, no compat map")
-        _INTENT_COMPAT_CACHE = {}
-        return _INTENT_COMPAT_CACHE
-
-    try:
-        data = yaml.safe_load(yaml_path.read_text(encoding="utf-8"))
-    except (yaml.YAMLError, OSError) as e:
-        logger.warning("[clip-library] visual_intents.yaml parse error: %s", e)
-        _INTENT_COMPAT_CACHE = {}
-        return _INTENT_COMPAT_CACHE
-
-    out: dict[str, frozenset[str]] = {}
-    for entry in (data or {}).get("parts") or []:
-        eid = entry.get("id")
-        if not eid:
-            continue
-        compat = entry.get("compatible_with") or []
-        out[eid] = frozenset(compat)
-    _INTENT_COMPAT_CACHE = out
-    return out
+    return _registry.compatible_with_map("visual_intents")
 
 
 def _intent_compatible(a: str | None, b: str | None) -> bool:
@@ -507,10 +474,9 @@ def _intent_compatible(a: str | None, b: str | None) -> bool:
 
 
 def reset_intent_compat_cache() -> None:
-    """テスト用: yaml を読み直すための cache クリア。"""
+    """テスト用: yaml を読み直すための cache クリア (= SSOT cache を消す)。"""
 
-    global _INTENT_COMPAT_CACHE
-    _INTENT_COMPAT_CACHE = None
+    _registry.reset_cache()
 
 
 # ───────────── lifecycle 操作 ─────────────
@@ -657,11 +623,11 @@ def touch_entry(entry_id: str, root: Path | None = None) -> bool:
 # ───────────── production 経路への wire (= scene_gen / staged_pipeline 統合) ─────────────
 
 
-def _scene_has_identity(scene: dict) -> bool:
-    """scene が identity 情報を持っているか。
+def scene_has_identity(scene: dict) -> bool:
+    """scene が identity 情報を持っているか (= public)。
 
     新スキーマ (= scene.identity 入れ子) または旧 alias (= scene の flat field)
-    のどちらでも識別可能であれば True。
+    のどちらでも識別可能であれば True。route blueprint からも参照する。
     """
 
     if isinstance(scene.get("identity"), dict):
@@ -677,6 +643,11 @@ def _scene_has_identity(scene: dict) -> bool:
     ):
         return True
     return False
+
+
+# 旧 private 名 alias (= 内部 satisfy / register が依然 _scene_has_identity を
+# 使うため)。新規参照は scene_has_identity を使うこと。
+_scene_has_identity = scene_has_identity
 
 
 def satisfy_scenes_from_library(

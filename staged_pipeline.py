@@ -432,11 +432,13 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     # cache promote: pipeline raw まで生成完了 = 高信頼な素材として将来の hit
     # 候補に格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
+    # 内部で個別 entry の例外は握り潰すので、外側は import / setup 系の
+    # programming bug を残しておく (= bare Exception では mask しない)。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
         try:
             _promote_cache_entries(ts_path, stage_name, module)
-        except Exception as e:
-            logger.warning("%s promote failed: %s", module, e)
+        except (ImportError, OSError, AttributeError) as e:
+            logger.warning("%s promote setup failed: %s", module, e)
 
     progress_store.mark_generated(ts_path, "overlay")
     logger.info("[字幕] 焼き込み完了 — %s", output_path)
@@ -464,8 +466,11 @@ def _promote_cache_entries(ts_path: str, stage: str, module_name: str) -> None:
         try:
             cache_mod.promote(key)
             cache_mod.mark_origin_approved(key)
-        except Exception as e:
-            logger.debug("%s.promote(%s) failed: %s", module_name, key, e)
+        except (OSError, KeyError, ValueError) as e:
+            # entry 個別の I/O / 不正 key 失敗は warn で continue。
+            # AttributeError 等の bug は外側で表面化させる (= bare Exception で
+            # mask しない)。
+            logger.warning("%s.promote(%s) failed: %s", module_name, key, e)
 
 
 STAGE_RUNNERS = {
@@ -490,12 +495,16 @@ def _record_stage_run(ts_path: str, stage: str, started_at: str,
     extra = {"error": error[:500]} if error else None
     try:
         from analytics import db as _adb
+
         _adb.append_stage_run(
             ts=ts, stage=stage,
             started_at=started_at, ended_at=ended_at,
             status=status, extra=extra,
         )
     except Exception as e:
+        # analytics DB は best-effort。どんな例外型 (= ImportError /
+        # sqlite3.Error / RuntimeError 等) でも pipeline は止めない。
+        # cost 履歴と同様の方針 (= 観測 layer は記録失敗で本流を妨げない)。
         logger.warning("[gen-rec] append_stage_run failed (%s): %s", stage, e)
 
 

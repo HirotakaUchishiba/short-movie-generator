@@ -46,49 +46,54 @@ def _frontend_public_dir() -> Path:
 
 def _render_workspace_for(ts_path: str) -> tuple[Path, str]:
     """`frontend/public/_render_<TS>/` を作って (workspace_dir, public_relpath_prefix)
-    を返す。scene_<S>.mp4 をここに symlink して staticFile から見える状態にする。"""
+    を返す。scene_<S>.mp4 をここにコピーして staticFile から見える状態にする。"""
 
-    ts = os.path.basename(ts_path.rstrip("/"))
+    ts = Path(ts_path).name
     rel = f"_render_{ts}"
     workspace = _frontend_public_dir() / rel
     workspace.mkdir(parents=True, exist_ok=True)
     return workspace, rel
 
 
-def _link_scene_videos(
+def _copy_scene_videos_into_workspace(
     scene_videos: list[str], workspace: Path, public_relpath: str
 ) -> list[str]:
-    """scene_<S>.mp4 を workspace に symlink して、relative path のリストを返す。
+    """scene_<S>.mp4 を workspace に **物理コピー** して relative path のリストを返す。
 
-    既に同サイズのファイルがあれば再利用する。Remotion 4 の webpack bundler が
-    symlink を follow しない (= bundle 内 public/ への copy 時に symlink ターゲット
-    を含めない) ため、本関数は **常に物理コピー** する。
+    Remotion 4 の webpack bundler は public/ 配下の symlink を follow しない
+    (= bundle スナップショットに symlink ターゲットを含めない) ため、symlink
+    では試合にならず、必ず物理コピーする (= 関数名も copy で揃えた)。
+    既に同サイズのファイルがあれば再利用する (= 連続呼び出し時の高速化)。
     cache 容量を抑えたい場合は `_render_<TS>/` 単位で render 後に削除して回す。
     """
 
     rels: list[str] = []
     for idx, src in enumerate(scene_videos):
-        # ソース basename を保つと debug しやすい (= scene_000.mp4 等)
-        link_name = f"scene_{idx:03d}{Path(src).suffix}"
-        dst = workspace / link_name
         src_path = Path(src)
-        # 既存ファイルが同 size なら再利用 (= 連続呼び出し時の高速化)
-        if dst.exists() and not dst.is_symlink():
+        dst = workspace / f"scene_{idx:03d}{src_path.suffix}"
+        # 既存ファイルが同 size なら再利用
+        if dst.is_file() and not dst.is_symlink():
             try:
                 if dst.stat().st_size == src_path.stat().st_size:
-                    rels.append(f"{public_relpath}/{link_name}")
+                    rels.append(f"{public_relpath}/{dst.name}")
                     continue
-            except OSError:
-                pass
-        # 既存 symlink (= 旧版互換) は除去してから copy する
-        if dst.exists() or dst.is_symlink():
-            try:
-                dst.unlink()
-            except OSError:
-                pass
-        shutil.copyfile(os.fspath(src), str(dst))
-        rels.append(f"{public_relpath}/{link_name}")
+            except OSError as e:
+                logger.warning(
+                    "[remotion] stat failed for %s, will re-copy: %s", dst, e
+                )
+        # 既存 symlink (= 旧版互換) や size 不一致は除去してから copy
+        try:
+            dst.unlink(missing_ok=True)
+        except OSError as e:
+            logger.warning("[remotion] unlink failed for %s: %s", dst, e)
+        shutil.copyfile(src_path, dst)
+        rels.append(f"{public_relpath}/{dst.name}")
     return rels
+
+
+# 旧 API 名 (= Phase 3-A までの呼び出し互換)。新規利用は
+# `_copy_scene_videos_into_workspace` を使うこと。
+_link_scene_videos = _copy_scene_videos_into_workspace
 
 
 def _resolve_subtitle_chunks_for_scene(
@@ -253,12 +258,11 @@ def build_render_plan(
             scene_duration_real=scene_real,
         )
 
-        sv_abs = os.fspath(scene_videos[s_idx])
+        sv = Path(scene_videos[s_idx])
         if public_relpath is not None:
-            link_name = f"scene_{s_idx:03d}{Path(sv_abs).suffix}"
-            scene_video_path = f"{public_relpath}/{link_name}"
+            scene_video_path = f"{public_relpath}/scene_{s_idx:03d}{sv.suffix}"
         else:
-            scene_video_path = sv_abs
+            scene_video_path = str(sv)
 
         scene_part = _scene_subtitle_style_part(scene)
         # 既定 params に subtitle_y_from_bottom を流し込む (component 側で吸収)
@@ -464,43 +468,46 @@ def render_via_remotion(
       ``--frames=0-{N-1}`` を CLI に明示渡しすることで durationInFrames を強制する。
     """
 
+    out_p = Path(output_path).resolve()
     if plan_path is None:
-        plan_path = os.path.join(
-            os.path.dirname(output_path),
-            os.path.basename(output_path) + ".render_plan.json",
-        )
-    Path(plan_path).parent.mkdir(parents=True, exist_ok=True)
-    with open(plan_path, "w", encoding="utf-8") as f:
-        json.dump({"plan": plan}, f, ensure_ascii=False)
+        plan_p = out_p.with_name(out_p.name + ".render_plan.json")
+    else:
+        plan_p = Path(plan_path).resolve()
+    plan_p.parent.mkdir(parents=True, exist_ok=True)
+    plan_p.write_text(
+        json.dumps({"plan": plan}, ensure_ascii=False), encoding="utf-8"
+    )
 
     duration_frames = int(plan["video"]["duration_frames"])
     end_frame = max(0, duration_frames - 1)
 
     # frontend ディレクトリで実行 (= remotion.config.ts が相対パスで entry point を見る)
-    cwd = os.path.join(config.BASE_DIR, "frontend")
+    cwd = Path(config.BASE_DIR) / "frontend"
 
     # `--public-dir` を絶対パスで明示する。
     # Remotion 4 は bundle 時に `public/` のスナップショットを作って cache する。
-    # `_render_<TS>/` の symlink は compose_video_remotion 直前に作られるため、
+    # `_render_<TS>/` のコピーは compose_video_remotion 直前に作られるため、
     # 古い cache bundle にはまだ存在しない。--public-dir で実物を指定すると
-    # bundle がスナップショットではなく実 dir を参照するようになり、
-    # symlink を直接 resolve できる。
-    public_dir = os.path.abspath(os.path.join(cwd, "public"))
+    # bundle がスナップショットではなく実 dir を参照する。
+    public_dir = (cwd / "public").resolve()
+    timeout_sec = int(getattr(config, "REMOTION_RENDER_TIMEOUT_SEC", 1800))
     cmd = [
         "npx",
         "remotion",
         "render",
         composition_id,
-        os.path.abspath(output_path),
-        f"--props={os.path.abspath(plan_path)}",
+        str(out_p),
+        f"--props={plan_p}",
         f"--frames=0-{end_frame}",
         f"--concurrency={int(getattr(config, 'REMOTION_CONCURRENCY', 4))}",
         f"--public-dir={public_dir}",
     ]
     logger.info("[remotion] render start: composition=%s frames=0-%d output=%s",
-                composition_id, end_frame, output_path)
+                composition_id, end_frame, out_p)
     t0 = time.monotonic()
-    r = subprocess.run(cmd, cwd=cwd, capture_output=True, text=True, timeout=1800)
+    r = subprocess.run(
+        cmd, cwd=str(cwd), capture_output=True, text=True, timeout=timeout_sec
+    )
     elapsed = time.monotonic() - t0
     if r.returncode != 0:
         logger.error(
@@ -508,8 +515,8 @@ def render_via_remotion(
             r.returncode, elapsed, r.stderr[-2000:],
         )
         raise RuntimeError(f"remotion render failed (exit={r.returncode})")
-    logger.info("[remotion] render done in %.1fs → %s", elapsed, output_path)
-    return output_path
+    logger.info("[remotion] render done in %.1fs → %s", elapsed, out_p)
+    return str(out_p)
 
 
 _TEMPLATE_TO_COMPOSITION_ID: dict[str, str] = {
@@ -550,13 +557,13 @@ def compose_video_remotion(
     """
 
     workspace, public_rel = _render_workspace_for(temp_dir)
-    _link_scene_videos(scene_videos, workspace, public_rel)
+    _copy_scene_videos_into_workspace(scene_videos, workspace, public_rel)
     plan = build_render_plan(screenplay, scene_videos, public_relpath=public_rel)
     # plan の template を上書き (= 呼び出し側からの指定を優先)
     plan["template"] = template
     if composition_id is None:
         composition_id = composition_id_for_template(template)
-    plan_path = os.path.join(temp_dir, "render_plan.json")
+    plan_path = str(Path(temp_dir) / "render_plan.json")
     render_via_remotion(
         plan, output_path, composition_id=composition_id, plan_path=plan_path
     )

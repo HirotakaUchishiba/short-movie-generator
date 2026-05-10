@@ -1,5 +1,5 @@
 import { useEffect, useRef, useState } from "react";
-import { api } from "../api";
+import { api, ApiError } from "../api";
 import type { RenderPlan } from "../../remotion/schemas/renderPlan";
 
 // Stage 6 UI が Remotion <Player> を駆動するための render plan を取得する hook。
@@ -39,16 +39,20 @@ export function useRenderPlan(
       })
       .catch((err: unknown) => {
         if (reqId !== reqIdRef.current) return;
-        const msg = String(err);
-        // 409 (= scenes 未完了 / scene_<S>.mp4 無し) は素直に not_ready 扱い。
-        if (msg.includes("409")) {
-          setState({
-            kind: "not_ready",
-            message:
-              "Stage 5 (scene 合成) が完了するとリアルタイムプレビューが利用可能になります",
-          });
+        // 409 (= scenes 未完了 / scene_<S>.mp4 無し) は not_ready 扱い。
+        // backend からは {error_code, message} が返るので code 経由で分岐する
+        // (= 旧 `String(err).includes("409")` の string match に頼らない)。
+        if (err instanceof ApiError && err.status === 409) {
+          const body = (err.body ?? {}) as {
+            message?: string;
+            error_code?: string;
+          };
+          const message =
+            body.message ??
+            "Stage 5 (scene 合成) が完了するとリアルタイムプレビューが利用可能になります";
+          setState({ kind: "not_ready", message });
         } else {
-          setState({ kind: "error", message: msg });
+          setState({ kind: "error", message: String(err) });
         }
       });
   }, [ts, bumpKey]);

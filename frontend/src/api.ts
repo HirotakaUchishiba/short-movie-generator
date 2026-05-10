@@ -50,6 +50,26 @@ function authHeader(): Record<string, string> {
   return PREVIEW_TOKEN ? { Authorization: `Bearer ${PREVIEW_TOKEN}` } : {};
 }
 
+/**
+ * fetch が non-2xx を返したときに http() が throw する error。
+ * 旧コード (= `String(err).includes("409")`) との互換のため `message` には
+ * `${status}: ${text}` を入れるが、新コードは `err.status` / `err.body` で
+ * 分岐すること (= `error_code` field を含む JSON body をパース済みで持つ)。
+ */
+export class ApiError extends Error {
+  status: number;
+  body: unknown;
+  bodyText: string;
+
+  constructor(status: number, bodyText: string, body: unknown) {
+    super(`${status}: ${bodyText}`);
+    this.name = "ApiError";
+    this.status = status;
+    this.bodyText = bodyText;
+    this.body = body;
+  }
+}
+
 async function http<T>(path: string, init?: RequestInit): Promise<T> {
   const r = await fetch(API_BASE + path, {
     headers: {
@@ -61,7 +81,13 @@ async function http<T>(path: string, init?: RequestInit): Promise<T> {
   });
   if (!r.ok) {
     const text = await r.text();
-    throw new Error(`${r.status}: ${text}`);
+    let parsed: unknown = undefined;
+    try {
+      parsed = JSON.parse(text);
+    } catch {
+      // 非 JSON body はそのまま文字列で持つ
+    }
+    throw new ApiError(r.status, text, parsed);
   }
   return r.json();
 }

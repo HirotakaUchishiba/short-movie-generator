@@ -32,21 +32,31 @@ logger = logging.getLogger(__name__)
 render_plan_bp = Blueprint("render_plan", __name__)
 
 
-def _scene_video_paths(ts: str, scene_count: int) -> list[str]:
-    """temp/<TS>/scene_<S>.mp4 が存在する場合のみ絶対パスのリストを返す。
+# 409 response の error_code (= frontend が string match ではなく code で
+# 分岐するための SSOT)。新しい理由を追加したらここに定数を増やす。
+ERR_SCENES_EMPTY = "scenes_empty"
+ERR_SCENE_VIDEOS_NOT_READY = "scene_videos_not_ready"
+
+
+def _scene_video_paths(ts: str, scene_count: int) -> tuple[list[str], list[int]]:
+    """temp/<TS>/scene_<S>.mp4 を走査し、存在パスと欠落 index を返す。
 
     Stage 5 (= 音声+リップシンク合成) 完了前は scene_<S>.mp4 が無いため、
-    その状態で呼ばれたら 409 を返す責務は呼び出し側 endpoint に委ねる。
+    409 を返す責務は呼び出し側 endpoint に委ねる。欠落 index を返すことで
+    「Stage 5 部分失敗」 (= 一部 scene だけ合成済) と「Stage 5 未着手」を
+    UI で区別できる。
     """
 
     base = ts_path(ts)
     paths: list[str] = []
+    missing: list[int] = []
     for i in range(scene_count):
         candidate = os.path.join(base, f"scene_{i:03d}.mp4")
-        if not os.path.exists(candidate):
-            return []
-        paths.append(candidate)
-    return paths
+        if os.path.exists(candidate):
+            paths.append(candidate)
+        else:
+            missing.append(i)
+    return paths, missing
 
 
 def _asset_url_for_scene_video(ts: str, scene_idx: int, abs_path: str) -> str:
@@ -75,17 +85,27 @@ def get_render_plan(ts: str):
 
     scenes = screenplay.get("scenes") or []
     if not scenes:
-        return jsonify({"error": "scenes が空"}), 409
-
-    scene_paths = _scene_video_paths(ts, len(scenes))
-    if not scene_paths:
         return (
             jsonify(
                 {
-                    "error": (
+                    "error_code": ERR_SCENES_EMPTY,
+                    "message": "scenes が空",
+                }
+            ),
+            409,
+        )
+
+    scene_paths, missing = _scene_video_paths(ts, len(scenes))
+    if missing:
+        return (
+            jsonify(
+                {
+                    "error_code": ERR_SCENE_VIDEOS_NOT_READY,
+                    "message": (
                         "scene_<S>.mp4 が見つかりません。Stage 5 (scene 合成) "
                         "完了後にプレビュー可能です"
-                    )
+                    ),
+                    "missing_scene_indices": missing,
                 }
             ),
             409,
