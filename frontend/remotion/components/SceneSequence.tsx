@@ -112,6 +112,32 @@ export const SceneSequence: React.FC<SceneSequenceProps> = ({ scene }) => {
           </Sequence>
         );
       })}
+
+      {/* lower_third レイヤ (= 名前バナー / 役職テロップ / 引用)。
+          `at` は scene 内相対秒、`duration` 必須。totalFrames を child component に
+          渡して exit fade のタイミングを Sequence と整合させる。
+          詳細: docs/plannings/2026-05-10_compositional-architecture.md §4.1 */}
+      {scene.parts.lower_third &&
+        (() => {
+          const lt = scene.parts.lower_third;
+          const fromFrame = Math.max(0, toFrames(lt.at, fps));
+          const durFrames = Math.max(1, toFrames(lt.duration, fps));
+          // params は snake_case (= yaml/Python) で来るので React props に変換
+          const reactParams = camelizeParams(lt.params);
+          return (
+            <Sequence
+              key="lower-third"
+              from={fromFrame}
+              durationInFrames={durFrames}
+            >
+              <PartRenderer
+                category="lower_thirds"
+                id={lt.id}
+                params={{ ...reactParams, totalFrames: durFrames }}
+              />
+            </Sequence>
+          );
+        })()}
     </AbsoluteFill>
   );
 };

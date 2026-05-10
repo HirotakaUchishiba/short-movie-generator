@@ -416,6 +416,68 @@ class TestBuildRenderPlan:
         plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
         assert "camera_move" not in plan["scenes"][0]["parts"]
 
+    def test_lower_third_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """Phase 4-E: scene_parts.lower_third が plan.scenes[].parts.lower_third に
+        正規化されて入る。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [],
+                    "scene_parts": {
+                        "lower_third": {
+                            "id": "name_banner",
+                            "at": 0.5,
+                            "duration": 2.5,
+                            "params": {
+                                "text": "山田太郎",
+                                "sub_text": "エンジニア",
+                            },
+                        }
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        lt = plan["scenes"][0]["parts"]["lower_third"]
+        assert lt["id"] == "name_banner"
+        assert lt["at"] == 0.5
+        assert lt["duration"] == 2.5
+        assert lt["params"]["text"] == "山田太郎"
+        # lower_third 無し scene には key が立たない
+        assert "lower_third" not in plan["scenes"][1]["parts"]
+
+    def test_invalid_lower_third_dropped(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """id / at / duration いずれか欠落の lower_third は静かにドロップ。"""
+
+        for bad in (
+            {"params": {"text": "x"}},  # id / at / duration 欠落
+            {"id": "name_banner", "at": 0.5},  # duration 欠落
+            {"id": "name_banner", "duration": 2.0, "params": {}},  # at 欠落
+        ):
+            screenplay = {
+                "caption": "x",
+                "scenes": [
+                    {
+                        "duration": 2.0,
+                        "lines": [],
+                        "scene_parts": {"lower_third": bad},
+                    },
+                    {"duration": 2.0, "lines": []},
+                ],
+            }
+            plan = compositor_remotion.build_render_plan(
+                screenplay, dummy_scene_videos
+            )
+            assert "lower_third" not in plan["scenes"][0]["parts"]
+
 
 # ───────────── render_via_remotion (= subprocess mock) ─────────────
 

@@ -1,0 +1,60 @@
+# Layer 2 (= compositional parts) の lower_third (= 画面下 1/3 のテロップ)。
+# 詳細は docs/plannings/2026-05-10_compositional-architecture.md §4.1
+#
+# 各 entry は scene_parts.lower_third.id として screenplay から参照される (= scene 単位)。
+# 1 scene には 1 lower_third のみ (= 多重 overlay は混乱するため)。
+# 出現は左から spring slide-in、消える時は exit_frames で fade-out。
+# 実装は parts/lower_thirds/LowerThird.tsx の wrapper 群。
+#
+# screenplay 例:
+#   "scene_parts": {
+#     "lower_third": {
+#       "id": "name_banner", "at": 0.5, "duration": 3.0,
+#       "params": { "text": "山田太郎", "sub_text": "エンジニア" }
+#     }
+#   }
+
+version: 1
+parts:
+  - id: name_banner
+    description: |
+      話者名の青アクセント付きバナー。"text" に名前、"sub_text" に肩書き等。
+    params_schema:
+      text:
+        { type: string, required: true, description: "メイン text (= 話者名)" }
+      sub_text:
+        { type: string, description: "サブ text (= 役職、所属など、任意)" }
+      y_from_bottom: { type: number, default: 320 }
+      slide_from: { type: string, enum: [left, right], default: left }
+    valid_contexts: [scene]
+    component: NameBanner
+    deprecated: false
+
+  - id: role_caption
+    description: |
+      役職テロップ。緑系背景 + 黄色アクセント。専門家紹介 / 解説者紹介に使う。
+    params_schema:
+      text: { type: string, required: true }
+      sub_text: { type: string }
+      y_from_bottom: { type: number, default: 320 }
+      slide_from: { type: string, enum: [left, right], default: left }
+    valid_contexts: [scene]
+    component: RoleCaption
+    deprecated: false
+
+  - id: quote_box
+    description: |
+      引用ボックス。紫背景 + 二重引用符で囲む + italic。重要なフレーズ強調用。
+    params_schema:
+      text:
+        {
+          type: string,
+          required: true,
+          description: "引用本文 (二重引用符は自動付与)",
+        }
+      sub_text: { type: string, description: "引用元 (= 任意)" }
+      y_from_bottom: { type: number, default: 320 }
+      slide_from: { type: string, enum: [left, right], default: left }
+    valid_contexts: [scene]
+    component: QuoteBox
+    deprecated: false
