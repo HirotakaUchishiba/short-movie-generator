@@ -16,6 +16,7 @@ from analyze.intent_resolver import (
     detect_novel_intent_candidates,
     format_catalog_for_prompt,
     load_intent_catalog,
+    normalize_scene_annotation,
     parse_intent_assignment,
 )
 
@@ -207,3 +208,121 @@ class TestDetectNovel:
         assert len(cands) == 2
         assert cands[0].scene_indices == (0, 1)
         assert cands[1].scene_indices == (3, 4)
+
+
+# ───────────── normalize_scene_annotation (Step 1) ─────────────
+
+
+def _catalog() -> list[IntentEntry]:
+    return [
+        IntentEntry(
+            id="talking_head_calm",
+            description="x",
+            valid_start_emotions=("中立",),
+            duration_buckets=(5, 10),
+            motion_intensity_bucket="low",
+            compatible_with=(),
+        ),
+        IntentEntry(
+            id="reaction_surprise",
+            description="x",
+            valid_start_emotions=("驚き",),
+            duration_buckets=(5,),
+            motion_intensity_bucket="medium",
+            compatible_with=(),
+        ),
+    ]
+
+
+class TestNormalizeSceneAnnotation:
+    def test_returns_none_for_non_dict(self) -> None:
+        assert normalize_scene_annotation(None) is None
+        assert normalize_scene_annotation("string") is None
+        assert normalize_scene_annotation([1, 2]) is None
+
+    def test_full_valid_annotation_passes(self) -> None:
+        raw = {
+            "visual_intent_id": "talking_head_calm",
+            "confidence": 0.9,
+            "duration_bucket": 5,
+            "motion_intensity": "low",
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        assert out == {
+            "visual_intent_id": "talking_head_calm",
+            "duration_bucket": 5,
+            "motion_intensity": "low",
+        }
+
+    def test_unknown_id_demoted(self) -> None:
+        raw = {
+            "visual_intent_id": "unknown_xyz",
+            "confidence": 0.95,
+            "duration_bucket": 5,
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        # 未知 id は drop されるが他フィールドは残る
+        assert out == {"duration_bucket": 5}
+
+    def test_low_confidence_demoted(self) -> None:
+        raw = {
+            "visual_intent_id": "talking_head_calm",
+            "confidence": 0.4,  # threshold 0.7 未満
+            "motion_intensity": "high",
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        assert out == {"motion_intensity": "high"}
+
+    def test_invalid_duration_bucket_dropped(self) -> None:
+        raw = {
+            "visual_intent_id": "talking_head_calm",
+            "confidence": 0.9,
+            "duration_bucket": 7,  # enum 外
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        assert out == {"visual_intent_id": "talking_head_calm"}
+        assert "duration_bucket" not in out
+
+    def test_invalid_motion_intensity_dropped(self) -> None:
+        raw = {
+            "visual_intent_id": "talking_head_calm",
+            "confidence": 0.9,
+            "motion_intensity": "extreme",  # enum 外
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        assert "motion_intensity" not in out
+
+    def test_all_invalid_returns_none(self) -> None:
+        # すべて drop されたら None (= scene から annotation key を削除する trigger)
+        raw = {
+            "visual_intent_id": "ghost_id",
+            "confidence": 0.1,
+            "duration_bucket": "five",
+            "motion_intensity": "extreme",
+        }
+        out = normalize_scene_annotation(raw, _catalog())
+        assert out is None
+
+    def test_no_catalog_skips_id_validation(self) -> None:
+        # catalog=None なら id 存在 check しない (= test fixture / 旧経路用)
+        raw = {
+            "visual_intent_id": "anything_goes",
+            "confidence": 0.99,
+            "duration_bucket": 5,
+        }
+        out = normalize_scene_annotation(raw, None)
+        assert out == {
+            "visual_intent_id": "anything_goes",
+            "duration_bucket": 5,
+        }
+
+    def test_bool_not_treated_as_int(self) -> None:
+        # bool は int の subclass だが duration_bucket としては受けない
+        raw = {"duration_bucket": True}
+        assert normalize_scene_annotation(raw) is None
+
+    def test_no_confidence_field_keeps_id(self) -> None:
+        # confidence 未指定 (= Claude が忘れた) でも id は通す
+        raw = {"visual_intent_id": "talking_head_calm"}
+        out = normalize_scene_annotation(raw, _catalog())
+        assert out == {"visual_intent_id": "talking_head_calm"}

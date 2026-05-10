@@ -282,6 +282,75 @@ def _int_or_none(v: Any) -> int | None:
     return None
 
 
+# ───────────── per-scene annotation 正規化 ─────────────
+
+
+def normalize_scene_annotation(
+    raw: Any, catalog: list[IntentEntry] | None = None
+) -> dict[str, Any] | None:
+    """1 シーン分の annotation dict を validate / normalize する。
+
+    `parse_intent_assignment` は **screenplay 全体** を一括で list として受ける
+    形だが、本ヘルパは **build_screenplay 内の per-scene ループ** で 1 件ずつ
+    呼ぶための軽量版。Claude が SYSTEM_PROMPT で要求された通り
+    `scenes[i].annotation = {visual_intent_id, duration_bucket, motion_intensity,
+    confidence?, rationale?}` を返してきたとき、以下を保証する:
+
+      - ``visual_intent_id`` が catalog に無い id なら None に降格 (= warn log)
+      - ``visual_intent_id`` が低 confidence (= < INTENT_CONFIDENCE_THRESHOLD)
+        なら None に降格 (= novel intent fallback の trigger)
+      - ``duration_bucket`` が int でない / enum 外なら drop
+      - ``motion_intensity`` が "low|medium|high" 以外なら drop
+      - 全フィールドが drop されたら **None を返す** (= scenes[i].annotation 自体
+        を書かない、catalog 不在時の旧挙動と互換)
+
+    catalog=None の場合は id の存在 check をスキップする (= test fixture 用)。
+    """
+
+    if not isinstance(raw, dict):
+        return None
+
+    valid_ids: set[str] | None = (
+        {e.id for e in catalog} if catalog is not None else None
+    )
+    threshold = float(getattr(config, "INTENT_CONFIDENCE_THRESHOLD", 0.7))
+    out: dict[str, Any] = {}
+
+    intent_id = raw.get("visual_intent_id")
+    if isinstance(intent_id, str) and intent_id:
+        # 未知 id は降格
+        if valid_ids is not None and intent_id not in valid_ids:
+            logger.info(
+                "[intent] unknown visual_intent_id '%s' demoted to None",
+                intent_id,
+            )
+            intent_id = None
+        # 低 confidence も降格
+        conf = raw.get("confidence")
+        if (
+            intent_id is not None
+            and isinstance(conf, (int, float))
+            and float(conf) < threshold
+        ):
+            logger.info(
+                "[intent] low-confidence id '%s' (conf=%.2f < %.2f) demoted",
+                intent_id, float(conf), threshold,
+            )
+            intent_id = None
+        if intent_id is not None:
+            out["visual_intent_id"] = intent_id
+
+    dur = raw.get("duration_bucket")
+    if isinstance(dur, int) and not isinstance(dur, bool) and dur in (5, 10):
+        out["duration_bucket"] = dur
+
+    motion = raw.get("motion_intensity")
+    if isinstance(motion, str) and motion in ("low", "medium", "high"):
+        out["motion_intensity"] = motion
+
+    return out or None
+
+
 # ───────────── novel intent 検出 ─────────────
 
 

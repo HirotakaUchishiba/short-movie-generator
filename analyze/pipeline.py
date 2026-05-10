@@ -23,6 +23,7 @@ import atomic_assets
 import config
 import furigana_store
 from analyze import cache as _cache
+from analyze.intent_resolver import load_intent_catalog
 from audio_features import (
     extract_phrase_features,
     wpm_from_text,
@@ -345,10 +346,15 @@ def run(
             _check_cancel(cancel_token)
 
         # ─── Phase: claude (cache 対象外、毎回呼ぶ) ──────
+        # Step 1: visual_intents.yaml を catalog として Claude に渡し、
+        # per-scene annotation を要求する。catalog ロードは SSOT
+        # (= part_registry_loader 経由) なので、yaml drift しない。
+        intent_catalog = load_intent_catalog()
         _emit(on_progress, "phase_start", {
             "phase": "claude",
             "frame_count": len(frame_paths),
             "known_furigana_count": len(known_furigana),
+            "intent_catalog_size": len(intent_catalog),
         })
         try:
             screenplay, claude_usage = build_screenplay(
@@ -360,6 +366,7 @@ def run(
                 frame_interval_sec=frame_interval_sec,
                 known_furigana=known_furigana,
                 atomic_menu=atomic_assets.build_prompt_menu(),
+                intent_catalog=intent_catalog or None,
             )
         except ScreenplayParseError as e:
             # Claude 課金は発生済みなので、parse 失敗でも usage を emit して
