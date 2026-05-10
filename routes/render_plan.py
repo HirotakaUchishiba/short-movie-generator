@@ -20,7 +20,6 @@ import os
 
 from flask import Blueprint, jsonify, request
 
-import config
 from routes._helpers import (
     load_screenplay_for_project,
     ts_path,
