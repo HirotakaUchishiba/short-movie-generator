@@ -200,11 +200,25 @@ def _resolve_subtitle_chunks_for_scene(
     return out_lines
 
 
-def _scene_subtitle_style_part(scene: dict) -> dict[str, Any]:
-    """scene.scene_parts.subtitle_style があればそれを、無ければ minimal default。"""
+def _scene_subtitle_style_part(
+    scene: dict, scene_idx: int | None = None
+) -> dict[str, Any]:
+    """scene.scene_parts.subtitle_style があればそれを、無ければ minimal default。
+
+    silent regression 検知のため、未指定で minimal にフォールバックした時は
+    debug log を 1 行出す (= Phase C2)。
+    """
 
     sp = (scene.get("scene_parts") or {}).get("subtitle_style") or {}
-    sub_id = sp.get("id") or "minimal"
+    sub_id = sp.get("id")
+    if not sub_id:
+        scene_label = (
+            f"scene {scene_idx}" if scene_idx is not None else "scene (index unknown)"
+        )
+        logger.debug(
+            "[remotion] %s の subtitle_style が未指定 → minimal を採用", scene_label
+        )
+        sub_id = "minimal"
     params = dict(sp.get("params") or {})
     return {"id": sub_id, "params": params}
 
@@ -263,7 +277,7 @@ def build_render_plan(
         else:
             scene_video_path = str(sv)
 
-        scene_part = _scene_subtitle_style_part(scene)
+        scene_part = _scene_subtitle_style_part(scene, scene_idx=s_idx)
         # 既定 params に subtitle_y_from_bottom を流し込む (component 側で吸収)
         scene_part["params"].setdefault("yFromBottom", sub_y_from_bottom)
         scene_part["params"].setdefault("fontSize", int(config.SUBTITLE_FONT_SIZE))

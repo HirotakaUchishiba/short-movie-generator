@@ -5,6 +5,7 @@
 
 from __future__ import annotations
 
+import logging
 import os
 import subprocess
 from pathlib import Path
@@ -767,6 +768,83 @@ class TestBuildRenderPlan:
                 screenplay, dummy_scene_videos
             )
             assert "lower_third" not in plan["scenes"][0]["parts"]
+
+    def test_subtitle_style_fallback_emits_debug_log(
+        self,
+        dummy_scene_videos: list[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """Phase C2: scene_parts.subtitle_style 未指定時に debug log が 1 行出る
+        (= silent regression 検知)。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [{"text": "y", "start": 0, "end": 1}],
+                    # scene_parts なし → minimal にフォールバック
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        with caplog.at_level(logging.DEBUG, logger="compositor_remotion"):
+            plan = compositor_remotion.build_render_plan(
+                screenplay, dummy_scene_videos
+            )
+
+        # フォールバック自体は従来通り動く
+        assert plan["scenes"][0]["parts"]["subtitle_style"]["id"] == "minimal"
+
+        # debug log が scene index 込みで出ている
+        fallback_records = [
+            r
+            for r in caplog.records
+            if r.name == "compositor_remotion"
+            and r.levelno == logging.DEBUG
+            and "subtitle_style" in r.getMessage()
+            and "minimal" in r.getMessage()
+        ]
+        assert len(fallback_records) == 2, (
+            f"想定: 2 scene 分の fallback log、実際: {len(fallback_records)} 件"
+        )
+        assert "scene 0" in fallback_records[0].getMessage()
+        assert "scene 1" in fallback_records[1].getMessage()
+
+    def test_subtitle_style_explicit_does_not_emit_fallback_log(
+        self,
+        dummy_scene_videos: list[str],
+        caplog: pytest.LogCaptureFixture,
+    ) -> None:
+        """scene_parts.subtitle_style.id を明示している scene では fallback log は出ない。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [{"text": "y", "start": 0, "end": 1}],
+                    "scene_parts": {
+                        "subtitle_style": {"id": "karaoke_bold", "params": {}}
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        with caplog.at_level(logging.DEBUG, logger="compositor_remotion"):
+            compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+
+        # scene 0 は明示なので log なし、scene 1 だけ fallback
+        fallback_records = [
+            r
+            for r in caplog.records
+            if r.name == "compositor_remotion"
+            and r.levelno == logging.DEBUG
+            and "subtitle_style" in r.getMessage()
+            and "minimal" in r.getMessage()
+        ]
+        assert len(fallback_records) == 1
+        assert "scene 1" in fallback_records[0].getMessage()
 
 
 # ───────────── render_via_remotion (= subprocess mock) ─────────────
