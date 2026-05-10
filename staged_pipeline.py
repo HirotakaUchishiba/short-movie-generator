@@ -291,15 +291,34 @@ def run_bg(screenplay: dict, ts_path: str) -> None:
     を分岐する (= cache 採用シーンは copy のみ、fresh は Imagen 呼出)。
     scene_decisions が空 (= 旧 UI / CLI) なら全シーン自動 cache lookup +
     miss は fresh 生成にフォールバック。
+
+    `CLIP_LIBRARY_ENABLED=1` の時は、まず `clip_library.satisfy_scenes_from_library`
+    を呼んで identity が hit する scene の bg + kling を取込む (= AI 課金 0)。
+    `_generate_single_background` / `_kling_for_scene` が「ファイル既存なら skip」
+    する仕組みなので、後続の generate_backgrounds / generate_kling が自然に
+    短絡される。
     """
     _ensure_prev_approved("tts", ts_path)
     preflight.check_stage("bg")
+
+    # Phase 1 wire: clip_library hit を先に処理 (= identity 一致 scene の bg + kling
+    # を temp/<TS>/ に置く)。後段の Stage 3 / Stage 4 はファイル既存で skip。
+    import clip_library
+    satisfied = clip_library.satisfy_scenes_from_library(screenplay, ts_path)
+    # ts_path 上の screenplay snapshot に hit 情報を記録 (= Stage 5 の register
+    # フェーズで「satisfied 以外を register」と判定する)
+    if satisfied:
+        screenplay.setdefault("_clip_library_satisfied", {}).update(
+            {str(idx): entry_id for idx, entry_id in satisfied.items()}
+        )
+
     decisions_state = progress_store.get_decisions(ts_path, "bg")
     decisions = decisions_state.get("scene_decisions") or {}
     bg_paths = scene_gen.generate_backgrounds(
         screenplay, ts_path, scene_decisions=decisions or None)
     progress_store.mark_generated(ts_path, "bg")
-    logger.info("[背景] 生成完了 — %d枚", len(bg_paths))
+    logger.info("[背景] 生成完了 — %d枚 (clip_library hit=%d)",
+                len(bg_paths), len(satisfied))
 
 
 def run_kling(screenplay: dict, ts_path: str) -> None:
@@ -321,9 +340,27 @@ def run_kling(screenplay: dict, ts_path: str) -> None:
 
 
 def run_scene(screenplay: dict, ts_path: str) -> None:
-    """Stage 5: 音声合成 + リップシンクで scene_<i>.mp4 を作成。"""
+    """Stage 5: 音声合成 + リップシンクで scene_<i>.mp4 を作成。
+
+    `CLIP_LIBRARY_ENABLED=1` の時は assemble の前に
+    `clip_library.register_cold_path_clips` を呼んで、cold path で生成された
+    bg + kling を library に追加する (= 次回以降の同 identity scene が hit
+    対象になる)。
+    """
     _ensure_prev_approved("kling", ts_path)
     preflight.check_stage("scene")
+
+    # Phase 1 wire: cold path で新規生成された bg + kling を clip_library に
+    # register (= satisfied dict に無い identity-having scene が対象)。
+    import clip_library
+    raw_satisfied = screenplay.get("_clip_library_satisfied") or {}
+    satisfied = {int(k): v for k, v in raw_satisfied.items()}
+    registered = clip_library.register_cold_path_clips(
+        screenplay, ts_path, satisfied=satisfied,
+    )
+    if registered:
+        logger.info("[clip-library] %d 件を library に register 完了", len(registered))
+
     paths = scene_gen.assemble_scene_videos(screenplay, ts_path)
     progress_store.mark_generated(ts_path, "scene")
     logger.info("[音声/リップシンク合成] 完了 — %d本", len(paths))

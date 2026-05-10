@@ -576,6 +576,195 @@ def touch_entry(entry_id: str, root: Path | None = None) -> bool:
     return True
 
 
+# ───────────── production 経路への wire (= scene_gen / staged_pipeline 統合) ─────────────
+
+
+def _scene_has_identity(scene: dict) -> bool:
+    """scene が identity 情報を持っているか。
+
+    新スキーマ (= scene.identity 入れ子) または旧 alias (= scene の flat field)
+    のどちらでも識別可能であれば True。
+    """
+
+    if isinstance(scene.get("identity"), dict):
+        ident = scene["identity"]
+        if all(
+            ident.get(k) is not None
+            for k in ("character_refs", "location_ref", "start_emotion")
+        ):
+            return True
+    if all(
+        scene.get(k) is not None
+        for k in ("character_refs", "location_ref", "start_emotion")
+    ):
+        return True
+    return False
+
+
+def satisfy_scenes_from_library(
+    screenplay: dict, ts_path: str, root: Path | None = None,
+) -> dict[int, str]:
+    """各 scene の identity に hit する clip があれば bg.png + kling_clean.mp4 を
+    ``temp/<TS>/bg_<i>.png`` / ``temp/<TS>/kling_<i>.mp4`` に **コピー** する。
+
+    既存の `_generate_single_background` / `_kling_for_scene` は当該パスが
+    存在すれば AI 呼出をスキップする実装になっているため、このコピー操作
+    だけで Stage 3 + 4 を短絡できる (= AI 課金 0)。
+
+    miss / identity 無しの scene は何もしない (= 通常経路に fall-through)。
+
+    Returns:
+        ``{scene_idx: entry_id}`` の dict。hit した scene のみ含む。
+    """
+
+    if not bool(getattr(config, "CLIP_LIBRARY_ENABLED", False)):
+        return {}
+
+    ts = os.path.basename(os.path.normpath(ts_path))
+    scenes = screenplay.get("scenes") or []
+    out: dict[int, str] = {}
+
+    for s_idx, scene in enumerate(scenes):
+        if not _scene_has_identity(scene):
+            continue
+        if scene.get("_override_background_prompt") or scene.get(
+            "_override_animation_prompt"
+        ):
+            # novel intent escape hatch が設定されている → clip_library を
+            # bypass して旧 free-text 経路で生成させる
+            continue
+
+        try:
+            pool = lookup_clip_pool(scene, root=root)
+        except Exception as e:
+            logger.warning(
+                "[clip-library] scene %d lookup 失敗 (skip): %s", s_idx, e,
+            )
+            continue
+        if not pool:
+            continue
+
+        try:
+            entry = select_variant(pool, ts, s_idx)
+        except ValueError:
+            continue
+
+        bg_dst = os.path.join(ts_path, f"bg_{s_idx:03d}.png")
+        kling_dst = os.path.join(ts_path, f"kling_{s_idx:03d}.mp4")
+        bg_src = entry.bg_path()
+        kling_src = entry.kling_path()
+        if not bg_src.exists() or not kling_src.exists():
+            logger.warning(
+                "[clip-library] scene %d: entry %s の bg/kling ファイル欠損 — skip",
+                s_idx, entry.id,
+            )
+            continue
+
+        try:
+            shutil.copyfile(bg_src, bg_dst)
+            shutil.copyfile(kling_src, kling_dst)
+        except OSError as e:
+            logger.warning(
+                "[clip-library] scene %d: ファイルコピー失敗 (skip): %s",
+                s_idx, e,
+            )
+            continue
+
+        touch_entry(entry.id, root=root)
+        out[s_idx] = entry.id
+        logger.info(
+            "[clip-library] HIT scene %d → entry %s (= bg + kling 取込済)",
+            s_idx, entry.id,
+        )
+
+    if out:
+        logger.info(
+            "[clip-library] %d/%d scene が cache hit、AI 課金スキップ",
+            len(out), len(scenes),
+        )
+    return out
+
+
+def register_cold_path_clips(
+    screenplay: dict,
+    ts_path: str,
+    satisfied: dict[int, str] | None = None,
+    root: Path | None = None,
+) -> dict[int, str]:
+    """cold path で新規生成された bg + kling を clip_library に register する。
+
+    対象: identity 情報を持ち、かつ `satisfied` (= 前段の satisfy_scenes_from_library
+    が hit した scene_idx 集合) に **含まれない** scene。これらは Stage 3+4 で
+    新規 AI 生成された bg / kling を持っているはずなので、library に追加する。
+
+    `_override_*` が設定された scene も skip (= novel intent fallback は
+    explicit に library 化しない、運用者が手動で promote する想定)。
+
+    Returns:
+        ``{scene_idx: new_entry_id}``。register された scene のみ。
+    """
+
+    if not bool(getattr(config, "CLIP_LIBRARY_ENABLED", False)):
+        return {}
+
+    satisfied = satisfied or {}
+    scenes = screenplay.get("scenes") or []
+    out: dict[int, str] = {}
+
+    for s_idx, scene in enumerate(scenes):
+        if s_idx in satisfied:
+            continue
+        if not _scene_has_identity(scene):
+            continue
+        if scene.get("_override_background_prompt") or scene.get(
+            "_override_animation_prompt"
+        ):
+            continue
+
+        bg_path = os.path.join(ts_path, f"bg_{s_idx:03d}.png")
+        kling_path = os.path.join(ts_path, f"kling_{s_idx:03d}.mp4")
+        if not (os.path.exists(bg_path) and os.path.exists(kling_path)):
+            # cold path がまだ完了していない、または失敗したシーン
+            continue
+
+        identity = _scene_to_identity(scene)
+        ann_req = _scene_to_annotation_request(scene)
+        annotation = ClipAnnotation(
+            visual_intent_id=ann_req.get("visual_intent_id"),
+            duration_bucket=ann_req.get("duration_bucket"),
+            motion_intensity=ann_req.get("motion_intensity") or "low",
+        )
+        provenance = ClipProvenance(
+            source_screenplay=os.path.basename(ts_path),
+            source_scene_idx=s_idx,
+        )
+        try:
+            entry = register_clip_entry(
+                identity=identity,
+                annotation=annotation,
+                provenance=provenance,
+                bg_src=bg_path,
+                kling_src=kling_path,
+                root=root,
+            )
+        except Exception as e:
+            logger.warning(
+                "[clip-library] scene %d register 失敗 (skip): %s", s_idx, e,
+            )
+            continue
+        out[s_idx] = entry.id
+
+    if out:
+        logger.info(
+            "[clip-library] cold path %d 件を library に register "
+            "(= status: %s、UI 承認後に hit 対象になる)",
+            len(out),
+            "active" if getattr(config, "CLIP_POOL_AUTO_APPROVE", False)
+            else "pending_review",
+        )
+    return out
+
+
 # ───────────── 内部ヘルパ ─────────────
 
 
