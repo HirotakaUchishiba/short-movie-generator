@@ -1,0 +1,356 @@
+"""compositor_remotion.py の単体テスト。
+
+設計 doc: docs/plannings/2026-05-10_compositional-architecture.md §5
+"""
+
+from __future__ import annotations
+
+import os
+import subprocess
+from pathlib import Path
+from unittest.mock import patch
+
+import pytest
+
+import compositor_remotion
+
+
+def _make_dummy_video(path: Path, duration_sec: float = 2.0) -> None:
+    """ffmpeg で空っぽの 1080x1920 / 60fps mp4 を作る (= ffprobe で読める尺だけ持つ)。"""
+
+    path.parent.mkdir(parents=True, exist_ok=True)
+    cmd = [
+        "ffmpeg",
+        "-y",
+        "-f",
+        "lavfi",
+        "-i",
+        f"color=black:size=1080x1920:rate=60:duration={duration_sec}",
+        "-c:v",
+        "libx264",
+        "-preset",
+        "ultrafast",
+        "-crf",
+        "30",
+        str(path),
+    ]
+    subprocess.run(cmd, capture_output=True, check=True, timeout=30)
+
+
+@pytest.fixture
+def dummy_scene_videos(tmp_path: Path) -> list[str]:
+    """2 シーンぶんの dummy mp4 (= 各 2 秒) を作って絶対パスを返す。"""
+
+    videos: list[str] = []
+    for i in range(2):
+        p = tmp_path / "tmp" / f"scene_{i:03d}.mp4"
+        _make_dummy_video(p, duration_sec=2.0)
+        videos.append(str(p))
+    return videos
+
+
+# ───────────── build_render_plan ─────────────
+
+
+class TestBuildRenderPlan:
+    def test_basic_plan_structure(
+        self, dummy_scene_videos: list[str], monkeypatch: pytest.MonkeyPatch
+    ) -> None:
+        monkeypatch.setattr("config.SUBTITLE_CHUNK_ENABLED", False)
+        screenplay = {
+            "caption": "test",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [
+                        {"text": "シーン1のセリフ", "start": 0.5, "end": 1.5}
+                    ],
+                },
+                {
+                    "duration": 2.0,
+                    "lines": [
+                        {"text": "シーン2のセリフ", "start": 0.0, "end": 2.0}
+                    ],
+                },
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+
+        # video meta
+        assert plan["video"]["width"] == 1080
+        assert plan["video"]["height"] == 1920
+        assert plan["video"]["fps"] == 60
+        # 2 scenes × 2s @ 60fps = 240 frames (実尺ベース)
+        assert plan["video"]["duration_frames"] == 240
+        assert plan["template"] == "base"
+
+        # scenes
+        assert len(plan["scenes"]) == 2
+        assert plan["scenes"][0]["index"] == 0
+        assert plan["scenes"][0]["offset_sec"] == 0
+        assert plan["scenes"][0]["duration_sec"] == pytest.approx(2.0, abs=0.05)
+
+        # 2 つ目の scene の offset は 1 つ目の duration を引き継ぐ
+        assert plan["scenes"][1]["offset_sec"] == pytest.approx(2.0, abs=0.05)
+
+        # 字幕の絶対秒は scene offset 込み
+        s2_chunks = plan["scenes"][1]["subtitle_lines"][0]["chunks"]
+        assert s2_chunks[0]["start_abs_sec"] >= 2.0
+
+        # subtitle_style 既定は minimal
+        assert plan["scenes"][0]["parts"]["subtitle_style"]["id"] == "minimal"
+        # default params が注入されている
+        params = plan["scenes"][0]["parts"]["subtitle_style"]["params"]
+        assert "fontSize" in params
+        assert "fontColor" in params
+        assert "yFromBottom" in params
+
+    def test_manual_chunks_preserved(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [
+                        {
+                            "text": "全体",
+                            "start": 0.0,
+                            "end": 2.0,
+                            "subtitles": [
+                                {"text": "前半", "start": 0.0, "end": 1.0},
+                                {"text": "後半", "start": 1.0, "end": 2.0},
+                            ],
+                        }
+                    ],
+                },
+                {
+                    "duration": 2.0,
+                    "lines": [
+                        {"text": "シーン2", "start": 0, "end": 2}
+                    ],
+                },
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        chunks = plan["scenes"][0]["subtitle_lines"][0]["chunks"]
+        assert len(chunks) == 2
+        # manual で時刻指定されていれば anchor_kind=manual
+        assert chunks[0]["anchor_kind"] == "manual"
+        assert chunks[1]["anchor_kind"] == "manual"
+        assert chunks[0]["text"] == "前半"
+        assert chunks[1]["text"] == "後半"
+
+    def test_hidden_lines_excluded(self, dummy_scene_videos: list[str]) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [
+                        {"text": "見える", "start": 0.0, "end": 1.0},
+                        {"text": "隠れる", "start": 1.0, "end": 2.0, "hidden": True},
+                    ],
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        sub_lines = plan["scenes"][0]["subtitle_lines"]
+        # hidden は除外される
+        assert len(sub_lines) == 1
+        assert sub_lines[0]["chunks"][0]["text"] == "見える"
+
+    def test_scene_count_mismatch_raises(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        # screenplay が 3 シーン、scene_videos が 2 本 → reject
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        with pytest.raises(ValueError, match="本数が一致"):
+            compositor_remotion.build_render_plan(
+                screenplay, dummy_scene_videos
+            )
+
+    def test_public_relpath_rewrites_paths(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {"duration": 2.0, "lines": []},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(
+            screenplay, dummy_scene_videos, public_relpath="_render_TEST"
+        )
+        # 絶対パスではなく relative path が入る
+        for s in plan["scenes"]:
+            assert s["scene_video_path"].startswith("_render_TEST/scene_")
+            assert s["scene_video_path"].endswith(".mp4")
+
+    def test_subtitle_y_from_bottom_override(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        screenplay = {
+            "caption": "x",
+            "subtitle_y_from_bottom": 500,
+            "scenes": [
+                {"duration": 2.0, "lines": [{"text": "x", "start": 0, "end": 1}]},
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        params = plan["scenes"][0]["parts"]["subtitle_style"]["params"]
+        assert params["yFromBottom"] == 500
+
+    def test_scene_parts_subtitle_style_passed_through(
+        self, dummy_scene_videos: list[str]
+    ) -> None:
+        """scene.scene_parts.subtitle_style.id が plan に入る (Phase 4 で他カテゴリ追加)。"""
+
+        screenplay = {
+            "caption": "x",
+            "scenes": [
+                {
+                    "duration": 2.0,
+                    "lines": [{"text": "y", "start": 0, "end": 1}],
+                    "scene_parts": {
+                        "subtitle_style": {
+                            "id": "minimal",
+                            "params": {"fontColor": "#FF0000"},
+                        }
+                    },
+                },
+                {"duration": 2.0, "lines": []},
+            ],
+        }
+        plan = compositor_remotion.build_render_plan(screenplay, dummy_scene_videos)
+        sty = plan["scenes"][0]["parts"]["subtitle_style"]
+        assert sty["id"] == "minimal"
+        # explicit param が default を上書きする
+        assert sty["params"]["fontColor"] == "#FF0000"
+
+
+# ───────────── render_via_remotion (= subprocess mock) ─────────────
+
+
+class TestRenderViaRemotion:
+    def test_invokes_remotion_cli_with_correct_args(
+        self, tmp_path: Path
+    ) -> None:
+        plan = {
+            "video": {
+                "width": 1080,
+                "height": 1920,
+                "fps": 60,
+                "duration_frames": 156,
+            },
+            "scenes": [],
+            "global_parts": {},
+            "template": "base",
+        }
+        output = tmp_path / "out.mp4"
+
+        called: dict = {}
+
+        def fake_run(cmd, **kwargs):
+            called["cmd"] = cmd
+            called["cwd"] = kwargs.get("cwd")
+
+            class _R:
+                returncode = 0
+                stderr = ""
+                stdout = ""
+
+            return _R()
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            compositor_remotion.render_via_remotion(plan, str(output))
+
+        cmd = called["cmd"]
+        assert cmd[:3] == ["npx", "remotion", "render"]
+        assert cmd[3] == "ScreenplayBase"
+        # frames=0-{N-1} で durationInFrames を強制
+        frames_arg = next(a for a in cmd if a.startswith("--frames="))
+        assert frames_arg == "--frames=0-155"
+        # props は plan_path を指す
+        props_arg = next(a for a in cmd if a.startswith("--props="))
+        assert os.path.exists(props_arg.split("=", 1)[1])
+
+    def test_failure_raises(self, tmp_path: Path) -> None:
+        plan = {
+            "video": {
+                "width": 1080,
+                "height": 1920,
+                "fps": 60,
+                "duration_frames": 60,
+            },
+            "scenes": [],
+            "global_parts": {},
+            "template": "base",
+        }
+        output = tmp_path / "out.mp4"
+
+        def fake_run(cmd, **kwargs):
+            class _R:
+                returncode = 1
+                stderr = "Boom"
+                stdout = ""
+
+            return _R()
+
+        with patch.object(subprocess, "run", side_effect=fake_run):
+            with pytest.raises(RuntimeError, match="remotion render failed"):
+                compositor_remotion.render_via_remotion(plan, str(output))
+
+
+# ───────────── _link_scene_videos ─────────────
+
+
+class TestLinkSceneVideos:
+    def test_creates_symlinks(
+        self, dummy_scene_videos: list[str], tmp_path: Path
+    ) -> None:
+        workspace = tmp_path / "public" / "_render_TS"
+        workspace.mkdir(parents=True)
+        rels = compositor_remotion._link_scene_videos(
+            dummy_scene_videos, workspace, "_render_TS"
+        )
+        assert len(rels) == 2
+        # symlink が生成されている (or copy fallback)
+        link0 = workspace / "scene_000.mp4"
+        assert link0.exists()
+        # 内容が同じ
+        assert link0.read_bytes()[:100] == Path(dummy_scene_videos[0]).read_bytes()[:100]
+
+    def test_relinks_when_target_changed(
+        self, dummy_scene_videos: list[str], tmp_path: Path
+    ) -> None:
+        workspace = tmp_path / "public" / "_render_TS"
+        workspace.mkdir(parents=True)
+
+        # 1 回目
+        compositor_remotion._link_scene_videos(
+            dummy_scene_videos, workspace, "_render_TS"
+        )
+
+        # ターゲットが変わったら relink される
+        new_video = tmp_path / "another.mp4"
+        _make_dummy_video(new_video, duration_sec=1.0)
+        rels = compositor_remotion._link_scene_videos(
+            [str(new_video), dummy_scene_videos[1]], workspace, "_render_TS"
+        )
+        link0 = workspace / "scene_000.mp4"
+        assert link0.exists()
+        # 新しい動画を指す
+        if link0.is_symlink():
+            assert os.readlink(str(link0)) == str(new_video)
