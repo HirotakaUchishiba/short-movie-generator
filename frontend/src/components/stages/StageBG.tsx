@@ -8,9 +8,11 @@ import ComposedPromptPreview from "../ComposedPromptPreview";
 import SceneTtsRow from "../SceneTtsRow";
 import SceneFieldEditor from "../SceneFieldEditor";
 import BgCacheBadge from "../BgCacheBadge";
+import ClipLibraryBadge from "../ClipLibraryBadge";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
 import type { CachePresenter, SceneContext } from "../cache/types";
 import type { BgCandidateMeta, BgSceneDecision, Scene } from "../../types";
+import { useClipLibraryStatus } from "../../hooks/useClipLibraryStatus";
 import { useCostMedianRate } from "../../useCostMedianRate";
 
 export default function StageBG() {
@@ -238,6 +240,15 @@ function BGResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
   const [showAlt, setShowAlt] = useState(false);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  // UI 5: 各 scene が clip_library hit するか (= 設計の中核 cost 削減経路の透明性)
+  const clipStatus = useClipLibraryStatus(
+    ts,
+    ctx.detail.progress.stages.bg.regen_count,
+  );
+  const sceneClipStatus =
+    clipStatus.kind === "ready"
+      ? clipStatus.data.scenes.find((s) => s.scene_idx === sIdx)
+      : undefined;
 
   useEffect(() => {
     let cancelled = false;
@@ -296,6 +307,12 @@ function BGResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
               .join(", ") || "-"}
           </span>
           <BgCacheBadge sIdx={sIdx} />
+          <ClipLibraryBadge
+            status={sceneClipStatus}
+            enabled={
+              clipStatus.kind === "ready" ? clipStatus.data.enabled : undefined
+            }
+          />
           {isCached && (
             <span className="badge bg-emerald-700 text-emerald-100">
               ♻️ cache 採用済み

@@ -7,9 +7,11 @@ import { api, klingAssetUrl, sceneTrimAssetUrl } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import SceneTtsRow from "../SceneTtsRow";
 import SceneFieldEditor from "../SceneFieldEditor";
+import ClipLibraryBadge from "../ClipLibraryBadge";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
 import { CostEstimatePreview } from "../CostEstimatePreview";
 import type { CachePresenter, SceneContext } from "../cache/types";
+import { useClipLibraryStatus } from "../../hooks/useClipLibraryStatus";
 import type {
   CostMedianRate,
   KlingCandidateMeta,
@@ -301,6 +303,16 @@ function KlingResultCard({
 
   const cost = klingSceneCost(scene.duration, rate);
   const isCached = decision?.decision === "cache";
+
+  // UI 5: clip_library hit 状態のバッジ表示用
+  const clipStatus = useClipLibraryStatus(
+    ts,
+    ctx.detail.progress.stages.kling.regen_count,
+  );
+  const sceneClipStatus =
+    clipStatus.kind === "ready"
+      ? clipStatus.data.scenes.find((s) => s.scene_idx === sIdx)
+      : undefined;
   const altCandidates =
     (decision?.candidates ?? []).filter(
       (c) => c.key !== decision?.decided_key,
@@ -359,13 +371,23 @@ function KlingResultCard({
       </div>
       <div className="flex-1 min-w-0 space-y-2">
         <div className="flex justify-between items-center text-xs text-slate-400">
-          <span>
-            シーン{sIdx + 1} · {scene.duration}s{" "}
+          <span className="flex items-center gap-2">
+            <span>
+              シーン{sIdx + 1} · {scene.duration}s
+            </span>
             {isCached && (
-              <span className="badge bg-emerald-700 text-emerald-100 ml-2">
+              <span className="badge bg-emerald-700 text-emerald-100">
                 ♻️ cached
               </span>
             )}
+            <ClipLibraryBadge
+              status={sceneClipStatus}
+              enabled={
+                clipStatus.kind === "ready"
+                  ? clipStatus.data.enabled
+                  : undefined
+              }
+            />
           </span>
           <button
             className="btn-ghost text-xs"
