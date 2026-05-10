@@ -232,3 +232,156 @@ def test_get_abstract_does_not_include_diagnostics(client, isolated_env):
     assert "screenplay_path" in body
     # diagnostics はサーバ応答に含めない (= frontend が abstract から再計算)
     assert "diagnostics" not in body
+
+
+# ─── PUT abstract diff classification (= Phase D-G16) ──────
+
+
+def _approve_through_overlay(ts_path: str) -> None:
+    """Stage 2-6 をすべて generated + approved 状態にする (= test 用 fixture)。
+
+    Stage 1 (script) は run_script で generated 済み、approved にする。
+    """
+    import progress_store
+    for stage in ("script", "tts", "bg", "kling", "scene", "overlay"):
+        if not progress_store.is_generated(ts_path, stage):
+            progress_store.mark_generated(ts_path, stage)
+        progress_store.mark_approved(ts_path, stage)
+
+
+def test_put_abstract_unchanged_returns_classification(client, isolated_env):
+    """同じ内容で PUT すると classification=unchanged、approval は保持される。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    # snapshot を読み戻して PUT (= 完全一致)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    same = r0.get_json()["abstract"]
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": same})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["classification"] == "unchanged"
+    assert body["revoked_approvals"] is False
+    # 全 stage の approval が維持される
+    for stage in ("tts", "bg", "kling", "scene", "overlay"):
+        assert progress_store.is_approved(ts_path, stage), stage
+
+
+def test_put_abstract_safe_only_keeps_tts_approval(client, isolated_env):
+    """scene_parts だけ変更 → Stage 6 のみ revoke、Stage 2-5 は維持。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
+    # scene_parts (= Layer 2) を追加 — Stage 6 (overlay) のみ影響
+    new_abstract["scenes"][0]["scene_parts"] = {
+        "subtitle_style": {"id": "minimal"},
+    }
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
+    assert r.status_code == 200, r.get_json()
+    body = r.get_json()
+    assert body["classification"] == "safe_only"
+    assert body["revoked_approvals"] is True
+    # Stage 2-5 の approval は維持
+    for stage in ("tts", "bg", "kling", "scene"):
+        assert progress_store.is_approved(ts_path, stage), stage
+    # Stage 6 (overlay) のみ revoke
+    assert not progress_store.is_approved(ts_path, "overlay")
+
+
+def test_put_abstract_safe_only_subtitle_y(client, isolated_env):
+    """subtitle_y_from_bottom だけ変更 → safe_only。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
+    new_abstract["subtitle_y_from_bottom"] = 320
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["classification"] == "safe_only"
+    for stage in ("tts", "bg", "kling", "scene"):
+        assert progress_store.is_approved(ts_path, stage), stage
+    assert not progress_store.is_approved(ts_path, "overlay")
+
+
+def test_put_abstract_safe_only_global_parts(client, isolated_env):
+    """global_parts (= filter_preset) だけ変更 → safe_only。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
+    new_abstract["global_parts"] = {"filter_preset": {"id": "warm_cinematic"}}
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["classification"] == "safe_only"
+    for stage in ("tts", "bg", "kling", "scene"):
+        assert progress_store.is_approved(ts_path, stage), stage
+
+
+def test_put_abstract_breaking_caption_change_revokes_all(client, isolated_env):
+    """caption 変更は breaking → 全 stage の approval を revoke。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
+    new_abstract["caption"] = "全然違う caption"
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
+    assert r.status_code == 200
+    body = r.get_json()
+    assert body["classification"] == "breaking"
+    assert body["revoked_approvals"] is True
+    for stage in ("tts", "bg", "kling", "scene", "overlay"):
+        assert not progress_store.is_approved(ts_path, stage), stage
+
+
+def test_put_abstract_breaking_line_text_change(client, isolated_env):
+    """lines[].text 変更は breaking (= TTS 再合成必要)。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    r0 = client.get(f"/api/projects/{ts}/abstract")
+    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
+    new_abstract["scenes"][0]["lines"][0]["text"] = "違うセリフ"
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
+    assert r.status_code == 200
+    assert r.get_json()["classification"] == "breaking"
+    assert not progress_store.is_approved(ts_path, "tts")
+
+
+def test_classify_abstract_diff_helper_unchanged():
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": []}]}
+    b = {"caption": "x", "scenes": [{"duration": 3, "lines": []}]}
+    assert classify_abstract_diff(a, b) == "unchanged"
+
+
+def test_classify_abstract_diff_helper_safe_only():
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": []}]}
+    b = {"caption": "x", "scenes": [
+        {"duration": 3, "lines": [], "scene_parts": {"subtitle_style": {"id": "minimal"}}},
+    ]}
+    assert classify_abstract_diff(a, b) == "safe_only"
+
+
+def test_classify_abstract_diff_helper_breaking_scene_count():
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": []}]}
+    b = {"caption": "x", "scenes": [
+        {"duration": 3, "lines": []},
+        {"duration": 2, "lines": []},
+    ]}
+    assert classify_abstract_diff(a, b) == "breaking"
+
+
+def test_classify_abstract_diff_helper_breaking_scene_field():
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": [], "location_ref": "a"}]}
+    b = {"caption": "x", "scenes": [{"duration": 3, "lines": [], "location_ref": "b"}]}
+    assert classify_abstract_diff(a, b) == "breaking"
