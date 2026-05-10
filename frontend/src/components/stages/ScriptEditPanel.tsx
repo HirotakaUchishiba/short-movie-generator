@@ -12,6 +12,7 @@ import type {
   AnalyzeJobDetail,
 } from "../../types";
 import { freshUid } from "../../uid";
+import { GlobalPartsEditor } from "./GlobalPartsEditor";
 import { ScenePartsEditor } from "./ScenePartsEditor";
 
 const EMOTIONS = [
@@ -396,6 +397,16 @@ export default function ScriptEditPanel({
             <span className="ml-2 text-amber-400">境界更新中…</span>
           )}
         </p>
+
+        {/* Compositional Architecture: global_parts editor (= filter / intro_card /
+            outro_card / bgm の screenplay-wide 設定)。caption / シーン群の中間に置く。 */}
+        <GlobalPartsEditor
+          abstract={abstract}
+          onChange={(next) => {
+            setAbstract(next);
+            setDirty(true);
+          }}
+        />
 
         <div className="space-y-5">
           {abstract.scenes.map((scene, sIdx) => (
