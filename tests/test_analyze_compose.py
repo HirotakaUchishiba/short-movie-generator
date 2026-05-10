@@ -647,13 +647,23 @@ class TestOverridePassThrough:
         sp = compose_screenplay(abstract)
         assert sp["scenes"][0]["_override_background_prompt"] == "夕焼けの海"
 
-    def test_empty_override_dropped(self, isolated_dirs):
+    def test_empty_override_pass_through(self, isolated_dirs):
+        """Phase A pass-through 契約: 空白も null も silent strip しない。
+        bypass 判定は consumer 側 (= clip_library._scene_has_override) の責務。"""
         _seed(isolated_dirs)
         abstract = _abstract_minimal()
         abstract["scenes"][0]["_override_animation_prompt"] = "   "
         sp = compose_screenplay(abstract)
-        # 空白のみは bypass 判定されないので drop
-        assert "_override_animation_prompt" not in sp["scenes"][0]
+        assert sp["scenes"][0]["_override_animation_prompt"] == "   "
+
+    def test_null_override_pass_through(self, isolated_dirs):
+        """Phase A pass-through 契約: validator schema (= type: ["string", "null"])
+        と整合させ null も保持する (= Phase C1 を A で吸収)。"""
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["_override_background_prompt"] = None
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["_override_background_prompt"] is None
 
 
 def test_clip_library_scene_has_identity_after_compose(isolated_dirs):
@@ -665,3 +675,145 @@ def test_clip_library_scene_has_identity_after_compose(isolated_dirs):
     sp = compose_screenplay(_abstract_minimal())
     scene = sp["scenes"][0]
     assert clip_library.scene_has_identity(scene) is True
+
+
+# ─── Phase A: pass-through 契約の網羅 test ───────────────────
+
+
+class TestNonDerivedFieldPassThrough:
+    """Phase A 不変条件: compose は派生フィールドを **追加** するだけで、
+    abstract に書かれた **すべての非派生フィールド** はそのまま compose 後にも
+    残ること。silent strip された場合に regression を即検知する網羅 test。"""
+
+    def test_subtitle_y_from_bottom_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["subtitle_y_from_bottom"] = 800
+        sp = compose_screenplay(abstract)
+        assert sp["subtitle_y_from_bottom"] == 800
+
+    def test_global_parts_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["global_parts"] = {
+            "filter_preset": {"id": "warm_cinematic", "params": {}},
+            "intro_card": {"id": "simple_intro", "duration_sec": 1.5, "params": {}},
+            "outro_card": {"id": "subscribe_outro", "duration_sec": 2.0},
+            "bgm": {"path": "assets/bgm/x.mp3", "ducking_curve": 0.4},
+        }
+        sp = compose_screenplay(abstract)
+        assert sp["global_parts"]["filter_preset"]["id"] == "warm_cinematic"
+        assert sp["global_parts"]["intro_card"]["id"] == "simple_intro"
+        assert sp["global_parts"]["outro_card"]["id"] == "subscribe_outro"
+        assert sp["global_parts"]["bgm"]["path"] == "assets/bgm/x.mp3"
+
+    def test_featured_characters_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        sp = compose_screenplay(_abstract_minimal())
+        # _abstract_minimal の featured_characters は ["f1__office"]
+        assert sp["featured_characters"] == ["f1__office"]
+
+    def test_speaker_to_ref_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["speaker_to_ref"] = {"speaker_1": "f1__office"}
+        sp = compose_screenplay(abstract)
+        assert sp["speaker_to_ref"] == {"speaker_1": "f1__office"}
+
+    def test_hook_id_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["hook_id"] = "curiosity_hook"
+        sp = compose_screenplay(abstract)
+        assert sp["hook_id"] == "curiosity_hook"
+
+    def test_arc_id_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["arc_id"] = "discovery_arc"
+        sp = compose_screenplay(abstract)
+        assert sp["arc_id"] == "discovery_arc"
+
+    def test_scene_parts_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["scene_parts"] = {
+            "subtitle_style": {"id": "karaoke_bold", "params": {}},
+            "stickers": [{"id": "fire", "at": 1.0}],
+            "camera_move": {"id": "subtle_zoom_in"},
+            "lower_third": {"id": "name_banner", "at": 0.5, "duration": 2.0},
+            "transition_in": {"id": "fade_quick"},
+            "transition_out": {"id": "dip_to_black"},
+            "frame_layout": {"id": "letterbox_top_bottom"},
+            "sfx": [{"path": "assets/sfx/whoosh.mp3", "at": 0.2}],
+        }
+        sp = compose_screenplay(abstract)
+        sp_in = sp["scenes"][0]["scene_parts"]
+        assert sp_in["subtitle_style"]["id"] == "karaoke_bold"
+        assert sp_in["stickers"][0]["id"] == "fire"
+        assert sp_in["camera_move"]["id"] == "subtle_zoom_in"
+        assert sp_in["lower_third"]["id"] == "name_banner"
+        assert sp_in["transition_in"]["id"] == "fade_quick"
+        assert sp_in["transition_out"]["id"] == "dip_to_black"
+        assert sp_in["frame_layout"]["id"] == "letterbox_top_bottom"
+        assert sp_in["sfx"][0]["path"] == "assets/sfx/whoosh.mp3"
+
+    def test_scene_action_id_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["action_id"] = "desk_typing"
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["action_id"] == "desk_typing"
+
+    def test_scene_animation_style_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["animation_style"] = "expressive"
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["animation_style"] == "expressive"
+
+    def test_scene_legacy_visual_intent_alias_passes(self, isolated_dirs):
+        """旧 alias (= scene 直下 flat) も pass-through。新 annotation 入れ子と
+        別経路で保持される (= clip_library._scene_to_annotation_request が
+        flat alias 経路でも annotation を取れる)。"""
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["visual_intent_id"] = "talking_head_calm"
+        abstract["scenes"][0]["duration_bucket"] = 5
+        abstract["scenes"][0]["motion_intensity"] = "low"
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["visual_intent_id"] == "talking_head_calm"
+        assert sp["scenes"][0]["duration_bucket"] == 5
+        assert sp["scenes"][0]["motion_intensity"] == "low"
+
+    def test_unknown_root_field_passes(self, isolated_dirs):
+        """将来の拡張で新フィールドが abstract に追加されても compose で落ちない
+        (= forward compatibility の保証)。"""
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["future_field_xyz"] = {"key": "value"}
+        sp = compose_screenplay(abstract)
+        assert sp["future_field_xyz"] == {"key": "value"}
+
+    def test_unknown_scene_field_passes(self, isolated_dirs):
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["scenes"][0]["future_scene_field"] = [1, 2, 3]
+        sp = compose_screenplay(abstract)
+        assert sp["scenes"][0]["future_scene_field"] == [1, 2, 3]
+
+    def test_compose_does_not_mutate_input(self, isolated_dirs):
+        """**重要**: compose は入力 abstract を mutate しない (= shallow copy で
+        返す経路)。これが破られると外部から渡された snapshot が compose 副作用で
+        汚染される。"""
+        import copy
+
+        _seed(isolated_dirs)
+        abstract = _abstract_minimal()
+        abstract["global_parts"] = {"filter_preset": {"id": "x"}}
+        abstract["scenes"][0]["scene_parts"] = {"subtitle_style": {"id": "y"}}
+        before = copy.deepcopy(abstract)
+        compose_screenplay(abstract)
+        # ただし shallow copy なので nested dict は共有される (= test では
+        # compose が nested dict を mutate していないことを assert)
+        assert abstract == before
