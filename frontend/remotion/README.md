@@ -19,21 +19,25 @@ remotion/
   PartRegistry.ts            ← Layer 2 part dispatch table (= category × id → component)
   compositions/
     HelloWorld.tsx           ← Phase 0 minimum viable (= 1 シーン + 1 字幕)
-    ScreenplayBase.tsx       ← Phase 2-A 本番 composition + Phase 4-C/F 拡張
-                                (filter_preset wrap + intro/outro_card)
-    (将来) ScreenplayYoutube.tsx, ScreenplayInstagram.tsx, ScreenplayTikTok.tsx
+    ScreenplayBase.tsx       ← Phase 2-A 本番 composition + Phase 4-C/F + 5-B 拡張
+                                (filter_preset wrap + intro/outro_card + bgm Audio)
+    ScreenplayYoutube.tsx    ← Phase 5-A: subscribe_outro 既定挿入
+    ScreenplayInstagram.tsx  ← Phase 5-A: subtitle minimal → karaoke_bold 強制
+    ScreenplayTikTok.tsx     ← Phase 5-A: karaoke_bold + 字幕 y_from_bottom 640
   components/
     PartRenderer.tsx         ← category + id を resolve して params を spread
     SceneSequence.tsx        ← 1 scene = camera_move-wrapped OffthreadVideo +
                                 subtitle / sticker / lower_third Sequences
-  parts/                     ← Phase 4 で 6 categories 実装済み
+  parts/                     ← Phase 4 で 8 categories 実装済み
     subtitles/               ← minimal / fade_in / karaoke_bold      (Phase 2-A, 4-A)
     stickers/                ← exclaim_red / question_mark / sparkle / thumbs_up / fire (Phase 4-B)
     filter_presets/          ← none / warm_cinematic / cool_blue / monochrome / vintage (Phase 4-C)
     camera_moves/            ← none / subtle_zoom_in / ken_burns / dolly_pull_back (Phase 4-D)
     lower_thirds/            ← name_banner / role_caption / quote_box (Phase 4-E)
     title_cards/             ← simple_intro / subscribe_outro / section_break (Phase 4-F)
-    (将来) transitions/, frame_layouts/, bgm/, sfx/
+    transitions/             ← cut / dip_to_black / dip_to_white / fade_quick (Phase 4-G)
+    frame_layouts/           ← full / letterbox_top_bottom / centered_with_blur (Phase 4-H)
+    audio: bgm + sfx は <Audio> として ScreenplayBase / SceneSequence に直接配置 (= 個別フォルダ無し、Phase 5-B)
   schemas/
     renderPlan.ts            ← Layer 3 への入力 Zod スキーマ (= compositor_remotion.py が組立)
   __tests__/
@@ -127,26 +131,27 @@ rm -rf frontend/public/_smoke /tmp/hello.mp4
 
 ## Phase 完了状況 (= 2026-05-10 セッション末)
 
-| Phase | 内容                                                                        | status |
-| ----- | --------------------------------------------------------------------------- | ------ |
-| 0     | Remotion セットアップ + HelloWorld                                            | ✅     |
-| 1     | clip_library skeleton (= identity/annotation/provenance)                     | ✅     |
-| 2-A   | ScreenplayBase + PartRenderer + MinimalSubtitle                              | ✅     |
-| 2-B   | compositor_remotion + OVERLAY_BACKEND dispatch                               | ✅     |
-| 3-A   | GET /api/projects/<TS>/render-plan endpoint                                  | ✅     |
-| 3-B   | StageOverlay UI に Player を side-by-side 表示                                | ✅     |
-| 3-C   | video preview を Player に完全移行                                           | ⬜     |
-| 4-A   | subtitle_styles 拡充 (fade_in / karaoke_bold)                               | ✅     |
-| 4-B   | stickers (= EmojiSticker × 5 preset)                                         | ✅     |
-| 4-C   | filter_presets + global_parts wiring                                         | ✅     |
-| 4-D   | camera_moves (subtle_zoom_in / ken_burns / dolly_pull_back)                  | ✅     |
-| 4-E   | lower_thirds (name_banner / role_caption / quote_box)                        | ✅     |
-| 4-F   | title_cards (simple_intro / subscribe_outro / section_break)                 | ✅     |
-| 4-G   | transitions (= scene-to-scene cut / dip / slide)                             | ⬜     |
-| 4-H   | frame_layouts (= split_horizontal / pip_corner)                              | ⬜     |
-| 5     | Screenplay{Youtube,Instagram,TikTok} + bgm + sfx + outro_ctas                | ⬜     |
-| 6     | analyze pipeline 統合 (novel intent 自動検出)                                | ⬜     |
-| 7     | 旧 free-text 経路 deprecation                                                | ⬜     |
+| Phase | 内容                                                                            | status                                              |
+| ----- | ------------------------------------------------------------------------------- | --------------------------------------------------- |
+| 0     | Remotion セットアップ + HelloWorld                                              | ✅                                                  |
+| 1     | clip_library skeleton (= identity/annotation/provenance)                        | ✅                                                  |
+| 2-A   | ScreenplayBase + PartRenderer + MinimalSubtitle                                 | ✅                                                  |
+| 2-B   | compositor_remotion + OVERLAY_BACKEND dispatch                                  | ✅                                                  |
+| 3-A   | GET /api/projects/<TS>/render-plan endpoint                                     | ✅                                                  |
+| 3-B   | StageOverlay UI に Player を side-by-side 表示                                  | ✅                                                  |
+| 3-C   | video preview を Player に完全移行                                              | ✅                                                  |
+| 4-A   | subtitle_styles 拡充 (fade_in / karaoke_bold)                                   | ✅                                                  |
+| 4-B   | stickers (= EmojiSticker × 5 preset)                                            | ✅                                                  |
+| 4-C   | filter_presets + global_parts wiring                                            | ✅                                                  |
+| 4-D   | camera_moves (subtle_zoom_in / ken_burns / dolly_pull_back)                     | ✅                                                  |
+| 4-E   | lower_thirds (name_banner / role_caption / quote_box)                           | ✅                                                  |
+| 4-F   | title_cards (simple_intro / subscribe_outro / section_break)                    | ✅                                                  |
+| 4-G   | transitions (= cut / dip_to_black / dip_to_white / fade_quick)                  | ✅                                                  |
+| 4-H   | frame_layouts (= full / letterbox_top_bottom / centered_with_blur)              | ✅ (= single-video のみ。multi-video PiP は future) |
+| 5-A   | Screenplay{Youtube,Instagram,TikTok} platform composition                       | ✅                                                  |
+| 5-B   | bgm + sfx audio parts (= ScreenplayBase Audio + SceneSequence sfx)              | ✅                                                  |
+| 6     | analyze pipeline 統合 (= intent_resolver helper、LLM prompt 統合は次セッション) | ✅ (skeleton)                                       |
+| 7     | 旧 free-text 経路 deprecation                                                   | ⬜ (= 半年運用後)                                   |
 
 新カテゴリ追加の手順は `2026-05-10_compositional-architecture.md` §4.4 と
 `config/part_registry/*.yaml` の既存 entry を参照。drift test (= part_registry_yaml_drift)
