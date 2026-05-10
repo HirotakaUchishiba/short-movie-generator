@@ -22,8 +22,6 @@ data/*.db-shm
 data/cost_records.jsonl
 # バックグラウンドジョブ永続化 (preview_server runtime state)
 data/jobs.json
-# analytics 登録待ちキュー (preview_server が起動時に replay するローカル state)
-data/analytics_pending.jsonl
 # launchd 起点の fetch_metrics 出力 (= tools/launchd/install.sh が書き出すローカルログ)
 data/launchd_*.log
 assets/bgm/*.wav

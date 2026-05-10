@@ -448,6 +448,8 @@ Stage 6 で生成された `output/reels_<TS>.mp4` (= pipeline raw) を canonica
 
 YouTube は upload 成功時に `analytics.posts` に自動登録 (= `register_post.py` を叩かなくて良い)。IG/TikTok は半自動なので、アップロード完了後にユーザが URL を `register_post.py` で投入する。`fetch_metrics.py` は YouTube/IG/TikTok の 3 platform に対応 (= IG/TikTok は env 設定後に有効)。
 
+DB 登録が失敗した場合 (= disk full / SQLite 内部エラー等の極めてまれなケース) は publish 自体は **成功扱い** (= 動画は世界に出ているので Stage 8 mark_generated)、`metadata.json.published_posts[].analytics_persisted=false` + `analytics_warning` フィールドが残る。error log に復旧コマンドが出るので `python3 scripts/register_post.py <ts> <platform> <URL>` で手動補完する (= 旧 pending queue / 同期保留 機構は 2026-05-10 撤去済み — `docs/plannings/2026-05-10_remove-pending-queue.md` 参照)。
+
 ```bash
 # Stage 7 (final 一覧 / canonical 切替)
 python3 main.py --resume 20260506_120000 --list-finals

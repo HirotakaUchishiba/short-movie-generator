@@ -226,7 +226,7 @@ short_movie_generator/
   platform_clients/             ← Stage 8
     youtube.py / instagram.py / tiktok.py
   analytics/                    ← SQLite + auto-tag
-    db.py / schema.sql / auto_tag.py / pending_queue.py
+    db.py / schema.sql / auto_tag.py
 
   characters/<base>/            ← キャラ SSOT
   locations/<id>.json           ← ロケ SSOT
