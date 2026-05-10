@@ -291,9 +291,14 @@ function PartRegistrySection() {
                 {catData.entries.length} entries
               </span>
             </div>
-            {!catData.found && (
+            {catData.status === "missing" && (
               <div className="text-[10px] text-rose-400">
-                yaml が見つからない (= /api/parts/catalog の find:false)
+                yaml が見つからない (= deploy 事故 / config 設定漏れ)
+              </div>
+            )}
+            {catData.status === "parse_error" && (
+              <div className="text-[10px] text-rose-400">
+                yaml 解析エラー (= ファイル破損)。サーバ log を確認してください
               </div>
             )}
             <ul className="space-y-0.5">
