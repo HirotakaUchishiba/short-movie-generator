@@ -93,7 +93,7 @@ describe("AnalyzeJobView annotation_stats", () => {
 
     render(
       <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
       </MemoryRouter>,
     );
 
@@ -138,7 +138,7 @@ describe("AnalyzeJobView annotation_stats", () => {
 
     render(
       <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
       </MemoryRouter>,
     );
     await waitFor(() => {
@@ -165,7 +165,7 @@ describe("AnalyzeJobView annotation_stats", () => {
 
     render(
       <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
       </MemoryRouter>,
     );
     await waitFor(() => {
@@ -209,7 +209,7 @@ describe("AnalyzeJobView annotation_stats", () => {
 
     render(
       <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
       </MemoryRouter>,
     );
     await waitFor(() => {
@@ -236,7 +236,7 @@ describe("AnalyzeJobView annotation_stats", () => {
 
     render(
       <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
+        <AnalyzeJobView jobId="job_test_1" projectTs="20260510_120000" />
       </MemoryRouter>,
     );
     await waitFor(() => {
@@ -267,7 +267,7 @@ describe("AnalyzeJobView annotation_stats", () => {
   });
 });
 
-describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
+describe("AnalyzeJobView completion behavior", () => {
   let fakeEs: FakeEventSource;
 
   beforeEach(() => {
@@ -280,7 +280,7 @@ describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
     vi.restoreAllMocks();
   });
 
-  it("projectTs を渡すと完了時に AutoNavigateOnComplete が render される", async () => {
+  it("完了時に AutoNavigateOnComplete (= /project/<TS>/script へ遷移) が表示される", async () => {
     mockGetJob.mockResolvedValue(baseJobDetail());
 
     render(
@@ -305,37 +305,5 @@ describe("AnalyzeJobView projectTs mode (= AnalyzeStage0Page 経由)", () => {
         screen.getByText(/Stage 1 \(台本編集\) に自動遷移します/),
       ).toBeInTheDocument();
     });
-    // standalone モードのボタンと deprecation hint は出ない
-    expect(screen.queryByText(/プロジェクト作成 →/)).toBeNull();
-    expect(screen.queryByTestId("standalone-mode-deprecation-hint")).toBeNull();
-  });
-
-  it("projectTs を渡さなければ従来の「プロジェクト作成」ボタン + Phase D hint が出る", async () => {
-    mockGetJob.mockResolvedValue(baseJobDetail());
-
-    render(
-      <MemoryRouter>
-        <AnalyzeJobView jobId="job_test_1" />
-      </MemoryRouter>,
-    );
-    await waitFor(() => expect(mockGetJob).toHaveBeenCalled());
-
-    act(() => {
-      fakeEs.emit("phase_complete", {
-        phase: "save",
-        output_path: "/tmp/screenplays/auto_x.json",
-      });
-      fakeEs.emit("completed", {
-        output_path: "/tmp/screenplays/auto_x.json",
-      });
-    });
-
-    await waitFor(() => {
-      expect(screen.getByText(/プロジェクト作成 →/)).toBeInTheDocument();
-    });
-    expect(screen.queryByText(/自動遷移します/)).toBeNull();
-    // Phase D: 主導フローへの誘導 hint が standalone モードで出る
-    const hint = screen.getByTestId("standalone-mode-deprecation-hint");
-    expect(hint.textContent).toMatch(/参考動画から作成/);
   });
 });

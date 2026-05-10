@@ -725,7 +725,6 @@ def api_delete_character_meta(char_id):
 # ───────────────── analyze ジョブ ─────────────────
 
 _JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
-_SHA256_RE = re.compile(r"^[a-f0-9]{64}$")
 _TS_RE = re.compile(r"^\d{8}_\d{6}$")
 
 
@@ -746,39 +745,6 @@ def _job_to_dict(j) -> dict:
         "finished_at": j.finished_at,
         "cancellation_requested": bool(j.cancellation_requested),
     }
-
-
-@app.route("/api/screenplay/analyze", methods=["POST"])
-def api_create_analyze_job():
-    """analyze ジョブを作成し、別 thread で起動する。"""
-    data = request.get_json(force=True) or {}
-    sha = data.get("video_sha256") or ""
-    if not _SHA256_RE.match(sha):
-        return api_error(
-            "ANALYZE_INVALID_SHA256",
-            "video_sha256 (64 hex chars) required",
-            400,
-        )
-    if not analyze_job.get_reference_video(sha):
-        return api_error(
-            "ANALYZE_REFERENCE_VIDEO_NOT_FOUND",
-            f"reference video not found: {sha}",
-            404,
-        )
-
-    raw_options = data.get("options") or {}
-    allowed = {"fps", "instructions"}
-    options = {k: v for k, v in raw_options.items() if k in allowed}
-
-    j = analyze_job.create_job(sha, options)
-    analyze_runner.start(j.id)
-    return jsonify({"job_id": j.id}), 201
-
-
-@app.route("/api/screenplay/analyze", methods=["GET"])
-def api_list_analyze_jobs():
-    items = [_job_to_dict(j) for j in analyze_job.list_jobs()]
-    return jsonify({"jobs": items})
 
 
 @app.route("/api/screenplay/analyze/<job_id>", methods=["GET"])

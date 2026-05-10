@@ -1,9 +1,7 @@
 import type {
   AbstractScreenplay,
   AbstractScreenplayResponse,
-  AnalyzeJob,
   AnalyzeJobDetail,
-  AnalyzeOptions,
   BgCacheEntry,
   BgCandidateMeta,
   BgDecisionsResponse,
@@ -360,13 +358,9 @@ export const api = {
     }),
 
   // ─── analyze ジョブ ─────────────────────────────
-  createAnalyzeJob: (video_sha256: string, options: AnalyzeOptions = {}) =>
-    http<{ job_id: string }>("/api/screenplay/analyze", {
-      method: "POST",
-      body: JSON.stringify({ video_sha256, options }),
-    }),
-  listAnalyzeJobs: () =>
-    http<{ jobs: AnalyzeJob[] }>("/api/screenplay/analyze"),
+  // ジョブの作成は POST /api/projects/from-reference-video を使う
+  // (= 旧 createAnalyzeJob / listAnalyzeJobs は Phase E で削除)。
+  // ここに残るのは AnalyzeStage0Page から既存ジョブを操作する経路のみ。
   getAnalyzeJob: (id: string) =>
     http<AnalyzeJobDetail>(`/api/screenplay/analyze/${id}`),
   confirmAnalyzeJob: (id: string) =>
