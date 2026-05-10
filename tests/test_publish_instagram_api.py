@@ -11,8 +11,6 @@ def isolated(tmp_path, monkeypatch):
     monkeypatch.setenv("ANALYTICS_DB_PATH", str(tmp_path / "analytics.db"))
     monkeypatch.setattr("config.BASE_DIR", str(tmp_path), raising=False)
     monkeypatch.setattr("config.TEMP_DIR", str(tmp_path / "temp"))
-    monkeypatch.setenv("ANALYTICS_PENDING_PATH",
-                       str(tmp_path / "analytics_pending.jsonl"))
     (tmp_path / "temp").mkdir()
     return tmp_path
 

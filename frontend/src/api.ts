@@ -397,21 +397,6 @@ export const api = {
       `/api/projects/${ts}/publish-history`,
     ),
 
-  // ─── Analytics queue (pending) replay ────────────
-  analyticsPendingStatus: () =>
-    http<{
-      count: number;
-      oldest_at: string | null;
-      platforms?: string[];
-    }>("/api/analytics/pending"),
-  analyticsPendingSync: () =>
-    http<{
-      success: number;
-      failed: number;
-      synced_ts: string[];
-      finalized_ts: string[];
-    }>("/api/analytics/pending/sync", { method: "POST" }),
-
   // ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
   cost: {
     pricebook: () => http<CostPricebookResponse>("/api/cost/pricebook"),

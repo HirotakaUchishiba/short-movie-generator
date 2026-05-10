@@ -43,7 +43,6 @@ CORS(app)
 # Blueprint 段階移行: 残るのは preview_server に内在する screenplay PUT /
 # stage cache (bg/kling) / analyze job / character_meta / location CRUD 系
 # (= 別 PR で順次)。routes/__init__.py の roadmap 参照。
-from routes.analytics import analytics_bp  # noqa: E402
 from routes.assets import assets_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
@@ -55,7 +54,6 @@ from routes.render_plan import render_plan_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
-app.register_blueprint(analytics_bp)
 app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
 app.register_blueprint(render_plan_bp)
@@ -1577,41 +1575,7 @@ def _recover_lost_jobs() -> None:
             )
 
 
-def _replay_pending_analytics() -> None:
-    """analytics_pending.jsonl が残っていれば起動時に replay し、各 ts の
-    Stage 8 を ``mark_generated`` に昇格させる。
-
-    publish 中に analytics DB が一時的に落ちて queue 落ちした entry を
-    自動回収するため。失敗 entry は queue に残して次回 / 手動 sync を待つ。
-    """
-    try:
-        from analytics import pending_queue
-        from final_import.publish import finalize_pending_publish
-    except Exception as e:
-        logger.warning("[起動時] pending queue モジュール読込失敗: %s", e)
-        return
-    try:
-        result = pending_queue.replay()
-    except Exception as e:
-        logger.warning("[起動時] pending queue replay 失敗: %s", e)
-        return
-    if result["success"] == 0 and result["failed"] == 0:
-        return
-    logger.info(
-        "[起動時] analytics queue replay: %d 同期 / %d 失敗",
-        result["success"], result["failed"],
-    )
-    for ts in set(result["synced_ts"]):
-        try:
-            finalize_pending_publish(ts)
-        except Exception as e:
-            logger.warning(
-                "[起動時] finalize_pending_publish(%s) 失敗: %s", ts, e,
-            )
-
-
 _recover_lost_jobs()
-_replay_pending_analytics()
 
 
 if __name__ == "__main__":

@@ -1,6 +1,7 @@
 """final_import.publish の end-to-end フロー (network mock + analytics DB)。"""
 
 import json
+import logging
 import shutil
 import subprocess
 from pathlib import Path
@@ -580,187 +581,73 @@ def test_publish_youtube_raises_when_refresh_token_invalid(project, monkeypatch)
         publish(ts, "youtube")
 
 
-# ─── F: analytics resilience ───────────────
+# ─── F: analytics resilience (= pending queue 撤去後の振る舞い) ──────
 
 
-def test_publish_queues_when_analytics_db_fails_3_times(
-    project, monkeypatch, tmp_path,
+def test_publish_succeeds_with_warning_when_analytics_db_fails(
+    project, monkeypatch, caplog,
 ):
-    """analytics DB が 3 回連続で失敗 → queue に 1 entry、publish 自体は成功するが
-    Stage 8 は **未** generated (= sync 後に立つ)。"""
+    """analytics DB 登録が失敗しても publish() 自体は成功 return し、Stage 8 は
+    即時 mark_generated される。warning は published_posts entry と error log
+    に残る (= 動画は YouTube に出ているので、再 publish で重複動画を生まないため)。
+    """
     from final_import.publish import publish
-    from analytics import pending_queue
+    from analytics import db as analytics_db
     import progress_store
-
-    monkeypatch.setenv(
-        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
-    )
-    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
 
     ts, ts_path = project
     _setup_youtube_mocks(monkeypatch)
 
-    call_count = {"n": 0}
-
     def boom(*_a, **_kw):
-        call_count["n"] += 1
         raise RuntimeError("simulated DB outage")
 
-    from analytics import db as analytics_db
     monkeypatch.setattr(analytics_db, "register_post", boom)
 
-    result = publish(ts, "youtube", privacy="unlisted")
+    with caplog.at_level(logging.ERROR, logger="final_import.publish"):
+        result = publish(ts, "youtube", privacy="unlisted")
+
     assert result["video_id"] == "yt_xyz"
     assert result["analytics_persisted"] is False
-    assert call_count["n"] == 3
+    assert result.get("analytics_warning")
 
-    entries = pending_queue.read_all()
-    assert len(entries) == 1
-    e = entries[0]
-    assert e["ts"] == ts
-    assert e["platform"] == "youtube"
-    assert e["platform_post_id"] == "yt_xyz"
-    assert e["url"].endswith("/shorts/yt_xyz")
-    assert e["caption"]
-    assert isinstance(e["hashtags"], list)
-    assert e["timestamp"]
+    # Stage 8 は即時 generated (= 保留しない)
+    assert progress_store.is_generated(ts_path, "publish")
 
-    # Stage 8 は queue 同期完了まで保留 — 未 generated
-    assert not progress_store.is_generated(ts_path, "publish")
-    # published_posts entry には analytics_pending=True が入っている
+    # published_posts entry には analytics_persisted=False + warning が残る
     meta = json.loads((Path(ts_path) / "metadata.json").read_text())
     yt = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
     assert len(yt) == 1
-    assert yt[0]["analytics_pending"] is True
+    assert yt[0]["analytics_persisted"] is False
+    assert yt[0].get("analytics_warning")
+    # 撤去された旧フィールドは残らない
+    assert "analytics_pending" not in yt[0]
 
-
-def test_finalize_pending_publish_promotes_stage8_after_replay(
-    project, monkeypatch, tmp_path,
-):
-    """queue replay 成功 → finalize_pending_publish が Stage 8 を立て、
-    published_posts[].analytics_pending を False に flip する。"""
-    from final_import.publish import publish, finalize_pending_publish
-    from analytics import pending_queue, db as analytics_db
-    import progress_store
-
-    monkeypatch.setenv(
-        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
+    # error log に復旧手順 (= register_post.py) が含まれる
+    error_msgs = [r.message for r in caplog.records if r.levelname == "ERROR"]
+    assert any("register_post.py" in m for m in error_msgs), (
+        f"復旧手順が error log に出ていない: {error_msgs}"
     )
-    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
+
+
+def test_publish_records_persisted_true_when_db_succeeds(
+    project, monkeypatch,
+):
+    """通常経路: DB 登録成功 → analytics_persisted=True、warning 無し、
+    Stage 8 mark_generated。"""
+    from final_import.publish import publish
+    import progress_store
 
     ts, ts_path = project
     _setup_youtube_mocks(monkeypatch)
 
-    # 1st publish: DB ダウンで queue に積む
-    real_register = analytics_db.register_post
-    state = {"down": True}
+    result = publish(ts, "youtube", privacy="unlisted")
 
-    def conditional_register(*a, **kw):
-        if state["down"]:
-            raise RuntimeError("DB down")
-        return real_register(*a, **kw)
-
-    monkeypatch.setattr(analytics_db, "register_post", conditional_register)
-    publish(ts, "youtube", privacy="unlisted")
-    assert not progress_store.is_generated(ts_path, "publish")
-
-    # DB 復旧 → replay → finalize
-    state["down"] = False
-    result = pending_queue.replay()
-    assert result["success"] == 1
-    for synced in set(result["synced_ts"]):
-        finalize_pending_publish(synced)
-
+    assert result["analytics_persisted"] is True
+    assert result.get("analytics_warning") is None
     assert progress_store.is_generated(ts_path, "publish")
+
     meta = json.loads((Path(ts_path) / "metadata.json").read_text())
     yt = [p for p in meta["published_posts"] if p["platform"] == "youtube"]
-    assert yt[0]["analytics_pending"] is False
-
-
-def test_publish_no_queue_when_db_succeeds_on_third_attempt(
-    project, monkeypatch, tmp_path,
-):
-    """2 回失敗 → 3 回目成功 → queue は空."""
-    from final_import.publish import publish
-    from analytics import pending_queue, db as analytics_db
-
-    monkeypatch.setenv(
-        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
-    )
-    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
-
-    ts, _ts_path = project
-    _setup_youtube_mocks(monkeypatch)
-
-    state = {"n": 0}
-    real_register = analytics_db.register_post
-
-    def flaky(*args, **kwargs):
-        state["n"] += 1
-        if state["n"] < 3:
-            raise RuntimeError("flaky")
-        return real_register(*args, **kwargs)
-
-    monkeypatch.setattr(analytics_db, "register_post", flaky)
-
-    result = publish(ts, "youtube")
-    assert result["video_id"] == "yt_xyz"
-    assert state["n"] == 3
-
-    assert pending_queue.read_all() == []
-    posts = analytics_db.list_active_posts(platform="youtube")
-    assert any(p["platform_post_id"] == "yt_xyz" for p in posts)
-
-
-def test_publish_concurrent_queue_writes_are_complete_json(
-    project, monkeypatch, tmp_path,
-):
-    """連続 publish 2 回が両方 DB 失敗 → queue に 2 件、それぞれ完整な JSON."""
-    import json as _json
-    from final_import.publish import publish
-    from analytics import db as analytics_db
-
-    monkeypatch.setenv(
-        "ANALYTICS_PENDING_PATH", str(tmp_path / "analytics_pending.jsonl"),
-    )
-    monkeypatch.setattr("time.sleep", lambda *_a, **_k: None)
-
-    ts, _ts_path = project
-
-    monkeypatch.setattr(
-        analytics_db, "register_post",
-        lambda *_a, **_kw: (_ for _ in ()).throw(RuntimeError("dead")),
-    )
-
-    upload_ids = ["yt_a", "yt_b"]
-    state = {"i": 0}
-
-    def fake_post(url, **kw):
-        if "oauth2.googleapis.com" in url:
-            return _MockResp(200, json_data={"access_token": "tok"})
-        return _MockResp(200, headers={"Location": "https://up/"})
-
-    def fake_put(url, **kw):
-        vid = upload_ids[state["i"]]
-        state["i"] += 1
-        return _MockResp(200, json_data={"id": vid})
-
-    monkeypatch.setattr("requests.post", fake_post)
-    monkeypatch.setattr("requests.put", fake_put)
-
-    # idempotency ガード回避のため 2 回目は force_republish=True
-    publish(ts, "youtube")
-    publish(ts, "youtube", force_republish=True)
-
-    queue_path = tmp_path / "analytics_pending.jsonl"
-    raw_lines = queue_path.read_text(encoding="utf-8").splitlines()
-    assert len(raw_lines) == 2
-    parsed = [_json.loads(line) for line in raw_lines]
-    ids = {p["platform_post_id"] for p in parsed}
-    assert ids == {"yt_a", "yt_b"}
-    for p in parsed:
-        assert p["ts"] == ts
-        assert p["platform"] == "youtube"
-        assert p["url"].startswith("https://")
-        assert p["caption"]
-        assert "timestamp" in p
+    assert yt[0]["analytics_persisted"] is True
+    assert "analytics_warning" not in yt[0]
+    assert "analytics_pending" not in yt[0]
