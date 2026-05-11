@@ -3,7 +3,6 @@
 設計 §7.1 候補 2 (= 失敗時 project を残し、retry / 削除を選べる) の実装。
 """
 import io
-import os
 
 import pytest
 
