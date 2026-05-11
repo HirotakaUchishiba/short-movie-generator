@@ -314,12 +314,30 @@ def _import_raw_as_final(ts: str) -> None:
 
     raw (`output/reels_<TS>.mp4`) をそのまま canonical な final として登録する。
     auto_loop の取込は本関数が唯一の経路。
+
+    失敗時 (= mp4 ftyp atom 不正 / disk full / 元 file 消去 等) は
+    ``progress_store.mark_stage_failed("final_import", ...)`` で UI が原因を
+    表示できるようにしてから re-raise する。
     """
     raw_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     if not os.path.exists(raw_path):
         raise AutoLoopAborted(f"pipeline raw が見つかりません: {raw_path}")
-    from final_import import import_final
-    import_final(ts, raw_path)
+    ts_path = os.path.join(config.TEMP_DIR, ts)
+    try:
+        from final_import import import_final
+        import_final(ts, raw_path)
+    except Exception as e:
+        try:
+            import progress_store
+            from errors import build_error_detail
+            progress_store.mark_stage_failed(
+                ts_path, "final_import", build_error_detail(e),
+            )
+        except Exception as ee:
+            logger.warning(
+                "[auto_loop] mark_stage_failed for final_import failed: %s", ee,
+            )
+        raise
 
 
 def _publish_youtube(ts: str, privacy: str) -> dict:
