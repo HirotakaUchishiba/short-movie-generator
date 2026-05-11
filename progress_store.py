@@ -184,8 +184,8 @@ def reset_stage(ts_path: str, stage: str) -> None:
 
 def revoke_all_approvals(ts_path: str) -> None:
     """Stage 1+ の承認だけを解除する。生成物 (assets) は保持したまま、
-    再承認/再生成を促す。Stage 1「素材編集」セクションで抽象台本 / VideoStyle
-    を差し替えたとき、後続 Stage が古い素材で承認済みのままにならないように
+    再承認/再生成を促す。Stage 1「素材編集」セクションで抽象台本を
+    差し替えたとき、後続 Stage が古い素材で承認済みのままにならないように
     するため。
 
     Stage 0 (analyze) は対象外: 参考動画分析は素材編集の範囲ではなく、
