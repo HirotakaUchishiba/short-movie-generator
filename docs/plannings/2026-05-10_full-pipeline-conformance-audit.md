@@ -32,15 +32,15 @@
 
 ## 1. 領域別 conformance summary
 
-| 領域                               | 準拠率  | テスト pass        | blocker | drift   |
-| ---------------------------------- | ------- | ------------------ | ------- | ------- |
-| Stage 1-6 (= 生成パイプライン本体) | ✅ 100% | 218                | 0       | 0       |
-| Stage 7 (= final import)           | ✅ 100% | 21                 | 0       | 0       |
-| Stage 8 (= publish)                | ✅ 100% | 24                 | 0       | 0       |
-| analyze pipeline                   | ✅ 100% | 192                | 0       | 0       |
-| analytics pipeline                 | ✅ 95%+ | 178                | 0       | 1 (low) |
-| Compositional Architecture (L1-3)  | ✅ 95%+ | 145 + frontend 105 | 0       | 0       |
-| 隣接 (= cost / pending sync 等)    | ✅ 100% | 80                 | 0       | 0       |
+| 領域                               | 準拠率  | テスト pass        | blocker | drift |
+| ---------------------------------- | ------- | ------------------ | ------- | ----- |
+| Stage 1-6 (= 生成パイプライン本体) | ✅ 100% | 218                | 0       | 0     |
+| Stage 7 (= final import)           | ✅ 100% | 21                 | 0       | 0     |
+| Stage 8 (= publish)                | ✅ 100% | 24                 | 0       | 0     |
+| analyze pipeline                   | ✅ 100% | 192                | 0       | 0     |
+| analytics pipeline                 | ✅ 100% | 178                | 0       | 0     |
+| Compositional Architecture (L1-3)  | ✅ 95%+ | 145 + frontend 105 | 0       | 0     |
+| 隣接 (= cost / pending sync 等)    | ✅ 100% | 80                 | 0       | 0     |
 
 ---
 
@@ -178,17 +178,16 @@ audit doc §5 修正履歴に明示。
 
 ## 3. drift 一覧 (= 修正対象)
 
-### 🟠 D-1: 軸別 view 4 つが `v_active_posts` 経由になっていない
+### ✅ D-1: 軸別 view 4 つを `v_active_posts` 経由に統一 (= 解消)
 
-| 項目         | 内容                                                                                                                                                                                                                                                                                                                                                                                                                                                          |
-| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 状態         | ⚠️ 部分準拠 (= 4 view drift)                                                                                                                                                                                                                                                                                                                                                                                                                                  |
-| 設計上の役割 | `v_active_posts` (= `analytics/schema.sql:79`) は schema v9 で導入された **rollback 済 post を analytics から除外する仕組み**。Phase A の不変条件として「すべての集計 view は v_active_posts 経由にする」                                                                                                                                                                                                                                                     |
-| 証拠         | `analytics/schema.sql` の以下 4 view が `JOIN posts p ON p.video_id = v.id` を直接使用: <br>- `v_hook_type_performance` (`schema.sql:268-283`) <br>- `v_tone_performance` (`schema.sql:285-300`) <br>- `v_dominant_emotion_performance` (`schema.sql:302-317`) <br>- `v_theme_performance` (`schema.sql:319-334`)                                                                                                                                             |
-| 影響         | rollback 済 post の metrics が軸別 view に混入する可能性。ただし: <br>- `v_strategy_performance` / `v_transformation_performance` / `v_halo_effect` / `v_performance` (= PDCA 主戦力) は **すべて `v_active_posts` 経由** で OK <br>- dashboard の `hook_tab` / `emotion_tab` は実質 `v_performance` を自前 groupby しており、軸別 view 直読みではないため**実害は限定的** <br>- 24h filter (`julianday >= 1.0`) は適用済みなので「投稿直後ノイズ」は除外済み |
-| 修正方針     | 4 view の `JOIN posts p ON ...` を `JOIN v_active_posts p ON ...` に置換 + `analytics/db.py:CURRENT_SCHEMA_VERSION` を 11 → 12、`init_db()` で `DROP VIEW IF EXISTS` 経路                                                                                                                                                                                                                                                                                     |
-| 修正サイズ   | 小 (= `schema.sql` 4 行 + `db.py` 数行 + test 更新)                                                                                                                                                                                                                                                                                                                                                                                                           |
-| 優先度       | 🟠 中-低 (= 直接の運用障害は無いが、Phase A の不変条件「全 view は v_active_posts 経由」を破る)                                                                                                                                                                                                                                                                                                                                                               |
+| 項目         | 内容                                                                                                                                                                                                                                                                                                                      |
+| ------------ | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 状態         | ✅ 解消 (= schema v12 で 4 view すべて `JOIN v_active_posts p` に統一)                                                                                                                                                                                                                                                    |
+| 設計上の役割 | `v_active_posts` (= `analytics/schema.sql:79`) は schema v9 で導入された **rollback 済 post を analytics から除外する仕組み**。Phase A の不変条件として「すべての集計 view は v_active_posts 経由にする」                                                                                                                 |
+| 旧証拠       | `analytics/schema.sql` の以下 4 view が `JOIN posts p ON p.video_id = v.id` を直接使用していた: <br>- `v_hook_type_performance` (`schema.sql:268-283`) <br>- `v_tone_performance` (`schema.sql:285-300`) <br>- `v_dominant_emotion_performance` (`schema.sql:302-317`) <br>- `v_theme_performance` (`schema.sql:319-334`) |
+| 旧影響       | rollback 済 post の metrics が軸別 view に混入する可能性 (= 24h filter は通っていたので投稿直後ノイズは除外済みだが、rollback の意思は反映されない)                                                                                                                                                                       |
+| 解消         | 4 view を `JOIN v_active_posts p ON p.video_id = v.id` に置換 + `analytics/db.py:CURRENT_SCHEMA_VERSION` を 11 → 12、`init_db()` で 4 view の `DROP VIEW IF EXISTS` を追加 (既存 DB を新定義で再作成)。 `tests/test_analytics_db_phase_a.py:test_axis_views_exclude_rolled_back_posts` で 4 view 全部 parametrize 検証    |
+| ブランチ     | `fix/axis-views-active-posts-consistency`                                                                                                                                                                                                                                                                                 |
 
 ---
 
@@ -281,7 +280,7 @@ backend pytest と frontend vitest を design-critical 経路で網羅実行。
 | 9   | error_code SSOT                                             | `routes/_helpers.py:api_error()` 1 箇所定義                                   | ✅   |
 | 10  | drift test CI 強制                                          | `part_registry_yaml_drift.test.ts` が CI で yaml ↔ React id 一致を毎回 assert | ✅   |
 | 11  | 24h 経過 metrics のみ採用                                   | 全 strategy / transformation / halo view が `julianday >= 1.0` filter         | ✅   |
-| 12  | rollback 済 post を analytics から除外                      | 主要 view は `v_active_posts` 経由 ✅、軸別 view 4 つは未経由 ⚠️ (§3 D-1)     | ⚠️   |
+| 12  | rollback 済 post を analytics から除外                      | 主要 view + 軸別 view 4 つすべて `v_active_posts` 経由 (= schema v12)         | ✅   |
 
 ---
 

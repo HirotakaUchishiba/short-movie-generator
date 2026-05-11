@@ -266,6 +266,8 @@ CREATE INDEX IF NOT EXISTS idx_exp_strategy ON experiment_assignments(strategy);
 -- と他 3 軸の組合せ別に行が分かれて重複していた。schema v7 で軸ごとに分離。
 -- 各 view は post 投稿後 24h 経過したメトリクスのみ採用 (= まだ伸びていない動画の
 -- ノイズを排除)。
+-- schema v12: v_active_posts 経由で rollback 済 post を集計から除外
+-- (= Phase A の不変条件「すべての集計 view は v_active_posts 経由」を遵守)。
 CREATE VIEW IF NOT EXISTS v_hook_type_performance AS
 SELECT
     s.hook_type AS axis_value,
@@ -275,7 +277,7 @@ SELECT
     AVG(m.saves) AS avg_save
 FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
-JOIN posts p ON p.video_id = v.id
+JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id
 WHERE m.fetched_at IS NOT NULL
   AND p.posted_at IS NOT NULL
@@ -292,7 +294,7 @@ SELECT
     AVG(m.saves) AS avg_save
 FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
-JOIN posts p ON p.video_id = v.id
+JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id
 WHERE m.fetched_at IS NOT NULL
   AND p.posted_at IS NOT NULL
@@ -309,7 +311,7 @@ SELECT
     AVG(m.saves) AS avg_save
 FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
-JOIN posts p ON p.video_id = v.id
+JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id
 WHERE m.fetched_at IS NOT NULL
   AND p.posted_at IS NOT NULL
@@ -326,7 +328,7 @@ SELECT
     AVG(m.saves) AS avg_save
 FROM screenplays s
 JOIN videos v ON v.screenplay_id = s.id
-JOIN posts p ON p.video_id = v.id
+JOIN v_active_posts p ON p.video_id = v.id
 LEFT JOIN v_latest_metrics m ON m.post_id = p.id
 WHERE m.fetched_at IS NOT NULL
   AND p.posted_at IS NOT NULL
