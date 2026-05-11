@@ -38,6 +38,21 @@ from errors.classify import (
         # quota_exceeded
         ("Daily quota exceeded for project foo", "quota_exceeded"),
         ("monthly limit hit", "quota_exceeded"),
+        # 403 + quota が同居する場合は auth_failure ではなく quota_exceeded を優先
+        # (= classify.py L121 の if "quota" not in low 分岐の guard を verify)
+        ("Error 403: Quota exceeded for this project", "quota_exceeded"),
+        # fal.ai のリトライ wrap 文言 (= fal_video_client.py:127 が付ける prefix)
+        (
+            "fal.ai リトライ上限超過: Error: exhausted balance for user_id=xxx",
+            "credit_exhausted",
+        ),
+        # 汎用 "balance is too low" (= "credit" 単語が無い場合の保険)
+        ("Provider returned: balance is too low", "credit_exhausted"),
+        # runner 経路 prefix が付いた analyze 失敗 — credit_exhausted 維持
+        (
+            "runner error: Error code: 400 - 'credit balance is too low'",
+            "credit_exhausted",
+        ),
         # safety_filter
         ("Content blocked by safety filter", "safety_filter"),
         ("responsibleAI policy violation", "safety_filter"),

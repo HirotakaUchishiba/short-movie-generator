@@ -81,6 +81,11 @@ def classify_error(error: Exception | str | None) -> str:
     low = text.lower()
 
     # 1. credit_exhausted (= 最頻出、最優先で判定)
+    # 既知のパターン:
+    # - Anthropic: "Your credit balance is too low"
+    # - fal.ai: "exhausted balance"
+    # - OpenAI: "exceeded your current quota" (= billing-related quota も含む)
+    # - 汎用: "out of credit" / "insufficient credit" / "balance is too low"
     if any(
         kw in low
         for kw in (
@@ -88,6 +93,8 @@ def classify_error(error: Exception | str | None) -> str:
             "out of credit",
             "exhausted balance",
             "insufficient credit",
+            "balance is too low",
+            "balance too low",
             "billing",
         )
     ):
