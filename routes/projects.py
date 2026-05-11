@@ -18,6 +18,7 @@ import progress_store
 import staged_pipeline
 
 from routes._helpers import (
+    api_error,
     load_screenplay_for_project,
     save_reference_video,
     ts_path,
@@ -30,6 +31,10 @@ projects_bp = Blueprint("projects", __name__)
 
 # project 作成時に optional で渡せる analyze ジョブ ID の format check
 _JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
+
+# bulk-delete で 1 件ずつ ts を non-aborting に validate するための pattern
+# (= _helpers.validate_ts は abort(400) するので bulk では使えない)
+_TS_PATTERN = re.compile(r"^[\w\-]+$")
 
 
 def _list_screenplays() -> list[str]:
@@ -302,26 +307,37 @@ def api_retry_analyze(ts):
     return jsonify({"ok": True, "new_analyze_job_id": new_job.id}), 200
 
 
-@projects_bp.route("/api/projects/<ts>", methods=["DELETE"])
-def api_delete_project(ts):
-    """project ディレクトリと in-flight analyze_job をキャンセルして削除する。
+def _perform_project_delete(ts: str) -> dict:
+    """1 project の削除を実施し、結果を dict で返す (= raise しない)。
 
-    reference_videos は dedup 済みなので **消さない** (= 他の project が
-    参照している可能性がある)。in-flight 状態 (running / pending /
-    dryrunning / awaiting_confirm) のジョブにはキャンセル要求を立てる。
+    成功:
+        ``{"ts": ts, "deleted": True}``
+    失敗:
+        ``{"ts": ts, "deleted": False, "error_code": "...", "message": "..."}``
+
+    削除対象は ``temp/<TS>/`` ディレクトリのみ。reference_videos /
+    screenplays/auto_*.json / analytics.db / cost_records.jsonl は **意図的に
+    保持** (= SHA dedup 共有 / 課金 / 投稿履歴の保全)。in-flight analyze_job
+    (= running / pending / dryrunning / awaiting_confirm) があれば cancel
+    要求を立ててから ``shutil.rmtree`` する。
+
+    本 helper は ``api_delete_project`` (= single) と ``api_bulk_delete_projects``
+    (= 一括) の共通実装。bulk 側は raise されると partial success の集計が
+    できないので、エラーも dict で返す。
     """
     import shutil
 
     from analyze import job as analyze_job
     from analyze import runner as analyze_runner
 
-    validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
-        return jsonify({
+        return {
+            "ts": ts,
+            "deleted": False,
             "error_code": "PROJECT_NOT_FOUND",
             "message": "プロジェクトが存在しません",
-        }), 404
+        }
 
     meta = staged_pipeline.read_metadata(project_path) or {}
     job_id = meta.get("analyze_job_id")
@@ -339,12 +355,101 @@ def api_delete_project(ts):
         shutil.rmtree(project_path)
     except OSError as e:
         logger.exception("project delete failed: %s", project_path)
-        return jsonify({
+        return {
+            "ts": ts,
+            "deleted": False,
             "error_code": "PROJECT_DELETE_FAILED",
             "message": f"directory delete failed: {e}",
-        }), 500
+        }
 
+    return {"ts": ts, "deleted": True}
+
+
+@projects_bp.route("/api/projects/<ts>", methods=["DELETE"])
+def api_delete_project(ts):
+    """project ディレクトリと in-flight analyze_job をキャンセルして削除する。
+
+    本 endpoint は :func:`_perform_project_delete` の薄い HTTP wrapper。
+    削除内容は同 helper の docstring を参照。
+    """
+    validate_ts(ts)
+    result = _perform_project_delete(ts)
+    if not result["deleted"]:
+        status = 404 if result["error_code"] == "PROJECT_NOT_FOUND" else 500
+        return jsonify({
+            "error_code": result["error_code"],
+            "message": result["message"],
+        }), status
     return jsonify({"ts": ts, "deleted": True}), 200
+
+
+_BULK_DELETE_MAX = 100
+
+
+@projects_bp.route("/api/projects/bulk-delete", methods=["POST"])
+def api_bulk_delete_projects():
+    """複数 project を一括削除する。
+
+    Body:
+        ``{"ts_list": ["20260511_220521", "20260511_220522", ...]}``
+
+    Response (200):
+        ``{"deleted": ["..."], "failed": [{ts, error_code, message}, ...]}``
+
+    入力検証:
+        - ``ts_list`` 無し / 非 list → 400 BULK_DELETE_INVALID_LIST
+        - 空 list → 400 BULK_DELETE_EMPTY_LIST
+        - 長さ > 100 → 400 BULK_DELETE_TOO_MANY (= server timeout 防止)
+        - 不正 ts format → 個別 ``failed`` に INVALID_TS で記録 (= 残りは続行)
+
+    各 ts の削除は :func:`_perform_project_delete` を順次呼ぶ partial-success
+    semantics。途中で 1 件失敗しても残りは続行する (= UI が `failed` 配列を
+    見て個別に通知する想定)。
+    """
+    data = request.get_json(silent=True) or {}
+    ts_list = data.get("ts_list")
+    if not isinstance(ts_list, list):
+        return api_error(
+            "BULK_DELETE_INVALID_LIST",
+            "ts_list (array) is required",
+            400,
+        )
+    if len(ts_list) == 0:
+        return api_error(
+            "BULK_DELETE_EMPTY_LIST",
+            "ts_list must contain at least 1 ts",
+            400,
+        )
+    if len(ts_list) > _BULK_DELETE_MAX:
+        return api_error(
+            "BULK_DELETE_TOO_MANY",
+            f"ts_list size must be <= {_BULK_DELETE_MAX}",
+            400,
+            limit=_BULK_DELETE_MAX,
+            given=len(ts_list),
+        )
+
+    deleted: list[str] = []
+    failed: list[dict] = []
+    for ts in ts_list:
+        if not isinstance(ts, str) or not _TS_PATTERN.match(ts):
+            failed.append({
+                "ts": str(ts),
+                "error_code": "INVALID_TS",
+                "message": "不正なタイムスタンプ",
+            })
+            continue
+        result = _perform_project_delete(ts)
+        if result["deleted"]:
+            deleted.append(ts)
+        else:
+            failed.append({
+                "ts": ts,
+                "error_code": result["error_code"],
+                "message": result["message"],
+            })
+
+    return jsonify({"deleted": deleted, "failed": failed}), 200
 
 
 @projects_bp.route("/api/projects/<ts>", methods=["GET"])
