@@ -356,6 +356,16 @@ export const api = {
       method: "DELETE",
     }),
 
+  bulkDeleteProjects: (tsList: string[]) =>
+    http<{
+      deleted: string[];
+      failed: Array<{ ts: string; error_code: string; message: string }>;
+    }>("/api/projects/bulk-delete", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ ts_list: tsList }),
+    }),
+
   // ─── analyze ジョブ ─────────────────────────────
   // ジョブの作成は POST /api/projects/from-reference-video を使う
   // (= 旧 createAnalyzeJob / listAnalyzeJobs は Phase E で削除)。

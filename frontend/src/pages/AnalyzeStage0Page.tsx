@@ -4,6 +4,7 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 import { api } from "../api";
 import AnalyzeJobView from "../components/AnalyzeJobView";
 import { StageFailureAlert } from "../components/common/StageFailureAlert";
+import { useDeleteProject } from "../hooks/useDeleteProject";
 import type { ProjectDetail, StageErrorDetail } from "../types";
 
 /**
@@ -108,8 +109,18 @@ function FailedActions({
   errorDetail: StageErrorDetail | null;
 }) {
   const navigate = useNavigate();
-  const [busy, setBusy] = useState(false);
-  const [err, setErr] = useState<string | null>(null);
+  const [retryBusy, setRetryBusy] = useState(false);
+  const [retryErr, setRetryErr] = useState<string | null>(null);
+  const {
+    deleteProject,
+    busy: deleteBusy,
+    error: deleteErr,
+  } = useDeleteProject({
+    onSuccess: () => navigate("/", { replace: true }),
+  });
+
+  const busy = retryBusy || deleteBusy;
+  const err = retryErr || deleteErr;
 
   // error_detail が無い旧 project の fallback envelope (= 設計 doc 後方互換)
   const fallbackDetail: StageErrorDetail = errorDetail ?? {
@@ -129,35 +140,19 @@ function FailedActions({
           busy
             ? undefined
             : async () => {
-                setBusy(true);
-                setErr(null);
+                setRetryBusy(true);
+                setRetryErr(null);
                 try {
                   await api.retryAnalyzeForProject(ts);
                   window.location.reload();
                 } catch (e) {
-                  setErr(String(e));
+                  setRetryErr(String(e));
                 } finally {
-                  setBusy(false);
+                  setRetryBusy(false);
                 }
               }
         }
-        onDelete={
-          busy
-            ? undefined
-            : async () => {
-                if (!window.confirm("このプロジェクトを削除しますか?")) return;
-                setBusy(true);
-                setErr(null);
-                try {
-                  await api.deleteProject(ts);
-                  navigate("/", { replace: true });
-                } catch (e) {
-                  setErr(String(e));
-                } finally {
-                  setBusy(false);
-                }
-              }
-        }
+        onDelete={busy ? undefined : () => void deleteProject(ts)}
         onDismiss={busy ? undefined : () => navigate("/", { replace: true })}
         retryLabel="リトライ"
         deleteLabel="削除"
