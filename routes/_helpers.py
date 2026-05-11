@@ -36,7 +36,21 @@ def api_error(
     return jsonify(body), status
 
 
+# TS 文字列の format check に使う共有 regex。
+# - validate_ts() = HTTP request handler 内で abort(400) する経路
+# - is_valid_ts() = bulk endpoint 等で raise せず bool で判定する経路
+# 両者の regex を同一に保つため、必ずこの定数を経由する (= ad-hoc な
+# re.compile を新規追加しない)。
 _TS_PATTERN = re.compile(r"^[\w\-]+$")
+
+
+def is_valid_ts(ts: str) -> bool:
+    """TS 文字列が ``^[\\w\\-]+$`` に従うか bool で返す (= abort しない)。
+
+    bulk-delete のように複数 ts を 1 リクエストで処理し、不正 ts を個別の
+    failed エントリとして収集する経路で使う。
+    """
+    return isinstance(ts, str) and bool(_TS_PATTERN.match(ts))
 
 
 def validate_ts(ts: str) -> str:

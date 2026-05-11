@@ -19,6 +19,7 @@ import staged_pipeline
 
 from routes._helpers import (
     api_error,
+    is_valid_ts,
     load_screenplay_for_project,
     save_reference_video,
     ts_path,
@@ -31,10 +32,6 @@ projects_bp = Blueprint("projects", __name__)
 
 # project 作成時に optional で渡せる analyze ジョブ ID の format check
 _JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
-
-# bulk-delete で 1 件ずつ ts を non-aborting に validate するための pattern
-# (= _helpers.validate_ts は abort(400) するので bulk では使えない)
-_TS_PATTERN = re.compile(r"^[\w\-]+$")
 
 
 def _list_screenplays() -> list[str]:
@@ -432,7 +429,7 @@ def api_bulk_delete_projects():
     deleted: list[str] = []
     failed: list[dict] = []
     for ts in ts_list:
-        if not isinstance(ts, str) or not _TS_PATTERN.match(ts):
+        if not is_valid_ts(ts):
             failed.append({
                 "ts": str(ts),
                 "error_code": "INVALID_TS",
