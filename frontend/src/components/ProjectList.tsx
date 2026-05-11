@@ -1,7 +1,12 @@
 import { useCallback, useEffect, useState } from "react";
 import { Link, useNavigate } from "react-router-dom";
 import { api, bgAssetUrl } from "../api";
-import type { ProjectListItem, StageName } from "../types";
+import type {
+  ProjectListItem,
+  Progress,
+  StageErrorDetail,
+  StageName,
+} from "../types";
 import CreateFromReferenceVideoSection from "./CreateFromReferenceVideoSection";
 
 const STAGE_LABELS: Record<StageName, string> = {
@@ -14,6 +19,35 @@ const STAGE_LABELS: Record<StageName, string> = {
   final_import: "取込",
   publish: "公開",
 };
+
+// stage の中で status==="failed" のものを探し、tooltip 用に actionable_hint を返す。
+// analyze (= Stage 0) も対象に含めるため StageName ではなく string 走査。
+function findFailedStageTooltip(progress: Progress | undefined): string | null {
+  if (!progress?.stages) return null;
+  const order = [
+    "analyze",
+    "script",
+    "tts",
+    "bg",
+    "kling",
+    "scene",
+    "overlay",
+    "final_import",
+    "publish",
+  ];
+  for (const stage of order) {
+    const block = (progress.stages as Record<string, unknown>)[stage] as
+      | { status?: string; error_detail?: StageErrorDetail }
+      | undefined;
+    if (block?.status === "failed" && block.error_detail) {
+      const d = block.error_detail;
+      const stageLabel = STAGE_LABELS[stage as StageName] ?? stage;
+      const hint = d.actionable_hint ? `\n${d.actionable_hint}` : "";
+      return `${stageLabel}: ${d.type}${hint}`;
+    }
+  }
+  return null;
+}
 
 function formatCreatedAt(iso: string | undefined): string {
   if (!iso) return "";
@@ -34,6 +68,7 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
   const isAnalyzing =
     p.analyze_status === "running" || p.analyze_status === "pending";
   const analyzeFailed = p.analyze_status === "failed";
+  const failureTooltip = findFailedStageTooltip(p.progress);
   // Stage 0 中 / 失敗の project は専用 page (= /project/<TS>/analyze) へ。
   // それ以外 (= Stage 1+ または legacy 経路) は通常の ProjectShell へ。
   const linkTo =
@@ -80,7 +115,19 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
           {isAnalyzing ? (
             <span className="badge bg-amber-600/90 text-white">📹 分析中</span>
           ) : analyzeFailed ? (
-            <span className="badge bg-rose-600/90 text-white">⚠ 分析失敗</span>
+            <span
+              className="badge bg-rose-600/90 text-white"
+              title={failureTooltip ?? undefined}
+            >
+              ⚠ 分析失敗
+            </span>
+          ) : failureTooltip ? (
+            <span
+              className="badge bg-rose-600/90 text-white"
+              title={failureTooltip}
+            >
+              ⚠ {stageLabel} 失敗
+            </span>
           ) : (
             <span
               className={

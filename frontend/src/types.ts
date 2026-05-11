@@ -57,14 +57,48 @@ export interface PublishedPost {
   published_at: string;
 }
 
+// 各 stage / phase の失敗時に backend が tmp-progress.json に書く構造化
+// error envelope。詳細は docs/plannings/2026-05-11_pipeline-failure-detail-ui.md
+// 全 field optional (= 後方互換: error_detail 自体が無い旧 project は failed 表示しない)
+export interface StageErrorDetail {
+  type:
+    | "credit_exhausted"
+    | "rate_limit"
+    | "auth_failure"
+    | "quota_exceeded"
+    | "context_too_long"
+    | "safety_filter"
+    | "network_timeout"
+    | "disk_full"
+    | "unknown";
+  message: string;
+  request_id?: string | null;
+  actionable_hint?: string | null;
+  retry_cost_estimate_usd?: number | null;
+  occurred_at?: string | null;
+  // analyze の claude / whisper や publish の youtube / instagram など、
+  // 外側 stage より細かい sub-phase 名 (= 任意)
+  failed_phase?: string | null;
+}
+
 export interface StageStatus {
   generated_at: string | null;
   approved_at: string | null;
   regen_count: number;
+  // failed 時に backend が立てる (= analyze は既存、Stage 1-8 は新規)
+  status?: "running" | "completed" | "failed" | null;
+  // failed 時の構造化原因。UI は StageFailureAlert でこれを表示する
+  error_detail?: StageErrorDetail | null;
+  // 後方互換: raw message :500 截断 (= analyze の旧 schema)
+  error?: string | null;
 }
 
 export interface Progress {
-  stages: Record<StageName, StageStatus>;
+  // backend の STAGES は ["analyze", ...StageName] で analyze (= Stage 0) も
+  // 含む。analyze block は他と同じ shape (= StageStatus) を持つが、StageName
+  // から外している (= analyze は from-reference-video 経路だけが立てる special)
+  // ため optional として併記する。
+  stages: { analyze?: StageStatus } & Record<StageName, StageStatus>;
 }
 
 export interface Acoustic {

@@ -3,7 +3,8 @@ import { Link, useNavigate, useParams } from "react-router-dom";
 
 import { api } from "../api";
 import AnalyzeJobView from "../components/AnalyzeJobView";
-import type { ProjectDetail } from "../types";
+import { StageFailureAlert } from "../components/common/StageFailureAlert";
+import type { ProjectDetail, StageErrorDetail } from "../types";
 
 /**
  * `/project/<TS>/analyze` の page。
@@ -86,7 +87,12 @@ export default function AnalyzeStage0Page() {
         </h1>
       </header>
 
-      {detail.analyze_status === "failed" && <FailedActions ts={ts} />}
+      {detail.analyze_status === "failed" && (
+        <FailedActions
+          ts={ts}
+          errorDetail={detail.progress?.stages?.analyze?.error_detail ?? null}
+        />
+      )}
       {detail.analyze_status !== "failed" && detail.analyze_job_id && (
         <AnalyzeJobView jobId={detail.analyze_job_id} projectTs={ts} />
       )}
@@ -94,64 +100,74 @@ export default function AnalyzeStage0Page() {
   );
 }
 
-function FailedActions({ ts }: { ts: string }) {
+function FailedActions({
+  ts,
+  errorDetail,
+}: {
+  ts: string;
+  errorDetail: StageErrorDetail | null;
+}) {
+  const navigate = useNavigate();
   const [busy, setBusy] = useState(false);
   const [err, setErr] = useState<string | null>(null);
 
+  // error_detail が無い旧 project の fallback envelope (= 設計 doc 後方互換)
+  const fallbackDetail: StageErrorDetail = errorDetail ?? {
+    type: "unknown",
+    message: "原因情報が記録されていません (= 旧 progress.json)",
+    actionable_hint:
+      "再度リトライしてください。原因が再現する場合はサーバログを確認してください。",
+  };
+
   return (
-    <div className="card border border-rose-500/40">
-      <h3 className="font-semibold text-rose-300 mb-2">⚠ 分析が失敗しました</h3>
-      <p className="text-sm text-slate-300 mb-3">
-        以下から選んでください。retry は cache (= frames / audio / whisper)
-        が効くので追加課金は最小です。
-      </p>
+    <>
+      <StageFailureAlert
+        stageLabel="分析"
+        errorDetail={fallbackDetail}
+        retryHint="retry は cache (= frames / audio / whisper) が効くので追加課金は最小です。"
+        onRetry={
+          busy
+            ? undefined
+            : async () => {
+                setBusy(true);
+                setErr(null);
+                try {
+                  await api.retryAnalyzeForProject(ts);
+                  window.location.reload();
+                } catch (e) {
+                  setErr(String(e));
+                } finally {
+                  setBusy(false);
+                }
+              }
+        }
+        onDelete={
+          busy
+            ? undefined
+            : async () => {
+                if (!window.confirm("このプロジェクトを削除しますか?")) return;
+                setBusy(true);
+                setErr(null);
+                try {
+                  await api.deleteProject(ts);
+                  navigate("/", { replace: true });
+                } catch (e) {
+                  setErr(String(e));
+                } finally {
+                  setBusy(false);
+                }
+              }
+        }
+        onDismiss={busy ? undefined : () => navigate("/", { replace: true })}
+        retryLabel="リトライ"
+        deleteLabel="削除"
+        dismissLabel="後で (TOP に戻る)"
+      />
       {err && (
-        <div className="mb-3 text-sm text-rose-300 whitespace-pre-wrap">
+        <div className="card border border-rose-500/40 text-sm text-rose-200 whitespace-pre-wrap">
           {err}
         </div>
       )}
-      <div className="flex gap-2 flex-wrap">
-        <button
-          className="btn-primary"
-          disabled={busy}
-          onClick={async () => {
-            setBusy(true);
-            setErr(null);
-            try {
-              await api.retryAnalyzeForProject(ts);
-              window.location.reload();
-            } catch (e) {
-              setErr(String(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          🔁 リトライ
-        </button>
-        <button
-          className="btn-ghost"
-          disabled={busy}
-          onClick={async () => {
-            if (!window.confirm("このプロジェクトを削除しますか?")) return;
-            setBusy(true);
-            setErr(null);
-            try {
-              await api.deleteProject(ts);
-              window.location.href = "/";
-            } catch (e) {
-              setErr(String(e));
-            } finally {
-              setBusy(false);
-            }
-          }}
-        >
-          🗑 削除
-        </button>
-        <Link to="/" className="btn-ghost">
-          後で (TOP に戻る)
-        </Link>
-      </div>
-    </div>
+    </>
   );
 }

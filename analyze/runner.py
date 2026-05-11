@@ -70,16 +70,26 @@ def _wait_for_confirm(job_id: str, timeout_sec: float = CONFIRM_TIMEOUT_SEC,
 
 
 class _PhaseTracker:
-    """analyze pipeline 各フェーズの開始 / 完了 / skip を SQLite に記録する helper。"""
+    """analyze pipeline 各フェーズの開始 / 完了 / skip を SQLite に記録する helper。
+
+    ``current_phase`` を保持し、上位の except 経路から
+    :meth:`fail_current_phase` を呼ぶことで失敗した phase だけを
+    ``analyze_phases.error`` に書ける。
+    """
 
     def __init__(self, job_id: str) -> None:
         self.job_id = job_id
         self.phase_start_times: dict[str, float] = {}
+        # 直近の phase_start で立ち、phase_complete / phase_skipped /
+        # fail_current_phase で None に戻る。例外時に「どの phase で死んだか」
+        # を特定するために使う。
+        self.current_phase: str | None = None
 
     def handle(self, event: str, data: dict) -> None:
         phase = data.get("phase")
         if event == "phase_start" and phase:
             self.phase_start_times[phase] = time.time()
+            self.current_phase = phase
             try:
                 job.start_phase(self.job_id, phase)
             except Exception:
@@ -99,6 +109,8 @@ class _PhaseTracker:
                 logger.exception(
                     "complete_phase failed: %s/%s", self.job_id, phase,
                 )
+            if self.current_phase == phase:
+                self.current_phase = None
             # save phase 完了: from-reference-video 経路 (= job.project_ts あり)
             # なら snapshot コピー + metadata + Stage 1 unlock を実施。
             if phase == "save":
@@ -110,8 +122,26 @@ class _PhaseTracker:
                 logger.exception(
                     "skip_phase failed: %s/%s", self.job_id, phase,
                 )
+            if self.current_phase == phase:
+                self.current_phase = None
         elif event == "claude_usage":
             self._record_claude_cost(data)
+
+    def fail_current_phase(self, error: Exception | str) -> str | None:
+        """``current_phase`` を failed に遷移させ phase 名を返す (= 既に
+        None ならなにもしない)。``analyze_phases.error`` に raw message を書く。
+        """
+        phase = self.current_phase
+        if not phase:
+            return None
+        try:
+            job.fail_phase(self.job_id, phase, str(error)[:2000])
+        except Exception:
+            logger.exception(
+                "fail_phase failed: %s/%s", self.job_id, phase,
+            )
+        self.current_phase = None
+        return phase
 
     def _on_save_complete(self, data: dict) -> None:
         """save phase 完了時、project_ts が紐付いていれば project を Stage 1 へ
@@ -263,51 +293,87 @@ def start(job_id: str) -> threading.Thread:
     return t
 
 
-def _mark_project_analyze_failed(project_ts: str, reason: str) -> None:
+def _mark_project_analyze_failed(
+    project_ts: str,
+    reason: str,
+    *,
+    failed_phase: str | None = None,
+) -> None:
     """from-reference-video 経路 project の Stage 0 を failed 状態にする。
 
     cancellation / cost-gate timeout / runner error のいずれの経路からも
-    呼ぶ。UI (= AnalyzeStage0Page) は status="failed" を見て retry / 削除
-    アクションを表示する。temp/<TS>/ ディレクトリが既に消えていれば no-op。
+    呼ぶ。UI (= AnalyzeStage0Page) は status="failed" + error_detail を見て
+    retry / 削除アクション + 原因表示する。temp/<TS>/ が消えていれば no-op。
+
+    Args:
+        project_ts: 対象 project の TS (= ``20260511_220521`` 形式)
+        reason: raw error message
+        failed_phase: 失敗した analyze phase (= claude / whisper 等)。None なら
+            error_detail.failed_phase は null。
     """
     import config as _config
 
     import progress_store
+    from errors import build_error_detail
     ts_path = os.path.join(_config.TEMP_DIR, project_ts)
     if not os.path.isdir(ts_path):
         return
+    detail = build_error_detail(reason, failed_phase=failed_phase)
     try:
-        progress_store.mark_analyze_failed(ts_path, reason)
+        progress_store.mark_stage_failed(
+            ts_path, "analyze", detail, set_generated_at=True,
+        )
     except Exception:
-        logger.exception("mark_analyze_failed failed for %s", project_ts)
+        logger.exception("mark_stage_failed failed for %s", project_ts)
 
 
-def _safe_mark_failed_for_job(job_id: str, reason: str) -> None:
+def _safe_mark_failed_for_job(
+    job_id: str,
+    reason: str,
+    *,
+    failed_phase: str | None = None,
+) -> None:
     """job_id から project_ts を引いて failed mark する safe wrapper。"""
     try:
         j = job.get_job(job_id)
     except Exception:
         return
     if j.project_ts:
-        _mark_project_analyze_failed(j.project_ts, reason)
+        _mark_project_analyze_failed(
+            j.project_ts, reason, failed_phase=failed_phase,
+        )
 
 
 def _run_job(job_id: str) -> None:
+    # tracker は _run_job_impl 内で生成されるが、except 経路から
+    # current_phase を引きたいので holder dict 経由で取り出す。
+    tracker_holder: dict = {}
     try:
         with _CONCURRENT:
-            _run_job_impl(job_id)
+            _run_job_impl(job_id, tracker_holder=tracker_holder)
     except Exception as e:
         logger.exception("analyze job %s failed in runner", job_id)
+        failed_phase: str | None = None
+        tracker = tracker_holder.get("tracker")
+        if tracker is not None:
+            failed_phase = tracker.fail_current_phase(e)
         try:
             job.transition_status(job_id, "failed", error=str(e))
             progress.publish(job_id, "failed",
-                              {"error": str(e), "phase": "runner"})
+                              {"error": str(e),
+                               "phase": failed_phase or "runner"})
         except Exception:
             logger.exception("post-error update failed for %s", job_id)
-        _safe_mark_failed_for_job(job_id, f"runner error: {e}")
+        _safe_mark_failed_for_job(
+            job_id, f"runner error: {e}", failed_phase=failed_phase,
+        )
 
 
-def _run_job_impl(job_id: str) -> None:
+def _run_job_impl(
+    job_id: str,
+    *,
+    tracker_holder: dict | None = None,
+) -> None:
     j = job.get_job(job_id)
     video_path = job.reference_video_path(j.video_sha256)
     if video_path is None:
@@ -322,6 +388,9 @@ def _run_job_impl(job_id: str) -> None:
                       {"job_id": job_id, "video_sha256": j.video_sha256})
 
     tracker = _PhaseTracker(job_id)
+    # 上位 _run_job が except 経路で current_phase を引けるよう保存する。
+    if tracker_holder is not None:
+        tracker_holder["tracker"] = tracker
 
     def on_progress(event: str, data: dict) -> None:
         tracker.handle(event, data)

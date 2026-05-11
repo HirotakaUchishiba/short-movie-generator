@@ -127,50 +127,77 @@ def publish(ts: str, platform: str, **opts) -> dict:
         platform, video.name, title[:30], tags[:5],
     )
 
-    if platform == "youtube":
-        _confirm_publish_channel(skip=not confirm_channel)
-        preflight.check_publish_youtube()
-        result = _publish_youtube(ts, video, title, description, tags, **opts)
-    elif platform == "instagram":
-        if _is_api_mode("INSTAGRAM_PUBLISH_MODE"):
-            result = _publish_instagram_api(
-                ts, video, title, description, tags,
-            )
+    try:
+        if platform == "youtube":
+            _confirm_publish_channel(skip=not confirm_channel)
+            preflight.check_publish_youtube()
+            result = _publish_youtube(ts, video, title, description, tags, **opts)
+        elif platform == "instagram":
+            if _is_api_mode("INSTAGRAM_PUBLISH_MODE"):
+                result = _publish_instagram_api(
+                    ts, video, title, description, tags,
+                )
+            else:
+                preflight.check_publish_instagram()
+                result = _publish_semi_auto(
+                    "instagram", ts, video, title, description, tags,
+                )
         else:
-            preflight.check_publish_instagram()
+            if _is_api_mode("TIKTOK_PUBLISH_MODE"):
+                raise NotImplementedError(
+                    "TIKTOK_PUBLISH_MODE=api は未実装 (= scope 申請後に "
+                    "platform_clients/tiktok.py:upload_video を有効化)",
+                )
+            preflight.check_publish_tiktok()
             result = _publish_semi_auto(
-                "instagram", ts, video, title, description, tags,
+                "tiktok", ts, video, title, description, tags,
             )
-    else:
-        if _is_api_mode("TIKTOK_PUBLISH_MODE"):
-            raise NotImplementedError(
-                "TIKTOK_PUBLISH_MODE=api は未実装 (= scope 申請後に "
-                "platform_clients/tiktok.py:upload_video を有効化)",
-            )
-        preflight.check_publish_tiktok()
-        result = _publish_semi_auto(
-            "tiktok", ts, video, title, description, tags,
+
+        # 半自動経路で「app 起動も Finder reveal も失敗」かつ「クリップボードも失敗」
+        # = ユーザに何も渡せていない → failed フラグを立てて履歴に残し、例外で job failure
+        if result.get("manual"):
+            ms = result.get("manual_status") or {}
+            if not (ms.get("app_opened") or ms.get("finder_revealed")
+                    or ms.get("clipboard")):
+                reason = (
+                    f"アプリ起動 / Finder reveal / クリップボード のすべてが失敗 — "
+                    f"diagnostics: {ms.get('diagnostics')}"
+                )
+                result["failed"] = True
+                result["failure_reason"] = reason
+                _record_publish(ts_path, result)
+                raise RuntimeError(
+                    f"公開 {platform}: {reason}。手動で動画 ({video}) を開いてください",
+                )
+
+        _record_publish(ts_path, result)
+        return result
+    except Exception as e:
+        # 失敗を progress_store に記録して UI が原因を表示できるようにする
+        # (= API 認証失敗 / クレジット切れ / quota / network 等)。記録 → re-raise。
+        _record_publish_failure(ts_path, platform, e)
+        raise
+
+
+def _record_publish_failure(
+    ts_path: str, platform: str, error: Exception,
+) -> None:
+    """publish() 失敗時に progress_store.mark_stage_failed("publish", ...) を呼ぶ。
+
+    best-effort: 書き込みに失敗しても caller の re-raise は妨げない。
+    error_detail.failed_phase に platform 名を入れて、UI が「YouTube で失敗」
+    「Instagram で失敗」と区別表示できるようにする。
+    """
+    try:
+        from errors import build_error_detail
+
+        detail = build_error_detail(error, failed_phase=platform)
+        progress_store.mark_stage_failed(ts_path, "publish", detail)
+    except Exception as ee:
+        logger.warning(
+            "[publish] mark_stage_failed failed for %s/%s: %s",
+            os.path.basename(ts_path), platform, ee,
         )
-
-    # 半自動経路で「app 起動も Finder reveal も失敗」かつ「クリップボードも失敗」
-    # = ユーザに何も渡せていない → failed フラグを立てて履歴に残し、例外で job failure
-    if result.get("manual"):
-        ms = result.get("manual_status") or {}
-        if not (ms.get("app_opened") or ms.get("finder_revealed")
-                or ms.get("clipboard")):
-            reason = (
-                f"アプリ起動 / Finder reveal / クリップボード のすべてが失敗 — "
-                f"diagnostics: {ms.get('diagnostics')}"
-            )
-            result["failed"] = True
-            result["failure_reason"] = reason
-            _record_publish(ts_path, result)
-            raise RuntimeError(
-                f"公開 {platform}: {reason}。手動で動画 ({video}) を開いてください",
-            )
-
-    _record_publish(ts_path, result)
-    return result
 
 
 def _is_api_mode(env_key: str) -> bool:

@@ -589,9 +589,29 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
     except Exception as e:
         _record_stage_run(ts_path, nxt, started_at,
                           status="failed", error=str(e))
+        _record_stage_failure(ts_path, nxt, e)
         raise
     _record_stage_run(ts_path, nxt, started_at, status="completed")
     return nxt
+
+
+def _record_stage_failure(ts_path: str, stage: str, error: Exception) -> None:
+    """Stage 1-6 失敗時に ``progress_store.mark_stage_failed`` を呼ぶ。
+
+    UI が ``tmp-progress.json.stages.<stage>.error_detail`` を読んで原因を
+    表示できるようにする。本関数は **best-effort** — 書き込み失敗で例外が
+    出ても caller の ``raise`` は止めない。
+    """
+    try:
+        from errors import build_error_detail
+
+        progress_store.mark_stage_failed(
+            ts_path, stage, build_error_detail(error),
+        )
+    except Exception as ee:
+        logger.warning(
+            "[gen-rec] mark_stage_failed for %s failed: %s", stage, ee,
+        )
 
 
 def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
