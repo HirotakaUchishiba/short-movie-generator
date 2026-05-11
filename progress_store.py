@@ -103,15 +103,60 @@ def mark_analyze_completed(ts_path: str) -> None:
 def mark_analyze_failed(ts_path: str, error: str) -> None:
     """Stage 0 (analyze) を failed 状態にする。UI 側で retry / 削除を
     選択させるため approved_at は None のまま。runner の except 経路から呼ぶ。
+
+    内部的には :func:`mark_stage_failed` の analyze 専用ラッパー。
+    raw error 文字列を受け、構造化 ``error_detail`` envelope に変換して保存する。
+    legacy ``error`` field (= :500 截断) も後方互換のため残す。
     """
+    from errors import build_error_detail
+
+    mark_stage_failed(
+        ts_path,
+        "analyze",
+        build_error_detail(error),
+        set_generated_at=True,
+    )
+
+
+def mark_stage_failed(
+    ts_path: str,
+    stage: str,
+    error_detail: dict,
+    *,
+    set_generated_at: bool = False,
+) -> None:
+    """任意 stage を failed 状態にする (= UI が原因を表示するための SSOT)。
+
+    ``tmp-progress.json`` の ``stages.<stage>`` block に以下を書く:
+
+    - ``status = "failed"``
+    - ``error_detail`` (= 構造化 envelope。:func:`errors.build_error_detail` で生成)
+    - ``error`` (= 後方互換のため raw message を :500 截断したもの)
+
+    Args:
+        ts_path: project の temp ディレクトリ絶対パス
+        stage: STAGES のいずれか
+        error_detail: ``errors.build_error_detail()`` で生成した dict
+        set_generated_at: True なら ``generated_at`` を現在時刻にセット
+            (= analyze の既存挙動。Stage 1-6 では既定 False)
+
+    Note:
+        本関数は **best-effort**。書き込みに失敗しても caller の例外伝播は
+        妨げない (= staged_pipeline の except 経路は raise を維持する)。
+    """
+    if stage not in STAGES:
+        raise ValueError(f"unknown stage: {stage}")
     progress = load(ts_path)
-    progress["stages"]["analyze"] = {
-        "generated_at": _now(),
-        "approved_at": None,
-        "regen_count": 0,
-        "status": "failed",
-        "error": (error or "")[:500],
-    }
+    block = progress["stages"].get(stage) or {}
+    block["status"] = "failed"
+    block["error_detail"] = error_detail
+    block["error"] = (error_detail.get("message") or "")[:500]
+    if set_generated_at:
+        block["generated_at"] = _now()
+    block.setdefault("generated_at", None)
+    block.setdefault("approved_at", None)
+    block.setdefault("regen_count", 0)
+    progress["stages"][stage] = block
     save(ts_path, progress)
 
 
