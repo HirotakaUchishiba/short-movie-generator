@@ -73,16 +73,20 @@ describe("AnalyzeStage0Page", () => {
     expect(view.textContent).toMatch(/projectTs=20260510_120000/);
   });
 
-  it("analyze_status='failed' なら FailedActions (retry/delete/back) を表示", async () => {
+  it("analyze_status='failed' なら StageFailureAlert (retry/delete/back) を表示", async () => {
     mockProject.mockResolvedValue(makeDetail({ analyze_status: "failed" }));
     renderAt("/project/20260510_120000/analyze");
 
     await waitFor(() => {
-      expect(screen.getByText(/分析が失敗しました/)).toBeInTheDocument();
+      expect(screen.getByText(/分析 で失敗しました/)).toBeInTheDocument();
     });
-    expect(screen.getByText(/🔁 リトライ/)).toBeInTheDocument();
-    expect(screen.getByText(/🗑 削除/)).toBeInTheDocument();
-    expect(screen.getByText(/後で \(TOP に戻る\)/)).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /リトライ/ }),
+    ).toBeInTheDocument();
+    expect(screen.getByRole("button", { name: /削除/ })).toBeInTheDocument();
+    expect(
+      screen.getByRole("button", { name: /後で \(TOP に戻る\)/ }),
+    ).toBeInTheDocument();
     // failed 時は AnalyzeJobView を描画しない
     expect(screen.queryByTestId("analyze-job-view")).toBeNull();
   });

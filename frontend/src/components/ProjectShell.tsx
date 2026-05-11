@@ -9,12 +9,16 @@ import {
 import { api } from "../api";
 import type {
   ProjectDetail,
+  Progress,
   Screenplay,
   StageName,
   ServerConfig,
   JobStatus,
+  StageErrorDetail,
+  StageStatus,
 } from "../types";
 import StageProgressBar from "./StageProgressBar";
+import { StageFailureAlert } from "./common/StageFailureAlert";
 
 // Stage 1+ child component に渡る context は **screenplay と screenplay_name が
 // non-null 確定** の状態。Stage 0 中 (= analyze pending) の project は
@@ -39,6 +43,58 @@ interface Ctx {
     force?: boolean;
   }) => Promise<void>;
   jobStatus: JobStatus | null;
+}
+
+// Stage 順 (= analyze は ProjectShell に来ないので除外)。
+// failure 検出はこの順で走査し、最初に見つかった failed stage を返す。
+const STAGE_SCAN_ORDER: StageName[] = [
+  "script",
+  "tts",
+  "bg",
+  "kling",
+  "scene",
+  "overlay",
+  "final_import",
+  "publish",
+];
+
+const STAGE_LABELS: Partial<Record<StageName, string>> = {
+  script: "台本",
+  tts: "TTS",
+  bg: "背景生成",
+  kling: "Kling 動画",
+  scene: "音声合成",
+  overlay: "字幕オーバーレイ",
+  final_import: "取込",
+  publish: "公開",
+};
+
+const STAGE_RETRY_HINTS: Partial<Record<StageName, string>> = {
+  tts: "retry は ElevenLabs API 再呼び出しのため追加課金 (= screenplay-wide で 1 回)。",
+  bg: "retry は Imagen 再生成 — 失敗した scene のみ再課金 (= 通常 $0.04/scene)。",
+  kling:
+    "retry は fal.ai Kling 再生成 — 失敗した scene のみ再課金 (= $0.45/scene)。",
+  scene:
+    "retry は Sync.so lipsync 再生成 — 失敗 scene のみ再課金 (= $0.07/scene)。",
+  overlay: "retry は ffmpeg / Remotion 再描画のみ — AI 課金は発生しない。",
+  final_import: "retry は file copy のみ — 課金なし。",
+  publish: "retry は API 再呼び出しのみ — 動画 upload 自体に追加課金は無し。",
+};
+
+// progress.stages から status==="failed" + error_detail を持つ最初の stage を
+// 抽出する。Stage 順で走査するので「上流の失敗が下流の失敗を覆い隠す」
+// 並び順が自然に確保される。
+function findFirstFailedStage(
+  progress: Progress | undefined,
+): { stage: StageName; errorDetail: StageErrorDetail } | null {
+  if (!progress) return null;
+  for (const stage of STAGE_SCAN_ORDER) {
+    const block: StageStatus | undefined = progress.stages?.[stage];
+    if (block?.status === "failed" && block.error_detail) {
+      return { stage, errorDetail: block.error_detail };
+    }
+  }
+  return null;
 }
 
 export default function ProjectShell() {
@@ -231,6 +287,20 @@ export default function ProjectShell() {
           </div>
         </div>
       )}
+
+      {(() => {
+        const failed = findFirstFailedStage(detail.progress);
+        if (!failed) return null;
+        return (
+          <div className="mx-6 my-3">
+            <StageFailureAlert
+              stageLabel={STAGE_LABELS[failed.stage] ?? failed.stage}
+              errorDetail={failed.errorDetail}
+              retryHint={STAGE_RETRY_HINTS[failed.stage]}
+            />
+          </div>
+        );
+      })()}
 
       <main className="flex-1 p-6 overflow-x-hidden">
         <Outlet context={ctx} />
