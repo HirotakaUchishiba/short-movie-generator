@@ -51,13 +51,9 @@ def main() -> int:
                         help="フレーム抽出レート [既定 2.0 = 0.5秒刻み]")
     parser.add_argument("--keep-tmp", action="store_true",
                         help="一時フレーム・音声を削除しない (デバッグ用)")
-    parser.add_argument("--instructions", help="Claudeに渡す追加指示")
     args = parser.parse_args()
 
-    options = AnalyzeOptions(
-        fps=args.fps,
-        instructions=args.instructions,
-    )
+    options = AnalyzeOptions(fps=args.fps)
 
     try:
         run(

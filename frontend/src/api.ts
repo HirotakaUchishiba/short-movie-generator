@@ -310,14 +310,13 @@ export const api = {
   // ─── 主導フロー: 参考動画 → project + analyze (= Phase B) ────
   createProjectFromReferenceVideo: (
     file: File,
-    options: { instructions?: string; fps?: number } = {},
+    options: { fps?: number } = {},
     onProgress?: (pct: number) => void,
   ): Promise<{ ts: string; analyze_job_id: string }> => {
     return new Promise((resolve, reject) => {
       const xhr = new XMLHttpRequest();
       const fd = new FormData();
       fd.append("reference_video", file);
-      if (options.instructions) fd.append("instructions", options.instructions);
       if (options.fps != null) fd.append("fps", String(options.fps));
       xhr.upload.onprogress = (e) => {
         if (e.lengthComputable && onProgress) {

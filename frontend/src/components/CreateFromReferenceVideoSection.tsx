@@ -12,15 +12,17 @@ interface Props {
 /**
  * TOP page の主動作 CTA。
  *
- * 参考動画 (multipart) と任意 instructions / fps を受け取り、
- * `POST /api/projects/from-reference-video` を呼ぶ。新規 project が
- * 1 トランザクションで作成され、Stage 0 (analyze) が即起動する。
- * 成功時の `onSuccess(ts, analyzeJobId)` を呼出側が拾って Stage 0 page
- * (= /project/<TS>/analyze) に遷移する想定。
+ * 参考動画 (multipart) と任意 fps を受け取り、`POST /api/projects/from-reference-video`
+ * を呼ぶ。新規 project が 1 トランザクションで作成され、Stage 0 (analyze) が
+ * 即起動する。成功時の `onSuccess(ts, analyzeJobId)` を呼出側が拾って Stage 0
+ * page (= /project/<TS>/analyze) に遷移する想定。
+ *
+ * 旧「追加指示」textarea は廃止 (= SYSTEM_PROMPT がプラットフォーム UI 無視を
+ * デフォルトで指示するため不要)。auto_loop の Phase 3 戦略注入は引き続き
+ * バックエンド内部で `AnalyzeOptions.instructions` に書き込む別経路。
  */
 export default function CreateFromReferenceVideoSection({ onSuccess }: Props) {
   const [file, setFile] = useState<File | null>(null);
-  const [instructions, setInstructions] = useState("");
   const [fps, setFps] = useState(2.0);
   const [busy, setBusy] = useState(false);
   const [uploadPct, setUploadPct] = useState(0);
@@ -35,10 +37,8 @@ export default function CreateFromReferenceVideoSection({ onSuccess }: Props) {
     setErr(null);
     setUploadPct(0);
     try {
-      const r = await api.createProjectFromReferenceVideo(
-        file,
-        { instructions: instructions || undefined, fps },
-        (p) => setUploadPct(p),
+      const r = await api.createProjectFromReferenceVideo(file, { fps }, (p) =>
+        setUploadPct(p),
       );
       onSuccess(r.ts, r.analyze_job_id);
     } catch (e) {
@@ -83,14 +83,6 @@ export default function CreateFromReferenceVideoSection({ onSuccess }: Props) {
             />
           </div>
         )}
-        <textarea
-          rows={2}
-          placeholder="追加指示 (任意): 例: TikTok UI は無視"
-          value={instructions}
-          onChange={(e) => setInstructions(e.target.value)}
-          className="input w-full"
-          disabled={busy}
-        />
         <details className="text-xs text-slate-400">
           <summary className="cursor-pointer">高度な設定</summary>
           <label className="mt-2 flex items-center gap-2">

@@ -287,8 +287,10 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 ```
 python3 scripts/analyze_video.py path/to/reference.mov
 # → screenplays/auto_reference.json が生成される
-python3 scripts/analyze_video.py path/to/reference.mov --instructions "TikTok UIは無視"
+python3 scripts/analyze_video.py path/to/reference.mov --fps 1.5  # フレーム抽出レート変更
 ```
+
+プラットフォーム UI 要素 (TikTok / Instagram / YouTube Shorts のハンドル名・いいね・コメント・ウォーターマーク) は **SYSTEM_PROMPT が常に無視するよう指示済み** (= `video_analyzer.SYSTEM_PROMPT`)。手動の追加指示欄 (CLI `--instructions` / UI textarea) は廃止。`AnalyzeOptions.instructions` フィールドは残るが、これは `scripts/auto_loop.py` の Phase 3 戦略注入 (= bandit が選んだ "結論先出し" 等の directive を analyze prompt に流す) 用で、UI / CLI からは触れない。
 
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）

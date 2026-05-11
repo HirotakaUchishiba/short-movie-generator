@@ -76,21 +76,18 @@ describe("CreateFromReferenceVideoSection", () => {
     });
     const args = mockCreate.mock.calls[0];
     expect(args[0]).toBe(file);
-    expect(args[1]).toEqual({ instructions: undefined, fps: 2.0 });
+    expect(args[1]).toEqual({ fps: 2.0 });
 
     await waitFor(() => {
       expect(onSuccess).toHaveBeenCalledWith("20260510_120000", "analyze_xyz");
     });
   });
 
-  it("instructions と fps が options に乗る", async () => {
+  it("fps が options に乗る", async () => {
     mockCreate.mockResolvedValue({ ts: "x", analyze_job_id: "y" });
     render(<CreateFromReferenceVideoSection onSuccess={vi.fn()} />);
 
     uploadFile();
-    fireEvent.change(screen.getByPlaceholderText(/追加指示/), {
-      target: { value: "TikTok UI は無視" },
-    });
 
     fireEvent.click(screen.getByText(/高度な設定/));
     const fpsInput = screen.getByLabelText(/フレーム抽出 fps/);
@@ -101,7 +98,7 @@ describe("CreateFromReferenceVideoSection", () => {
       expect(mockCreate).toHaveBeenCalled();
     });
     const args = mockCreate.mock.calls[0];
-    expect(args[1]).toEqual({ instructions: "TikTok UI は無視", fps: 1.5 });
+    expect(args[1]).toEqual({ fps: 1.5 });
   });
 
   it("ApiError は body.message でメッセージを表示する", async () => {
