@@ -8,6 +8,7 @@ import type {
   StageName,
 } from "../types";
 import CreateFromReferenceVideoSection from "./CreateFromReferenceVideoSection";
+import { DeleteProjectButton } from "./common/DeleteProjectButton";
 
 const STAGE_LABELS: Record<StageName, string> = {
   script: "台本",
@@ -60,7 +61,82 @@ function formatCreatedAt(iso: string | undefined): string {
   return `${m}/${day} ${hh}:${mm}`;
 }
 
-function ProjectCard({ p }: { p: ProjectListItem }) {
+// 「分析失敗」状態の project を集めて bulk delete する header button。
+// 0 件なら何も render しない。bulk-delete API の partial-success に対応し、
+// 失敗 ts がある場合は inline error として表示する。
+function BulkDeleteFailedButton({
+  projects,
+  onDeleted,
+}: {
+  projects: ProjectListItem[];
+  onDeleted: () => void;
+}) {
+  const failed = projects.filter((p) => p.analyze_status === "failed");
+  const [busy, setBusy] = useState(false);
+  const [partialError, setPartialError] = useState<string | null>(null);
+
+  if (failed.length === 0) return null;
+
+  const onClick = async () => {
+    if (
+      !window.confirm(
+        `分析失敗プロジェクト ${failed.length} 件を削除しますか?\n\n` +
+          "各プロジェクトの temp/<TS>/ ディレクトリを削除します。\n" +
+          "参考動画 / 分析履歴 / 投稿履歴は保持されます。",
+      )
+    ) {
+      return;
+    }
+    setBusy(true);
+    setPartialError(null);
+    try {
+      const tsList = failed.map((p) => p.timestamp);
+      const r = await api.bulkDeleteProjects(tsList);
+      if (r.failed.length > 0) {
+        setPartialError(
+          `${r.failed.length} 件失敗: ` +
+            r.failed
+              .map((f) => `${f.ts} (${f.error_code})`)
+              .slice(0, 5)
+              .join(", ") +
+            (r.failed.length > 5 ? " ..." : ""),
+        );
+      }
+      onDeleted();
+    } catch (e) {
+      setPartialError(String(e));
+    } finally {
+      setBusy(false);
+    }
+  };
+
+  return (
+    <div className="flex items-baseline gap-2">
+      <button
+        type="button"
+        onClick={onClick}
+        disabled={busy}
+        className="rounded bg-rose-600/90 px-3 py-1.5 text-xs font-medium text-white hover:bg-rose-500 disabled:opacity-50"
+        data-testid="bulk-delete-failed"
+      >
+        {busy ? "削除中..." : `⚠ 分析失敗 ${failed.length} 件をまとめて削除`}
+      </button>
+      {partialError && (
+        <span className="text-xs text-rose-300" data-testid="bulk-delete-error">
+          {partialError}
+        </span>
+      )}
+    </div>
+  );
+}
+
+function ProjectCard({
+  p,
+  onDeleted,
+}: {
+  p: ProjectListItem;
+  onDeleted: (ts: string) => void;
+}) {
   const stageLabel = p.current_stage
     ? (STAGE_LABELS[p.current_stage] ?? p.current_stage)
     : "完了";
@@ -69,6 +145,7 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
     p.analyze_status === "running" || p.analyze_status === "pending";
   const analyzeFailed = p.analyze_status === "failed";
   const failureTooltip = findFailedStageTooltip(p.progress);
+  const isFailed = analyzeFailed || failureTooltip !== null;
   // Stage 0 中 / 失敗の project は専用 page (= /project/<TS>/analyze) へ。
   // それ以外 (= Stage 1+ または legacy 経路) は通常の ProjectShell へ。
   const linkTo =
@@ -149,6 +226,22 @@ function ProjectCard({ p }: { p: ProjectListItem }) {
             </span>
           </div>
         )}
+        {/* 削除ボタン: 失敗プロジェクトは常時表示 (= 目立つ rose 色)、
+            それ以外は hover で出る icon mode。Link 内なので button 側で
+            preventDefault + stopPropagation を呼ぶ。 */}
+        <div
+          className={
+            "absolute right-2 top-2 transition-opacity " +
+            (isFailed ? "opacity-100" : "opacity-0 group-hover:opacity-100")
+          }
+        >
+          <DeleteProjectButton
+            ts={p.timestamp}
+            titleHint={p.display_title}
+            onDeleted={onDeleted}
+            mode={isFailed ? "label" : "icon"}
+          />
+        </div>
       </div>
       <div className="flex flex-1 flex-col gap-2 p-3">
         <div
@@ -276,11 +369,19 @@ export default function ProjectList() {
       </details>
 
       <section>
-        <div className="mb-3 flex items-baseline justify-between">
+        <div className="mb-3 flex items-baseline justify-between gap-3">
           <h2 className="text-lg font-semibold">既存プロジェクト</h2>
-          {!loading && projects.length > 0 && (
-            <span className="text-xs text-slate-500">{projects.length}件</span>
-          )}
+          <div className="flex items-baseline gap-3">
+            <BulkDeleteFailedButton
+              projects={projects}
+              onDeleted={() => void reload()}
+            />
+            {!loading && projects.length > 0 && (
+              <span className="text-xs text-slate-500">
+                {projects.length}件
+              </span>
+            )}
+          </div>
         </div>
         {loading && <p className="text-slate-400">読み込み中...</p>}
         {!loading && projects.length === 0 && (
@@ -289,7 +390,11 @@ export default function ProjectList() {
         {!loading && projects.length > 0 && (
           <div className="grid grid-cols-2 gap-4 sm:grid-cols-3 lg:grid-cols-4 xl:grid-cols-5">
             {projects.map((p) => (
-              <ProjectCard key={p.timestamp} p={p} />
+              <ProjectCard
+                key={p.timestamp}
+                p={p}
+                onDeleted={() => void reload()}
+              />
             ))}
           </div>
         )}
