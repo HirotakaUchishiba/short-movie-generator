@@ -395,6 +395,23 @@ React 実装は `frontend/remotion/parts/<category>/`。drift test で id 集合
 | **global** | `title_cards`     | `simple_intro` / `subscribe_outro` / `section_break`               | `global_parts.intro_card.id` / `global_parts.outro_card.id`      |
 | **global** | bgm (= file)      | `assets/bgm/*`                                                     | `global_parts.bgm` (= {path, ducking_curve?})                    |
 
+### Layer 1 (Clip Library) の cache key — `visual_intents`
+
+scene の **意図** を表す離散カテゴリ。analyze pipeline が Claude 推論で 1 シーンに
+1 つ assign し、`scenes[].annotation.visual_intent_id` に書き込む。Clip Library
+の cache lookup key (= identity + intent) として使われ、上の表の Layer 2
+(scene 見た目部品) とは別系統。validator は `config/part_registry/visual_intents.yaml`
+の id 集合と突合し、未定義 id は fast-fail する (= drift 監査の対象)。
+
+| 階層      | category         | 利用可能 id                                                                                                  | screenplay の指定箇所                  |
+| --------- | ---------------- | ------------------------------------------------------------------------------------------------------------ | -------------------------------------- |
+| **scene** | `visual_intents` | `talking_head_calm` / `talking_head_animated` / `reaction_surprise` / `reaction_relief` / `gesture_pointing` | `scenes[].annotation.visual_intent_id` |
+
+低 confidence で Claude が intent を選べなかった scene は `visual_intent_id=null`
+で cold path (= 通常の Imagen + Kling 生成) に流れ、catalog 拡張のヒントとして
+SSE event の `novel_intent_candidates` に出力される (= 詳細は
+`docs/abstract-screenplay-design.md` の annotation 節)。
+
 ### platform 別 Composition (Phase 5-A)
 
 `compose_video_remotion(..., template="youtube"|"instagram"|"tiktok"|"base")` で
