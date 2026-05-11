@@ -231,7 +231,6 @@ export interface JobStatus {
 
 export interface AnalyzeOptions {
   fps?: number;
-  instructions?: string | null;
 }
 
 export interface ReferenceVideo {

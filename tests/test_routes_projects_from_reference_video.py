@@ -98,15 +98,14 @@ def test_create_persists_options_into_analyze_job(
 ) -> None:
     r = client.post(
         "/api/projects/from-reference-video",
-        data=_multipart("ref.mp4", b"\x00bytes",
-                        instructions="TikTok UI 無視", fps="1.5"),
+        data=_multipart("ref.mp4", b"\x00bytes", fps="1.5"),
         content_type="multipart/form-data",
     )
     body = r.get_json()
 
     from analyze import job as analyze_job
     j = analyze_job.get_job(body["analyze_job_id"])
-    assert j.options == {"instructions": "TikTok UI 無視", "fps": 1.5}
+    assert j.options == {"fps": 1.5}
     assert j.project_ts == body["ts"]
 
 

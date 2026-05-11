@@ -98,9 +98,7 @@ def test_retry_creates_new_job_when_failed(
 def test_retry_inherits_video_sha_and_options(
     client, isolated_env, runner_started_jobs,
 ) -> None:
-    body = _create_project(
-        client, instructions="TikTok UI 無視", fps="1.5",
-    )
+    body = _create_project(client, fps="1.5")
     ts = body["ts"]
     import progress_store
     progress_store.mark_analyze_failed(

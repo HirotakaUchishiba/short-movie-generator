@@ -177,8 +177,12 @@ def api_create_project_from_reference_video():
 
     multipart/form-data:
       - reference_video: file (.mov / .mp4 / .webm / .mkv)
-      - instructions:    optional string (= analyze.options.instructions)
       - fps:             optional float (default analyze pipeline 既定)
+
+    注: 旧「追加指示 (instructions)」multipart field は廃止 (= SYSTEM_PROMPT が
+    プラットフォーム UI 無視をデフォルトで指示するため不要)。auto_loop の
+    Phase 3 戦略注入は引き続き ``AnalyzeOptions.instructions`` を別経路で
+    使用するが、UI / multipart からは受け取らない。
 
     Response (201): {"ts": "<TS>", "analyze_job_id": "analyze_..."}
 
@@ -209,9 +213,6 @@ def api_create_project_from_reference_video():
         }), 400
 
     options: dict = {}
-    instr = (request.form.get("instructions") or "").strip()
-    if instr:
-        options["instructions"] = instr
     fps_raw = request.form.get("fps")
     if fps_raw:
         try:
