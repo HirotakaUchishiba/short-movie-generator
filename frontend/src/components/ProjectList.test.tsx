@@ -137,12 +137,10 @@ describe("ProjectList Stage 0 badges + CTA reorg", () => {
 
 describe("ProjectList bulk-delete failed button", () => {
   const mockBulkDelete = api.bulkDeleteProjects as ReturnType<typeof vi.fn>;
-  let confirmSpy: ReturnType<typeof vi.spyOn>;
 
   beforeEach(() => {
     mockProjects.mockReset();
     mockBulkDelete.mockReset();
-    confirmSpy = vi.spyOn(window, "confirm");
   });
   afterEach(() => {
     vi.restoreAllMocks();
@@ -178,7 +176,7 @@ describe("ProjectList bulk-delete failed button", () => {
       ],
       screenplays: [],
     });
-    confirmSpy.mockReturnValue(true);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockBulkDelete.mockResolvedValue({ deleted: [], failed: [] });
 
     renderList();
@@ -201,7 +199,7 @@ describe("ProjectList bulk-delete failed button", () => {
       projects: [makeProject({ analyze_status: "failed" })],
       screenplays: [],
     });
-    confirmSpy.mockReturnValue(false);
+    vi.spyOn(window, "confirm").mockReturnValue(false);
     renderList();
     await waitFor(() => {
       expect(screen.getByTestId("bulk-delete-failed")).toBeInTheDocument();
@@ -224,7 +222,7 @@ describe("ProjectList bulk-delete failed button", () => {
       ],
       screenplays: [],
     });
-    confirmSpy.mockReturnValue(true);
+    vi.spyOn(window, "confirm").mockReturnValue(true);
     mockBulkDelete.mockResolvedValue({
       deleted: ["20260511_220521"],
       failed: [
