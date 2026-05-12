@@ -131,11 +131,29 @@ def test_build_bg_prompt_no_location_loaded(isolated_locations) -> None:
 # ───────────────────────── validator ─────────────────────────
 
 
+def _scene_nested(location_ref: str | None = None, **kw) -> dict:
+    """validator 向けの nested identity 入り scene (= Phase 3 flat 撤去後の形)。"""
+    scene = {
+        "duration": 5.0,
+        "background_prompt": "デスクに向かう女性",
+        "lines": [],
+    }
+    if location_ref is not None:
+        scene["identity"] = {
+            "character_refs": [],
+            "location_ref": location_ref,
+            "start_emotion": "中立",
+            "camera_distance": "medium-close",
+        }
+    scene.update(kw)
+    return scene
+
+
 def test_validator_accepts_known_location_ref(isolated_locations) -> None:
     isolated_locations.save_location(isolated_locations.Location(
         id="home_office", decor="X", lighting="Y",
     ))
-    sp = _sp([_scene(location_ref="home_office")])
+    sp = _sp([_scene_nested(location_ref="home_office")])
     errors = validate_screenplay(sp, strict=False)
     assert errors == []
 
@@ -144,12 +162,12 @@ def test_validator_rejects_unknown_location_ref(isolated_locations) -> None:
     isolated_locations.save_location(isolated_locations.Location(
         id="home_office", decor="X",
     ))
-    sp = _sp([_scene(location_ref="missing_loc")])
+    sp = _sp([_scene_nested(location_ref="missing_loc")])
     errors = validate_screenplay(sp, strict=False)
     assert any("missing_loc" in e and "未定義" in e for e in errors)
 
 
 def test_validator_allows_no_location_ref(isolated_locations) -> None:
-    sp = _sp([_scene()])
+    sp = _sp([_scene_nested()])
     errors = validate_screenplay(sp, strict=False)
     assert errors == []
