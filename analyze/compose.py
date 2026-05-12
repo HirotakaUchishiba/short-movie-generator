@@ -253,19 +253,11 @@ def compose_screenplay(abstract: dict) -> dict:
             scene.pop("camera_distance", None)
 
         # ── Step 2: identity 派生 (= clip_library cache 鍵) ──
-        # 必須 4 フィールド (character_refs / location_ref / start_emotion /
-        # camera_distance) がすべて揃ったときのみ scene["identity"] を入れる。
-        # 1 つでも欠けると clip_library.scene_has_identity が False を返し、
-        # cold path (= AI 生成) が走る。**部分 identity は誤 hit を生むので
-        # 入れない** (= 不変条件 #2)。
-        identity = _derive_identity(scene, src)
-        if identity is not None:
-            scene["identity"] = identity
-        else:
-            # src に identity が入っていても derive で False ならば、
-            # 部分 identity を残すと誤 hit するので消す (= 旧実装の挙動を
-            # 維持: identity は dervie が成功した場合のみ存在)。
-            scene.pop("identity", None)
+        # 必須フィールド (location_ref / start_emotion / camera_distance) が
+        # 揃っていれば scene["identity"] を必ず入れる。character_refs は空でも
+        # 許容 (= 背景のみシーン)。必須欠落は ValueError で fail-fast し、
+        # 部分 identity を生成しない (= 不変条件 #2: 誤 hit 防止)。
+        scene["identity"] = _derive_identity(scene, src)
 
         scene["background_prompt"] = _compose_background(scene, location_ref)
         scene["animation_prompt"] = _compose_animation(src, scene_anim)
@@ -304,31 +296,34 @@ def compose_screenplay(abstract: dict) -> dict:
 
 def _derive_identity(
     composed_scene: dict, src_scene: dict
-) -> dict | None:
+) -> dict:
     """clip_library の hard match キー (= identity) を派生する。
 
-    必須フィールド (character_refs / location_ref / start_emotion /
-    camera_distance) がすべて揃った場合のみ identity dict を返し、1 つでも
-    欠ければ None を返す (= scene に identity を入れない、cold path 経路)。
+    必須フィールド (location_ref / start_emotion) が欠けていれば ValueError を
+    投げる (= 部分 identity は作らず fail-fast)。character_refs は空でも許容し
+    (= 背景のみシーン)、camera_distance は scene > location 既定 >
+    "medium-close" の優先順位で fallback する。
 
     各フィールドの調達元:
       - character_refs: composed scene が解決した list (= 順不同に sorted で
-        正規化、cache 鍵の同等性を確保)
-      - location_ref: src 由来の string、空文字列は不在扱い
+        正規化、cache 鍵の同等性を確保)。空 list は背景のみシーン扱い
+      - location_ref: src 由来の string、空文字列は不在扱い (= ValueError)
       - start_emotion: lines[0].emotion (= シーン冒頭の表情、bg.png 生成時点)
       - camera_distance: src.camera_distance > location 既定 > "medium-close"
 
-    部分 identity を作らない理由: cache の hard match 鍵に半端な値を入れると
-    別シーンと誤 hit して見た目崩壊する (= 不変条件 #2)。
+    必須欠落で ValueError を投げる理由: cache の hard match 鍵に半端な値を
+    入れると別シーンと誤 hit して見た目崩壊する (= 不変条件 #2)。analyze
+    pipeline が identity を SSOT として常に produce する責務を負う。
     """
 
     char_refs = composed_scene.get("character_refs") or []
-    if not char_refs:
-        return None
 
     location_ref = composed_scene.get("location_ref") or ""
     if not location_ref:
-        return None
+        raise ValueError(
+            "_derive_identity: location_ref が空です。analyze pipeline は "
+            "全シーンに location_ref を必ず設定する必要があります。",
+        )
 
     lines = src_scene.get("lines") or []
     start_emotion: str | None = None
@@ -338,7 +333,11 @@ def _derive_identity(
             start_emotion = emo
             break
     if not start_emotion:
-        return None
+        raise ValueError(
+            "_derive_identity: start_emotion が決定できません "
+            "(lines[*].emotion がすべて空)。analyze pipeline は各シーンの "
+            "lines に必ず emotion を 1 つ以上設定する必要があります。",
+        )
 
     camera_distance = composed_scene.get("camera_distance")
     if not camera_distance:
