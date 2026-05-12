@@ -308,31 +308,14 @@ def iter_active_entries(root: Path | None = None) -> Iterator[ClipEntry]:
 def _scene_to_identity(scene: dict) -> ClipIdentity:
     """screenplay scene dict から ClipIdentity を派生。
 
-    `identity` を入れ子で持つ新スキーマと、フラットに `character_refs` 等を持つ
-    旧スキーマの両方を許容する (= 互換ウインドウ)。
-
-    必須 field (= location_ref / start_emotion) が欠落していたら ValueError。
-    `_scene_has_identity` で pre-check されている前提だが、validator bypass や
-    competing process が dict を mutate した場合に KeyError で crash するのを
-    防ぐ。
+    analyze pipeline が nested `scene.identity` を SSOT として常に produce する
+    前提で、flat schema (= scene root の `character_refs` 等) は受け付けない。
+    nested identity 不在時は ValueError を raise する。
     """
 
     if "identity" in scene and isinstance(scene["identity"], dict):
         return ClipIdentity.from_dict(scene["identity"])
-
-    location_ref = scene.get("location_ref")
-    start_emotion = scene.get("start_emotion")
-    if not isinstance(location_ref, str) or not isinstance(start_emotion, str):
-        raise ValueError(
-            "scene missing required identity fields "
-            f"(location_ref={location_ref!r}, start_emotion={start_emotion!r})"
-        )
-    return ClipIdentity(
-        character_refs=tuple(scene.get("character_refs") or ()),
-        location_ref=location_ref,
-        start_emotion=start_emotion,
-        camera_distance=scene.get("camera_distance", "medium-close"),
-    )
+    raise ValueError("scene missing identity")
 
 
 def _scene_to_annotation_request(scene: dict) -> dict[str, Any]:
@@ -343,11 +326,7 @@ def _scene_to_annotation_request(scene: dict) -> dict[str, Any]:
             "duration_bucket": a.get("duration_bucket"),
             "motion_intensity": a.get("motion_intensity", "low"),
         }
-    return {
-        "visual_intent_id": scene.get("visual_intent_id"),
-        "duration_bucket": scene.get("duration_bucket"),
-        "motion_intensity": scene.get("motion_intensity", "low"),
-    }
+    return {}
 
 
 def _annotation_score(entry: ClipEntry, requested: dict[str, Any]) -> float:
@@ -626,8 +605,9 @@ def touch_entry(entry_id: str, root: Path | None = None) -> bool:
 def scene_has_identity(scene: dict) -> bool:
     """scene が identity 情報を持っているか (= public)。
 
-    新スキーマ (= scene.identity 入れ子) または旧 alias (= scene の flat field)
-    のどちらでも識別可能であれば True。route blueprint からも参照する。
+    analyze pipeline が nested `scene.identity` を SSOT として常に produce する
+    前提で、flat schema (= scene root の `character_refs` 等) は受け付けない。
+    route blueprint からも参照する。
     """
 
     if isinstance(scene.get("identity"), dict):
@@ -637,11 +617,6 @@ def scene_has_identity(scene: dict) -> bool:
             for k in ("character_refs", "location_ref", "start_emotion")
         ):
             return True
-    if all(
-        scene.get(k) is not None
-        for k in ("character_refs", "location_ref", "start_emotion")
-    ):
-        return True
     return False
 
 
