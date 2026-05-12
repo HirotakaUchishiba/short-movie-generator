@@ -68,11 +68,16 @@ def stub_imagen(monkeypatch):
 def _scene(refs=None, location_ref="home_office",
            background_prompt="subject in office",
            camera_distance="medium-close"):
-    return {
-        "characters": [{"name": r} for r in (refs or ["f1__office"])],
-        "character_refs": list(refs or ["f1__office"]),
+    refs_list = list(refs or ["f1__office"])
+    identity = {
+        "character_refs": refs_list,
         "location_ref": location_ref,
+        "start_emotion": "中立",
         "camera_distance": camera_distance,
+    }
+    return {
+        "characters": [{"name": r} for r in refs_list],
+        "identity": identity,
         "background_prompt": background_prompt,
         "lines": [{"text": "ok", "start": 0.0, "end": 1.0}],
     }

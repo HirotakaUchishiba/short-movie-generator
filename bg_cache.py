@@ -125,10 +125,11 @@ def compute_bg_cache_key(scene: dict, screenplay: dict | None = None) -> str:
     (retry 通過後の最終画像のみ store するため)。
     """
     from scene_gen import _build_background_prompt
+    identity = scene.get("identity") or {}
     parts = {
         "prompt": _build_background_prompt(scene, screenplay),
-        "ref_shas": _ref_image_shas(list(scene.get("character_refs") or [])),
-        "loc_sha": _location_sha(scene.get("location_ref")),
+        "ref_shas": _ref_image_shas(list(identity.get("character_refs") or [])),
+        "loc_sha": _location_sha(identity.get("location_ref")),
         "model": _imagen_model_id(),
     }
     payload = json.dumps(parts, sort_keys=True, ensure_ascii=False)

@@ -11,9 +11,11 @@ def _inputs(model_id="imagen-test", prompt="test prompt"):
 
 def test_bg_cache_meta_includes_composition_id():
     scene = {
-        "location_ref": "home_office",
-        "character_refs": ["f1__office"],
-        "camera_distance": "medium-close",
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["f1__office"],
+            "camera_distance": "medium-close",
+        },
     }
     meta = _build_bg_cache_meta(scene, scene_idx=0, inputs=_inputs())
 
@@ -25,8 +27,10 @@ def test_bg_cache_meta_includes_composition_id():
 
 def test_bg_cache_meta_composition_id_matches_helper():
     scene = {
-        "location_ref": "home_office",
-        "character_refs": ["f1__office"],
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["f1__office"],
+        },
     }
     meta = _build_bg_cache_meta(scene, scene_idx=0, inputs=_inputs())
     expected = composition_id.compute_composition_id(
@@ -36,19 +40,23 @@ def test_bg_cache_meta_composition_id_matches_helper():
 
 
 def test_bg_cache_meta_handles_missing_location():
-    scene = {"location_ref": None, "character_refs": ["f1"]}
+    scene = {"identity": {"location_ref": None, "character_refs": ["f1"]}}
     meta = _build_bg_cache_meta(scene, scene_idx=0, inputs=_inputs())
     assert len(meta["composition_id"]) == 16
 
 
 def test_bg_cache_meta_character_refs_order_independent():
     scene_a = {
-        "location_ref": "home_office",
-        "character_refs": ["f1", "m1"],
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["f1", "m1"],
+        },
     }
     scene_b = {
-        "location_ref": "home_office",
-        "character_refs": ["m1", "f1"],
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["m1", "f1"],
+        },
     }
     meta_a = _build_bg_cache_meta(scene_a, scene_idx=0, inputs=_inputs())
     meta_b = _build_bg_cache_meta(scene_b, scene_idx=0, inputs=_inputs())
@@ -58,9 +66,11 @@ def test_bg_cache_meta_character_refs_order_independent():
 def test_bg_cache_meta_existing_fields_preserved():
     """既存フィールドが v1 追加で潰れていないこと。"""
     scene = {
-        "location_ref": "home_office",
-        "character_refs": ["f1"],
-        "camera_distance": "wide",
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["f1"],
+            "camera_distance": "wide",
+        },
     }
     meta = _build_bg_cache_meta(
         scene, scene_idx=3,

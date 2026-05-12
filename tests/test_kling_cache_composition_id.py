@@ -18,9 +18,11 @@ def _kling_inputs(augmented="anim", duration=5, bg_sha="bg_abc",
 
 def test_kling_cache_meta_includes_composition_id():
     scene = {
-        "location_ref": "home_office",
-        "character_refs": ["f1__office"],
-        "camera_distance": "medium",
+        "identity": {
+            "location_ref": "home_office",
+            "character_refs": ["f1__office"],
+            "camera_distance": "medium",
+        },
     }
     meta = _build_kling_cache_meta(scene, _kling_inputs())
 
@@ -32,8 +34,10 @@ def test_kling_cache_meta_includes_composition_id():
 
 def test_kling_cache_meta_matches_helper():
     scene = {
-        "location_ref": "office_desk",
-        "character_refs": ["f2__office"],
+        "identity": {
+            "location_ref": "office_desk",
+            "character_refs": ["f2__office"],
+        },
     }
     meta = _build_kling_cache_meta(scene, _kling_inputs())
     expected = composition_id.compute_composition_id(
@@ -45,8 +49,10 @@ def test_kling_cache_meta_matches_helper():
 def test_kling_cache_meta_matches_bg_cache_for_same_scene():
     """同じ scene なら bg と kling の composition_id は一致する。"""
     scene = {
-        "location_ref": "cafe_window",
-        "character_refs": ["m1__casual"],
+        "identity": {
+            "location_ref": "cafe_window",
+            "character_refs": ["m1__casual"],
+        },
     }
     bg_meta = _build_bg_cache_meta(
         scene, scene_idx=0,
@@ -57,7 +63,12 @@ def test_kling_cache_meta_matches_bg_cache_for_same_scene():
 
 
 def test_kling_cache_meta_existing_fields_preserved():
-    scene = {"location_ref": "office_desk", "character_refs": ["f2"]}
+    scene = {
+        "identity": {
+            "location_ref": "office_desk",
+            "character_refs": ["f2"],
+        },
+    }
     meta = _build_kling_cache_meta(
         scene,
         _kling_inputs(augmented="subject leans forward",

@@ -46,11 +46,16 @@ def _seed_assets(isolated_assets, *, decor_a: str = "scandi") -> None:
 
 
 def _scene(refs=None, location_ref="home_office", camera_distance=None) -> dict:
-    return {
-        "characters": [{"name": r} for r in (refs or ["f1__office"])],
-        "character_refs": list(refs or ["f1__office"]),
+    refs_list = list(refs or ["f1__office"])
+    identity = {
+        "character_refs": refs_list,
         "location_ref": location_ref,
-        "camera_distance": camera_distance,
+        "start_emotion": "中立",
+        "camera_distance": camera_distance or "medium-close",
+    }
+    return {
+        "characters": [{"name": r} for r in refs_list],
+        "identity": identity,
         "background_prompt": "test bg",
         "lines": [],
     }

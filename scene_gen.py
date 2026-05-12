@@ -317,9 +317,10 @@ def _prepare_background(bg_path: str, output_path: str) -> None:
 
 
 def _resolve_character_refs(scene: dict) -> list[str]:
-    """scene.character_refs (SSOT) から参照画像を解決する。"""
-    if "character_refs" in scene:
-        names = list(scene.get("character_refs") or [])
+    """scene.identity.character_refs (SSOT) から参照画像を解決する。"""
+    identity = scene.get("identity") or {}
+    if "character_refs" in identity:
+        names = list(identity.get("character_refs") or [])
     else:
         names = list(config.DEFAULT_CHARACTER_REFS)
 
@@ -374,7 +375,8 @@ def _build_background_prompt(scene: dict, screenplay: dict | None = None,
 
     loc_parts: list[str] = []
     loc: dict = {}
-    loc_ref = scene.get("location_ref")
+    identity = scene.get("identity") or {}
+    loc_ref = identity.get("location_ref")
     if loc_ref:
         try:
             loc_obj = loc_mod.load_location(loc_ref)
@@ -505,11 +507,12 @@ def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
     ):
         try:
             cache_key = bg_cache.compute_bg_cache_key(scene, screenplay)
+            identity = scene.get("identity") or {}
             bg_cache.store(cache_key, path, {
                 "scene_idx": scene_idx,
                 "model": getattr(imagen_client, "MODEL", "unknown"),
-                "location_ref": scene.get("location_ref"),
-                "character_refs": list(scene.get("character_refs") or []),
+                "location_ref": identity.get("location_ref"),
+                "character_refs": list(identity.get("character_refs") or []),
             })
             scene["_bg_cache_key"] = cache_key
         except Exception as e:
@@ -805,8 +808,10 @@ def _scene_bg_inputs(scene_idx: int, scene: dict, screenplay: dict,
 
 def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
-    location_ref = scene.get("location_ref")
-    character_refs = list(scene.get("character_refs") or [])
+    identity = scene.get("identity") or {}
+    location_ref = identity.get("location_ref")
+    character_refs = list(identity.get("character_refs") or [])
+    camera_distance = identity.get("camera_distance")
     action_id = scene.get("action_id")
     composition_version = composition_id_module.resolve_version(
         action_id=action_id,
@@ -818,7 +823,7 @@ def _build_bg_cache_meta(scene: dict, scene_idx: int, inputs: dict) -> dict:
         "background_prompt_resolved": inputs["background_prompt_resolved"],
         "location_ref": location_ref,
         "character_refs": character_refs,
-        "camera_distance": scene.get("camera_distance"),
+        "camera_distance": camera_distance,
         "cache_version": getattr(config, "BG_CACHE_VERSION", "v1"),
         "action_id": action_id,
         "composition_id": composition_id_module.compute_composition_id(
@@ -1814,8 +1819,10 @@ def _scene_kling_inputs(
 
 def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
     """store() に渡す metadata を組み立てる。"""
-    location_ref = scene.get("location_ref")
-    character_refs = list(scene.get("character_refs") or [])
+    identity = scene.get("identity") or {}
+    location_ref = identity.get("location_ref")
+    character_refs = list(identity.get("character_refs") or [])
+    camera_distance = identity.get("camera_distance")
     action_id = scene.get("action_id")
     composition_version = composition_id_module.resolve_version(
         action_id=action_id,
@@ -1829,7 +1836,7 @@ def _build_kling_cache_meta(scene: dict, inputs: dict) -> dict:
         "cache_version": getattr(config, "KLING_CACHE_VERSION", "v1"),
         "frontload_ratio": float(config.ACTION_FRONTLOAD_RATIO),
         "original_audio_duration": float(inputs["final_duration"]),
-        "camera_distance": scene.get("camera_distance"),
+        "camera_distance": camera_distance,
         "location_ref": location_ref,
         "character_refs": character_refs,
         "action_id": action_id,
@@ -1909,9 +1916,10 @@ def _kling_for_scene(scene_idx: int, scene: dict, screenplay: dict, temp_dir: st
                 inputs = _scene_kling_inputs(
                     scene_idx, scene, screenplay, temp_dir)
                 if inputs:
+                    identity = scene.get("identity") or {}
                     candidates = kling_cache.lookup_all_candidates(
                         inputs["cache_key"], final_duration,
-                        scene.get("camera_distance"))
+                        identity.get("camera_distance"))
                     if candidates:
                         kling_cache.commit_to_project(
                             candidates[0]["key"], kling_raw_path)
@@ -1989,9 +1997,10 @@ def kling_scan_cache(screenplay: dict, temp_dir: str) -> dict:
         rec["cache_key"] = inputs["cache_key"]
         if cache_enabled and not scene.get("kling_force_fresh"):
             try:
+                identity = scene.get("identity") or {}
                 candidates = kling_cache.lookup_all_candidates(
                     inputs["cache_key"], inputs["final_duration"],
-                    scene.get("camera_distance"))
+                    identity.get("camera_distance"))
                 rec["candidates"] = [
                     {
                         "key": c["key"],

@@ -239,18 +239,17 @@ def compose_screenplay(abstract: dict) -> dict:
         # 旧 alias / scene_parts / action_id / その他 abstract 由来 key を
         # すべて維持する。下で派生フィールドを上書き。
         scene: dict[str, Any] = dict(src)
+        # flat schema (Phase 5 撤去): src 由来の flat alias を pop。
+        # downstream はすべて nested identity 経由で読む。
+        scene.pop("character_refs", None)
+        scene.pop("location_ref", None)
+        scene.pop("camera_distance", None)
         # 派生フィールド (= compose が常に生成する)
         scene["characters"] = [{"name": cid} for cid in scene_chars]
-        scene["character_refs"] = list(scene_chars)
-        scene["location_ref"] = location_ref
         scene["lipsync"] = True
         scene["lines"] = []   # 下で line 個別 voice merge 後に再構築
         if "duration" in src:
             scene["duration"] = float(src["duration"])
-        # camera_distance は src にあれば残す。無ければ key 自体を入れない
-        # (= 旧実装と互換)。dict(src) 起点なので有る場合は自動的に残る。
-        if not src.get("camera_distance"):
-            scene.pop("camera_distance", None)
 
         # ── Step 2: identity 派生 (= clip_library cache 鍵) ──
         # 必須 4 フィールド (character_refs / location_ref / start_emotion /
@@ -258,6 +257,12 @@ def compose_screenplay(abstract: dict) -> dict:
         # 1 つでも欠けると clip_library.scene_has_identity が False を返し、
         # cold path (= AI 生成) が走る。**部分 identity は誤 hit を生むので
         # 入れない** (= 不変条件 #2)。
+        # _derive_identity / _compose_background は scene の flat field を
+        # 参照する設計のため、derive 前後で temporary に flat を注入する。
+        scene["character_refs"] = list(scene_chars)
+        scene["location_ref"] = location_ref
+        if src.get("camera_distance"):
+            scene["camera_distance"] = src["camera_distance"]
         identity = _derive_identity(scene, src)
         if identity is not None:
             scene["identity"] = identity
@@ -269,6 +274,11 @@ def compose_screenplay(abstract: dict) -> dict:
 
         scene["background_prompt"] = _compose_background(scene, location_ref)
         scene["animation_prompt"] = _compose_animation(src, scene_anim)
+
+        # temporary flat の片付け (= flat schema は Phase 5 で撤去済)
+        scene.pop("character_refs", None)
+        scene.pop("location_ref", None)
+        scene.pop("camera_distance", None)
 
         for line in src.get("lines") or []:
             new_line = dict(line)
