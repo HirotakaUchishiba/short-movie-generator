@@ -6,7 +6,6 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { api, bgAssetUrl } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import SceneTtsRow from "../SceneTtsRow";
-import SceneFieldEditor from "../SceneFieldEditor";
 import BgCacheBadge from "../BgCacheBadge";
 import ClipLibraryBadge from "../ClipLibraryBadge";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
@@ -105,11 +104,6 @@ function BgDecisionFlow({
       if (!scene) return null;
       return (
         <div className="space-y-2 mb-2">
-          <SceneFieldEditor
-            scene={scene}
-            sIdx={sceneIdx}
-            fields={["location_ref", "camera_distance"]}
-          />
           <ComposedPromptPreview
             ts={ts}
             sceneIdx={sceneIdx}
@@ -302,7 +296,10 @@ function BGResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
         <div className="text-xs text-slate-400 flex items-center gap-2 flex-wrap">
           <span>
             duration {scene.duration}s · refs:{" "}
-            {(scene.character_refs ?? scene.characters?.map((c) => c.ref))
+            {(
+              scene.identity?.character_refs ??
+              scene.characters?.map((c) => c.ref)
+            )
               ?.filter(Boolean)
               .join(", ") || "-"}
           </span>
@@ -320,11 +317,6 @@ function BGResultCard({ scene, sIdx }: { scene: Scene; sIdx: number }) {
           )}
         </div>
         <SceneTtsRow lines={scene.lines ?? []} />
-        <SceneFieldEditor
-          scene={scene}
-          sIdx={sIdx}
-          fields={["location_ref", "camera_distance"]}
-        />
         <ComposedPromptPreview
           ts={ts}
           sceneIdx={sIdx}
