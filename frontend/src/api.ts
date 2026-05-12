@@ -196,11 +196,6 @@ export const api = {
       method: "PATCH",
       body: JSON.stringify({ patch: stripUids(patch) }),
     }),
-  patchScene: (ts: string, sceneIdx: number, patch: Record<string, unknown>) =>
-    http<{ ok: true }>(`/api/projects/${ts}/scenes/${sceneIdx}`, {
-      method: "PATCH",
-      body: JSON.stringify({ patch: stripUids(patch) }),
-    }),
   patchScreenplayMeta: (ts: string, patch: Record<string, unknown>) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay-meta`, {
       method: "PATCH",
