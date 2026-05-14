@@ -381,52 +381,6 @@ def api_patch_line(ts, scene_idx, line_idx):
     return jsonify({"ok": True})
 
 
-# scene 単位の patch (location_ref / camera_distance / animation_style /
-# character_selection 等の abstract フィールドのみ)。派生フィールド
-# (background_prompt / animation_prompt / character_refs / lipsync) は
-# compose が毎回再生成するので patch 不可。
-@app.route("/api/projects/<ts>/scenes/<int:scene_idx>", methods=["PATCH"])
-def api_patch_scene(ts, scene_idx):
-    _validate_ts(ts)
-    data = request.get_json(force=True) or {}
-    patch = data.get("patch")
-    if not isinstance(patch, dict):
-        return jsonify({"error": "patch (object) が必要です"}), 400
-    # duration は Stage 2 (TTS) が SSOT で snapshot 上書き経路を持たない (= α)。
-    # patch_scene からも除外し、UI が触れない設計を徹底する。
-    allowed = {
-        "location_ref", "camera_distance", "animation_style",
-        "character_selection",
-    }
-    unknown = set(patch.keys()) - allowed
-    if unknown:
-        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
-
-    ts_path = _ts_path(ts)
-    if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    try:
-        from screenplay_validator import validate_abstract
-        with _screenplay_lock(ts):
-            sp = staged_pipeline.load_project_abstract(ts_path)
-            scenes = sp.get("scenes") or []
-            if scene_idx >= len(scenes):
-                return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
-            scene = scenes[scene_idx]
-            for k, v in patch.items():
-                if v is None:
-                    scene.pop(k, None)
-                else:
-                    scene[k] = v
-            errors = validate_abstract(sp, strict=False)
-            if errors:
-                return jsonify({"error": "validator失敗", "details": errors}), 400
-            staged_pipeline.save_project_screenplay(ts_path, sp)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True})
-
-
 # screenplay-level patch (subtitle_y_from_bottom 等)。
 @app.route("/api/projects/<ts>/screenplay-meta", methods=["PATCH"])
 def api_patch_screenplay_meta(ts):
