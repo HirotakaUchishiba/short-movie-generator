@@ -23,6 +23,7 @@ import atomic_assets
 import config
 import furigana_store
 from analyze import cache as _cache
+from analyze import character_meta as cmeta_mod
 from analyze import location as loc_mod
 from analyze.intent_resolver import (
     SceneIntentAssignment,
@@ -451,14 +452,19 @@ def run(
         # あわせて locations/ カタログを渡し、per-scene location_ref /
         # camera_distance を Claude に選定させる (= analyze が identity の
         # 必須入力を SSOT として産出する)。
+        # さらに characters/ カタログを渡し、speaker_profiles の検出 +
+        # featured_characters / speaker_to_ref の casting 提案を要求する
+        # (= 提案は best-effort、人間が Stage 1 UI で訂正する)。
         intent_catalog = load_intent_catalog()
         location_catalog = loc_mod.build_location_catalog()
+        character_catalog = cmeta_mod.build_character_catalog()
         _emit(on_progress, "phase_start", {
             "phase": "claude",
             "frame_count": len(frame_paths),
             "known_furigana_count": len(known_furigana),
             "intent_catalog_size": len(intent_catalog),
             "location_catalog_size": len(location_catalog),
+            "character_catalog_size": len(character_catalog),
         })
         try:
             screenplay, claude_usage = build_screenplay(
@@ -472,6 +478,7 @@ def run(
                 atomic_menu=atomic_assets.build_prompt_menu(),
                 intent_catalog=intent_catalog or None,
                 location_catalog=location_catalog or None,
+                character_catalog=character_catalog or None,
             )
         except ScreenplayParseError as e:
             # Claude 課金は発生済みなので、parse 失敗でも usage を emit して
