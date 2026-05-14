@@ -130,9 +130,11 @@ def test_compose_character_selection_subsets_speaking_characters(isolated_dirs):
         "featured_characters": ["f1__office", "m1__suit"],
         "scenes": [{
             "duration": 5,
+            "location_ref": "home_office",
             "character_selection": ["m1__suit"],
             "lines": [
-                {"text": "a", "start": 0, "end": 1, "speaker": "m1__suit"},
+                {"text": "a", "start": 0, "end": 1,
+                 "speaker": "m1__suit", "emotion": "中立"},
                 {"text": "b", "start": 1, "end": 2, "speaker": "m1__suit"},
             ],
         }],
@@ -149,8 +151,10 @@ def test_compose_voice_resolution_per_speaker(isolated_dirs):
         "featured_characters": ["f1__office", "m1__suit"],
         "scenes": [{
             "duration": 5,
+            "location_ref": "home_office",
             "lines": [
-                {"text": "a", "start": 0, "end": 1, "speaker": "f1__office"},
+                {"text": "a", "start": 0, "end": 1,
+                 "speaker": "f1__office", "emotion": "中立"},
                 {"text": "b", "start": 1, "end": 2, "speaker": "m1__suit"},
             ],
         }],
@@ -168,8 +172,10 @@ def test_compose_speaker_to_ref_mapping(isolated_dirs):
         "featured_characters": ["f1__office", "m1__suit"],
         "scenes": [{
             "duration": 5,
+            "location_ref": "home_office",
             "lines": [
-                {"text": "a", "start": 0, "end": 1, "speaker": "speaker_1"},
+                {"text": "a", "start": 0, "end": 1,
+                 "speaker": "speaker_1", "emotion": "中立"},
                 {"text": "b", "start": 1, "end": 2, "speaker": "speaker_2"},
             ],
         }],
@@ -244,23 +250,29 @@ def test_compose_speaker_to_ref_drives_scene_characters(isolated_dirs):
             # シーン 0: speaker_1 のみ → f1__office だけ
             {
                 "duration": 3,
+                "location_ref": "home_office",
                 "lines": [
-                    {"text": "a", "start": 0, "end": 1, "speaker": "speaker_1"},
+                    {"text": "a", "start": 0, "end": 1,
+                     "speaker": "speaker_1", "emotion": "中立"},
                 ],
             },
             # シーン 1: speaker_1 と speaker_2 が両方発言 → 2 人とも
             {
                 "duration": 4,
+                "location_ref": "home_office",
                 "lines": [
-                    {"text": "b", "start": 0, "end": 1, "speaker": "speaker_1"},
+                    {"text": "b", "start": 0, "end": 1,
+                     "speaker": "speaker_1", "emotion": "中立"},
                     {"text": "c", "start": 1, "end": 2, "speaker": "speaker_2"},
                 ],
             },
             # シーン 2: speaker_2 のみ → m1__suit だけ
             {
                 "duration": 3,
+                "location_ref": "home_office",
                 "lines": [
-                    {"text": "d", "start": 0, "end": 1, "speaker": "speaker_2"},
+                    {"text": "d", "start": 0, "end": 1,
+                     "speaker": "speaker_2", "emotion": "中立"},
                 ],
             },
         ],
@@ -289,9 +301,11 @@ def test_compose_explicit_character_selection_overrides_speakers(isolated_dirs):
         },
         "scenes": [{
             "duration": 3,
+            "location_ref": "home_office",
             "character_selection": [],  # 0 人 = 背景のみ (= 明示 override)
             "lines": [
-                {"text": "a", "start": 0, "end": 1, "speaker": "speaker_1"},
+                {"text": "a", "start": 0, "end": 1,
+                 "speaker": "speaker_1", "emotion": "中立"},
             ],
         }],
     }
@@ -307,9 +321,10 @@ def test_compose_speaker_directly_as_ref_also_drives_selection(isolated_dirs):
         "featured_characters": ["f1__office", "m1__suit"],
         "scenes": [{
             "duration": 3,
+            "location_ref": "home_office",
             "lines": [
                 {"text": "a", "start": 0, "end": 1,
-                 "speaker": "m1__suit"},
+                 "speaker": "m1__suit", "emotion": "中立"},
             ],
         }],
     }
@@ -561,27 +576,32 @@ class TestIdentityDerivation:
         sp = compose_screenplay(abstract)
         assert sp["scenes"][0]["identity"]["camera_distance"] == "wide"
 
-    def test_no_location_yields_no_identity(self, isolated_dirs):
+    def test_no_location_raises(self, isolated_dirs):
         _seed(isolated_dirs)
         abstract = _abstract_minimal()
         abstract["scenes"][0].pop("location_ref", None)
-        sp = compose_screenplay(abstract)
-        assert "identity" not in sp["scenes"][0]
+        with pytest.raises(ValueError, match="location_ref"):
+            compose_screenplay(abstract)
 
-    def test_no_characters_yields_no_identity(self, isolated_dirs):
+    def test_empty_characters_still_yields_identity(self, isolated_dirs):
+        """character_refs 空でも identity は返る (= 背景のみシーンは valid)。"""
         _seed(isolated_dirs)
         abstract = _abstract_minimal()
         abstract["featured_characters"] = []  # 0 人
         sp = compose_screenplay(abstract)
-        assert "identity" not in sp["scenes"][0]
+        ident = sp["scenes"][0].get("identity")
+        assert ident is not None
+        assert ident["character_refs"] == []
+        assert ident["location_ref"] == "home_office"
+        assert ident["start_emotion"] == "焦り"
 
-    def test_no_emotion_yields_no_identity(self, isolated_dirs):
+    def test_no_emotion_raises(self, isolated_dirs):
         _seed(isolated_dirs)
         abstract = _abstract_minimal()
         for line in abstract["scenes"][0]["lines"]:
             line.pop("emotion", None)
-        sp = compose_screenplay(abstract)
-        assert "identity" not in sp["scenes"][0]
+        with pytest.raises(ValueError, match="start_emotion"):
+            compose_screenplay(abstract)
 
     def test_character_refs_sorted(self, isolated_dirs):
         """char_refs は順不同性を担保するため sorted で正規化される
