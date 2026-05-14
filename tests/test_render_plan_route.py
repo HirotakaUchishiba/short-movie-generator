@@ -91,12 +91,18 @@ def test_returns_render_plan_when_scenes_ready(
             {
                 "duration": 2.0,
                 "background_prompt": "x",
-                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "シーン1", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
             {
                 "duration": 2.0,
                 "background_prompt": "y",
-                "lines": [{"text": "シーン2", "start": 0.0, "end": 1.0}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "シーン2", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }
@@ -150,7 +156,10 @@ def test_returns_409_when_scenes_not_ready(
             {
                 "duration": 2.0,
                 "background_prompt": "x",
-                "lines": [{"text": "x", "start": 0, "end": 1}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "x", "start": 0, "end": 1, "emotion": "中立"},
+                ],
             }
         ],
     }
@@ -198,12 +207,18 @@ def test_subtitle_chunks_have_absolute_timecodes(
             {
                 "duration": 2.0,
                 "background_prompt": "a",
-                "lines": [{"text": "セリフ1", "start": 0.0, "end": 1.5}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "セリフ1", "start": 0.0, "end": 1.5, "emotion": "中立"},
+                ],
             },
             {
                 "duration": 2.0,
                 "background_prompt": "b",
-                "lines": [{"text": "セリフ2", "start": 0.0, "end": 1.5}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "セリフ2", "start": 0.0, "end": 1.5, "emotion": "中立"},
+                ],
             },
         ],
     }
@@ -239,10 +254,13 @@ def test_subtitle_style_in_scene_parts_reaches_render_plan(
             {
                 "duration": 2.0,
                 "background_prompt": "x",
+                "location_ref": "home_office",
                 "scene_parts": {
                     "subtitle_style": {"id": "karaoke_bold"},
                 },
-                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+                "lines": [
+                    {"text": "シーン1", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }
@@ -269,7 +287,10 @@ def test_global_parts_reaches_render_plan(
             {
                 "duration": 2.0,
                 "background_prompt": "x",
-                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "シーン1", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }
@@ -295,7 +316,10 @@ def test_subtitle_y_from_bottom_reaches_render_plan(
             {
                 "duration": 2.0,
                 "background_prompt": "x",
-                "lines": [{"text": "シーン1", "start": 0.0, "end": 1.0}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "シーン1", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }

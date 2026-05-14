@@ -30,8 +30,9 @@ def project(tmp_path, monkeypatch):
         "scenes": [
             {
                 "duration": 5,
+                "location_ref": "home_office",
                 "lines": [
-                    {"text": "line A", "start": 0, "end": 1.0},
+                    {"text": "line A", "start": 0, "end": 1.0, "emotion": "中立"},
                     {"text": "line B", "start": 1, "end": 2.0},
                     {"text": "line C", "start": 2, "end": 3.0},
                 ],

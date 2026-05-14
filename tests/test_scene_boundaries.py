@@ -22,6 +22,7 @@ _TWO_SCENE_SP = {
     "scenes": [
         {
             "duration": 6.0,
+            "location_ref": "home_office",
             "background_prompt": "bg0",
             "animation_prompt": "anim0",
             "lines": [
@@ -32,6 +33,7 @@ _TWO_SCENE_SP = {
         },
         {
             "duration": 4.0,
+            "location_ref": "home_office",
             "background_prompt": "bg1",
             "animation_prompt": "anim1",
             "lines": [
@@ -297,6 +299,7 @@ _SP_WITH_SUBTITLES = {
     "scenes": [
         {
             "duration": 6.0,
+            "location_ref": "home_office",
             "background_prompt": "bg0",
             "animation_prompt": "anim0",
             "lines": [
@@ -316,6 +319,7 @@ _SP_WITH_SUBTITLES = {
         },
         {
             "duration": 4.0,
+            "location_ref": "home_office",
             "background_prompt": "bg1",
             "animation_prompt": "anim1",
             "lines": [

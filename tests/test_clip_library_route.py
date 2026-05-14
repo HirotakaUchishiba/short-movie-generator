@@ -185,30 +185,13 @@ class TestProjectClipStatus:
         )
         return ts
 
-    def test_scene_with_no_identity_reports_false(
-        self, isolated_root: Path, tmp_path: Path,
-        monkeypatch: pytest.MonkeyPatch, client,
-    ) -> None:
-        ts = self._setup_project(
-            tmp_path,
-            [
-                {
-                    "duration": 2.0,
-                    "background_prompt": "x",
-                    "lines": [
-                        {"text": "a", "start": 0, "end": 1, "emotion": "中立"}
-                    ],
-                }
-            ],
-            monkeypatch,
-        )
-        resp = client.get(f"/api/projects/{ts}/clip-library-status")
-        assert resp.status_code == 200
-        data = resp.get_json()
-        assert data["enabled"] is True
-        assert len(data["scenes"]) == 1
-        assert data["scenes"][0]["has_identity"] is False
-        assert data["scenes"][0]["satisfied"] is False
+    # 旧 test_scene_with_no_identity_reports_false は撤去。
+    # clip-library-status は load_screenplay_for_project (= compose 経由) で
+    # screenplay を読むが、refactor 後 compose の _derive_identity は
+    # location_ref / emotion 欠落で fail-fast する。よって「identity を持たない
+    # scene」が compose を通過して route handler の scene ループに到達する状態は
+    # 到達不能になった (= compose が ValueError で先に落ちる)。他に identity-less
+    # screenplay を本 route に流す経路も無いため、テストごと撤去する。
 
     def test_scene_with_identity_reports_satisfied_when_pool_hits(
         self, isolated_root: Path, tmp_path: Path,

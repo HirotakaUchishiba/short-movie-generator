@@ -46,7 +46,9 @@ def project(tmp_path, monkeypatch):
                 "animation_prompt": "subject A walks",
                 "camera_distance": "medium-close",
                 "location_ref": "home_office",
-                "lines": [{"text": "やった", "start": 0.0, "end": 1.0}],
+                "lines": [
+                    {"text": "やった", "start": 0.0, "end": 1.0, "emotion": "喜び"},
+                ],
             },
             {
                 "duration": 4.0,
@@ -54,7 +56,9 @@ def project(tmp_path, monkeypatch):
                 "animation_prompt": "subject A sits",
                 "camera_distance": "medium-close",
                 "location_ref": "home_office",
-                "lines": [{"text": "ふぅ", "start": 0.0, "end": 1.0}],
+                "lines": [
+                    {"text": "ふぅ", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }

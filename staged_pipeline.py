@@ -631,9 +631,14 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
     """
     sp = load_project_screenplay(ts_path)
     flat_lines: list[dict] = []
+    # 各 flat line が属していた元 scene を覚えておく (= 再分割後の new_scene に
+    # location_ref / camera_distance を引き継ぐため)。compose の _derive_identity
+    # は location_ref 必須なので、ここで捨てると後段の再 compose が fail-fast する。
+    flat_line_origin: list[dict] = []
     for s in sp.get("scenes") or []:
         for line in s.get("lines") or []:
             flat_lines.append(dict(line))
+            flat_line_origin.append(s)
     n_lines = len(flat_lines)
     if n_lines == 0:
         raise ValueError("snapshot に line が 1 つもありません")
@@ -686,7 +691,8 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
     boundaries_with_end = list(line_boundaries) + [n_lines]
     new_scenes: list[dict] = []
     for i in range(len(line_boundaries)):
-        scene_lines = flat_lines[boundaries_with_end[i]:boundaries_with_end[i + 1]]
+        start_idx = boundaries_with_end[i]
+        scene_lines = flat_lines[start_idx:boundaries_with_end[i + 1]]
         if not scene_lines:
             continue
         # scene 内相対秒に正規化 (= 各 scene の先頭 line を 0 起点)
@@ -698,11 +704,23 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
                 ln["end"] = max(0.0, float(ln["end"]) - offset)
         # duration は計算しない。直後の _build_audios_from_full が
         # 実 TTS 累積長から書き戻す (= Stage 2 が SSOT)
-        new_scenes.append({
-            "lines": scene_lines,
-            # ビジュアル系フィールドは敢えて空のまま (= 再 compose で埋める)。
-            # 古い scene-index 由来のままだと scene が分割/合体した時に整合しない。
-        })
+        new_scene: dict = {"lines": scene_lines}
+        # location_ref / camera_distance は先頭 line が属していた元 scene から
+        # 引き継ぐ。compose の identity 派生に必須なので捨てない。compose 済み
+        # scene では flat field が pop され identity に畳まれているので、そこから
+        # 読む。background / animation prompt は scene-index 由来のままだと
+        # 分割/合体時に整合しないので敢えて引き継がず、再 compose で埋め直させる。
+        origin = flat_line_origin[start_idx]
+        origin_identity = origin.get("identity") or {}
+        location_ref = origin.get("location_ref") or origin_identity.get("location_ref")
+        camera_distance = (
+            origin.get("camera_distance") or origin_identity.get("camera_distance")
+        )
+        if location_ref:
+            new_scene["location_ref"] = location_ref
+        if camera_distance:
+            new_scene["camera_distance"] = camera_distance
+        new_scenes.append(new_scene)
 
     new_sp = dict(sp)
     new_sp["scenes"] = new_scenes

@@ -103,8 +103,12 @@ def test_display_title_falls_back_when_all_missing():
 _SP_WITH_CAPTION = {
     "caption": "未経験からITエンジニアに転職した1日のリアル\n在宅ワークで自由な働き方が叶った\n#IT転職 #未経験エンジニア",
     "scenes": [
-        {"duration": 3.0, "lines": [{"text": "やばい", "start": 0, "end": 2}]},
-        {"duration": 2.5, "lines": [{"text": "でもなんとかなる", "start": 0, "end": 2}]},
+        {"duration": 3.0, "location_ref": "home_office",
+         "lines": [{"text": "やばい", "start": 0, "end": 2, "emotion": "焦り"}]},
+        {"duration": 2.5, "location_ref": "home_office",
+         "lines": [
+             {"text": "でもなんとかなる", "start": 0, "end": 2, "emotion": "中立"},
+         ]},
     ],
 }
 

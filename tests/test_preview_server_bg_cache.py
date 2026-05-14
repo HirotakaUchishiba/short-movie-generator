@@ -69,7 +69,9 @@ def project(tmp_path, monkeypatch, isolated_assets):
                 "characters": [{"name": "f1__office"}],
                 "camera_distance": "medium-close",
                 "location_ref": "home_office",
-                "lines": [{"text": "やった", "start": 0.0, "end": 1.0}],
+                "lines": [
+                    {"text": "やった", "start": 0.0, "end": 1.0, "emotion": "喜び"},
+                ],
             },
             {
                 "duration": 4.0,
@@ -79,7 +81,9 @@ def project(tmp_path, monkeypatch, isolated_assets):
                 "characters": [{"name": "f1__office"}],
                 "camera_distance": "medium",
                 "location_ref": "cafe_barista",
-                "lines": [{"text": "ふぅ", "start": 0.0, "end": 1.0}],
+                "lines": [
+                    {"text": "ふぅ", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }
