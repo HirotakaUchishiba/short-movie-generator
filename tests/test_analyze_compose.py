@@ -192,6 +192,14 @@ def test_compose_speaker_to_ref_mapping(isolated_dirs):
     assert lines[1]["voice_overrides"]["voice_id"] == "voice_b"
 
 
+@pytest.mark.xfail(
+    reason=(
+        "Phase 3 (validator nested-only): validator は flat schema を reject "
+        "するようになった。compose.py の nested 化は別 phase で実施するため、"
+        "ここで合流する E2E は別 phase で再有効化する"
+    ),
+    strict=True,
+)
 def test_compose_passes_strict_validator(isolated_dirs):
     _seed(isolated_dirs)
     from screenplay_validator import validate_screenplay
