@@ -153,12 +153,11 @@ export interface Scene {
   background_prompt?: string;
   animation_prompt?: string;
   animation_style?: "subtle" | "standard" | "expressive";
-  character_refs?: string[];
   characters?: CharacterDef[];
-  location_ref?: string;
-  camera_distance?: CameraDistance;
   lipsync?: boolean;
   lines?: Line[];
+  identity?: Identity;
+  annotation?: Annotation;
   // クライアント側で付与される React key 用 ID。API 送信時に strip される。
   _uid?: string;
 }

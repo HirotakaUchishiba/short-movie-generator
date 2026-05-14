@@ -6,7 +6,6 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { api, klingAssetUrl, sceneTrimAssetUrl } from "../../api";
 import ComposedPromptPreview from "../ComposedPromptPreview";
 import SceneTtsRow from "../SceneTtsRow";
-import SceneFieldEditor from "../SceneFieldEditor";
 import ClipLibraryBadge from "../ClipLibraryBadge";
 import CacheDecisionFlow from "../cache/CacheDecisionFlow";
 import { CostEstimatePreview } from "../CostEstimatePreview";
@@ -141,11 +140,6 @@ function KlingDecisionFlow({
       if (!scene) return null;
       return (
         <div className="space-y-2 mb-2">
-          <SceneFieldEditor
-            scene={scene}
-            sIdx={sceneIdx}
-            fields={["animation_style", "camera_distance"]}
-          />
           <ComposedPromptPreview
             ts={ts}
             sceneIdx={sceneIdx}
@@ -398,11 +392,6 @@ function KlingResultCard({
           </button>
         </div>
         <SceneTtsRow lines={scene.lines ?? []} />
-        <SceneFieldEditor
-          scene={scene}
-          sIdx={sIdx}
-          fields={["animation_style", "camera_distance"]}
-        />
         <ComposedPromptPreview
           ts={ts}
           sceneIdx={sIdx}
