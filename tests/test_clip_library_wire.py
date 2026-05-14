@@ -18,10 +18,12 @@ import clip_library
 
 def _scene_with_identity(extra: dict | None = None) -> dict:
     base = {
-        "character_refs": ["f1__office"],
-        "location_ref": "home_office",
-        "start_emotion": "中立",
-        "camera_distance": "medium-close",
+        "identity": {
+            "character_refs": ["f1__office"],
+            "location_ref": "home_office",
+            "start_emotion": "中立",
+            "camera_distance": "medium-close",
+        },
         "background_prompt": "x",
         "lines": [{"text": "x", "start": 0, "end": 1}],
     }
@@ -69,21 +71,34 @@ class TestSceneHasIdentity:
         }
         assert clip_library._scene_has_identity(scene)
 
-    def test_flat_aliases(self) -> None:
+    def test_flat_schema_returns_false(self) -> None:
+        # flat schema (= 旧スキーマ) は nested 不在として扱う (= 回帰防止)
         scene = {
             "character_refs": ["f1"],
             "location_ref": "office",
             "start_emotion": "中立",
         }
-        assert clip_library._scene_has_identity(scene)
+        assert not clip_library._scene_has_identity(scene)
 
-    def test_missing_field_returns_false(self) -> None:
+    def test_missing_identity_returns_false(self) -> None:
+        scene = {
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                # start_emotion missing
+            },
+        }
+        assert not clip_library._scene_has_identity(scene)
+
+    def test_flat_scene_to_identity_raises(self) -> None:
+        # flat schema を _scene_to_identity に渡すと ValueError (= 回帰防止)
         scene = {
             "character_refs": ["f1"],
             "location_ref": "office",
-            # start_emotion missing
+            "start_emotion": "中立",
         }
-        assert not clip_library._scene_has_identity(scene)
+        with pytest.raises(ValueError, match="identity"):
+            clip_library._scene_to_identity(scene)
 
 
 # ───────────── satisfy_scenes_from_library ─────────────
