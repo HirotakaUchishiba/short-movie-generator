@@ -275,9 +275,11 @@ class TestRegister:
 class TestLookup:
     def test_returns_empty_when_no_entries(self, isolated_root: Path) -> None:
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
         }
         assert lookup_clip_pool(scene) == []
 
@@ -303,9 +305,11 @@ class TestLookup:
         )
         # f1 で問い合わせ → 1 件
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
         }
         result = lookup_clip_pool(scene)
         assert len(result) == 1
@@ -323,9 +327,11 @@ class TestLookup:
             auto_approve=False,  # pending_review
         )
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
         }
         # active のみ返るので空
         assert lookup_clip_pool(scene) == []
@@ -352,11 +358,15 @@ class TestLookup:
         # talking_head_calm を要求 → 完全一致が 1 位、互換 (listening) が 2 位、
         # 無関係 (reaction_surprise) が最下位
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
-            "visual_intent_id": "talking_head_calm",
-            "duration_bucket": 5,
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "duration_bucket": 5,
+            },
         }
         reset_intent_compat_cache()
         result = lookup_clip_pool(scene)
@@ -378,9 +388,11 @@ class TestLookup:
                 auto_approve=True,
             )
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
         }
         assert len(lookup_clip_pool(scene, top_k=5)) == 5
         assert len(lookup_clip_pool(scene, top_k=20)) == 15
@@ -474,9 +486,11 @@ class TestLifecycle:
             auto_approve=True,
         )
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+            },
         }
         assert len(lookup_clip_pool(scene)) == 1
         assert clip_library.blacklist_entry(entry.id, "test reason")
@@ -510,21 +524,29 @@ class TestE2EWarmCacheFlow:
     ) -> None:
         # screenplay A の scene
         scene_a = {
-            "character_refs": ["f1__office"],
-            "location_ref": "home_office",
-            "start_emotion": "中立",
-            "camera_distance": "medium-close",
-            "visual_intent_id": "talking_head_calm",
-            "duration_bucket": 5,
+            "identity": {
+                "character_refs": ["f1__office"],
+                "location_ref": "home_office",
+                "start_emotion": "中立",
+                "camera_distance": "medium-close",
+            },
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "duration_bucket": 5,
+            },
         }
         # screenplay B の scene: line text / annotation の motion_intensity 違い等を想定
         scene_b = {
-            "character_refs": ["f1__office"],
-            "location_ref": "home_office",
-            "start_emotion": "中立",
-            "camera_distance": "medium-close",
-            "visual_intent_id": "talking_head_calm",
-            "duration_bucket": 10,  # ← duration 違い
+            "identity": {
+                "character_refs": ["f1__office"],
+                "location_ref": "home_office",
+                "start_emotion": "中立",
+                "camera_distance": "medium-close",
+            },
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "duration_bucket": 10,  # ← duration 違い
+            },
         }
 
         # cold path として screenplay A から register
@@ -566,10 +588,12 @@ class TestE2EWarmCacheFlow:
             auto_approve=True,
         )
         scene = {
-            "character_refs": ["f1"],
-            "location_ref": "office",
-            "start_emotion": "中立",
-            "camera_distance": "wide",  # ← mismatch
+            "identity": {
+                "character_refs": ["f1"],
+                "location_ref": "office",
+                "start_emotion": "中立",
+                "camera_distance": "wide",  # ← mismatch
+            },
         }
         assert lookup_clip_pool(scene) == []
 
@@ -711,32 +735,21 @@ class TestTouchAtomic:
 
 
 class TestSceneToIdentity:
-    """_scene_to_identity の入力検証 (= 必須 field 欠損で ValueError)。"""
+    """_scene_to_identity は nested `scene.identity` のみを受け付ける。"""
 
-    def test_missing_location_ref_raises(self) -> None:
-        scene = {
-            "character_refs": ["f1"],
-            "start_emotion": "中立",
-        }
-        with pytest.raises(ValueError, match="location_ref"):
-            clip_library._scene_to_identity(scene)
-
-    def test_missing_start_emotion_raises(self) -> None:
+    def test_flat_schema_raises(self) -> None:
+        # flat schema (= scene root に character_refs 等) は受け付けない
         scene = {
             "character_refs": ["f1"],
             "location_ref": "office",
-        }
-        with pytest.raises(ValueError, match="start_emotion"):
-            clip_library._scene_to_identity(scene)
-
-    def test_non_str_location_ref_raises(self) -> None:
-        scene = {
-            "character_refs": ["f1"],
-            "location_ref": 123,
             "start_emotion": "中立",
         }
-        with pytest.raises(ValueError):
+        with pytest.raises(ValueError, match="identity"):
             clip_library._scene_to_identity(scene)
+
+    def test_missing_identity_raises(self) -> None:
+        with pytest.raises(ValueError, match="identity"):
+            clip_library._scene_to_identity({})
 
     def test_identity_dict_path_works(self) -> None:
         scene = {

@@ -1,11 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import { useShellCtx } from "../StageGate";
-import {
-  api,
-  characterAssetUrl,
-  locationPreviewUrl,
-  referenceVideoAssetUrl,
-} from "../../api";
+import { api, characterAssetUrl, referenceVideoAssetUrl } from "../../api";
 import type {
   AbstractDiagnostics,
   AbstractScreenplay,
@@ -14,8 +9,6 @@ import type {
 import { freshUid } from "../../uid";
 import { GlobalPartsEditor } from "./GlobalPartsEditor";
 import { ScenePartsEditor } from "./ScenePartsEditor";
-import { IdentityEditor } from "../IdentityEditor";
-import { AnnotationEditor } from "../AnnotationEditor";
 
 const EMOTIONS = [
   "驚き",
@@ -34,10 +27,11 @@ type Status = "idle" | "loading" | "saving" | "ok" | "error";
 /**
  * Stage 1 ページの編集セクション。analyze_job_id を持つプロジェクト
  * でのみ表示される。caption / featured_characters / speaker_to_ref /
- * 各シーンの location_ref / camera_distance / animation_style /
- * character_selection / lines (text・emotion・speaker) を編集し、
- * snapshot を abstract のまま PUT する (= live derivation で Stage 2 以降が
- * 都度 compose を走らせる)。
+ * 各シーンの animation_style / character_selection / lines
+ * (text・emotion・speaker) を編集し、snapshot を abstract のまま PUT する
+ * (= live derivation で Stage 2 以降が都度 compose を走らせる)。
+ * location_ref / camera_distance は analyze が SSOT として自動産出するため
+ * 編集 UI を持たない。
  */
 export default function ScriptEditPanel({
   ts,
@@ -50,7 +44,6 @@ export default function ScriptEditPanel({
   const [job, setJob] = useState<AnalyzeJobDetail | null>(null);
   const [abstract, setAbstract] = useState<AbstractScreenplay | null>(null);
   const [characterRefs, setCharacterRefs] = useState<string[]>([]);
-  const [locationIds, setLocationIds] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
@@ -62,14 +55,12 @@ export default function ScriptEditPanel({
       api.getAnalyzeJob(jobId),
       api.getProjectAbstract(ts),
       api.listCharacters(),
-      api.listLocations(),
     ])
-      .then(([j, ab, chars, locs]) => {
+      .then(([j, ab, chars]) => {
         if (cancelled) return;
         setJob(j);
         setAbstract(ab.abstract);
         setCharacterRefs(chars.characters);
-        setLocationIds(locs.locations.map((l) => l.id));
         setStatus("idle");
       })
       .catch((e) => {
@@ -139,9 +130,9 @@ export default function ScriptEditPanel({
     }
   };
 
-  // 全シーンに同じ値を一括適用する。location_ref / camera_distance /
-  // animation_style の 3 種に対応 (= 17 シーンクリックの繰り返し回避)。
-  type BulkField = "location_ref" | "camera_distance" | "animation_style";
+  // 全シーンに同じ値を一括適用する。animation_style のみ対応
+  // (= location_ref / camera_distance は analyze が SSOT)。
+  type BulkField = "animation_style";
   const applyToAllScenes = (field: BulkField, value: string | undefined) => {
     if (!abstract) return;
     const scenes = abstract.scenes.map((s) => {
@@ -314,7 +305,7 @@ export default function ScriptEditPanel({
         </div>
 
         {/* 全シーン一括適用 (= 17 シーンクリック地獄の解消) */}
-        <BulkApplyBar locationIds={locationIds} onApply={applyToAllScenes} />
+        <BulkApplyBar onApply={applyToAllScenes} />
 
         <label className="block">
           <span className="text-xs text-slate-400">caption (SNS 投稿文)</span>
@@ -416,7 +407,6 @@ export default function ScriptEditPanel({
               key={scene._uid ?? sIdx}
               sIdx={sIdx}
               scene={scene}
-              locationIds={locationIds}
               featuredRefs={
                 Array.isArray(abstract.featured_characters)
                   ? abstract.featured_characters
@@ -512,7 +502,6 @@ export default function ScriptEditPanel({
 function SceneEditor({
   sIdx,
   scene,
-  locationIds,
   featuredRefs,
   speakerToRef,
   flatStartIdx,
@@ -526,7 +515,6 @@ function SceneEditor({
 }: {
   sIdx: number;
   scene: AbstractScreenplay["scenes"][number];
-  locationIds: string[];
   featuredRefs: string[];
   speakerToRef: Record<string, string>;
   flatStartIdx: number;
@@ -575,16 +563,8 @@ function SceneEditor({
       </div>
 
       <div className="p-3 space-y-3">
-        {/* 背景 / カメラ距離 / アニメーション (シーン個別設定) */}
+        {/* アニメーション (シーン個別設定) */}
         <div className="space-y-2 text-xs">
-          <LocationPicker
-            locationIds={locationIds}
-            scene={scene}
-            onSceneChange={onSceneChange}
-          />
-
-          <CameraDistancePicker scene={scene} onSceneChange={onSceneChange} />
-
           <div className="bg-slate-800/40 rounded p-2">
             <label className="flex items-center gap-1">
               <span className="text-slate-500 shrink-0">🎬 動き</span>
@@ -638,30 +618,6 @@ function SceneEditor({
             transition / camera_move / lower_third / frame_layout)。
             ScenePartsEditor 内部で part_registry catalog を fetch して enum 選択。 */}
         <ScenePartsEditor scene={scene} onSceneChange={onSceneChange} />
-
-        {/* Layer 1 (clip library): identity (hard match キー) + annotation (soft rank) */}
-        <IdentityEditor
-          identity={scene.identity}
-          onChange={(next) =>
-            onSceneChange((s) => {
-              const ns = { ...s };
-              if (next) ns.identity = next;
-              else delete ns.identity;
-              return ns;
-            })
-          }
-        />
-        <AnnotationEditor
-          annotation={scene.annotation}
-          onChange={(next) =>
-            onSceneChange((s) => {
-              const ns = { ...s };
-              if (next) ns.annotation = next;
-              else delete ns.annotation;
-              return ns;
-            })
-          }
-        />
 
         {/* lines 編集 (各 line をカード化、シーン端の line に ▲▼) */}
         <ul className="space-y-2">
@@ -826,170 +782,6 @@ function SceneEditor({
   );
 }
 
-// ─── 背景セレクタ (= ロケ ID カード) ──────────────────────────
-// 各シーンが独立して location_ref を持つ。候補は locations/<id>.json 全体。
-function LocationCard({
-  id,
-  active,
-  onClick,
-}: {
-  id: string;
-  active: boolean;
-  onClick: () => void;
-}) {
-  const [hasPreview, setHasPreview] = useState(true);
-
-  return (
-    <button
-      type="button"
-      className={`relative flex flex-col items-center rounded border overflow-hidden transition ${
-        active
-          ? "border-emerald-500 bg-emerald-900/30 text-emerald-200"
-          : "border-slate-700 bg-slate-900/40 text-slate-400 opacity-70 hover:opacity-100"
-      }`}
-      onClick={onClick}
-      title={active ? `${id} を解除` : `${id} を選択`}
-    >
-      {hasPreview ? (
-        <img
-          src={locationPreviewUrl(id)}
-          alt={id}
-          className={`w-full aspect-[9/16] object-cover ${
-            active ? "" : "grayscale"
-          }`}
-          onError={() => setHasPreview(false)}
-        />
-      ) : (
-        <div className="w-full aspect-[9/16] flex items-center justify-center bg-slate-900/60 text-[10px] text-slate-500 px-1 text-center">
-          <span>(プレビュー無し)</span>
-        </div>
-      )}
-      <span className="text-[11px] py-1 px-1 truncate w-full text-center">
-        {id}
-      </span>
-    </button>
-  );
-}
-
-function LocationPicker({
-  locationIds,
-  scene,
-  onSceneChange,
-}: {
-  locationIds: string[];
-  scene: AbstractScreenplay["scenes"][number];
-  onSceneChange: (
-    fn: (
-      s: AbstractScreenplay["scenes"][number],
-    ) => AbstractScreenplay["scenes"][number],
-  ) => void;
-}) {
-  const value = scene.location_ref ?? "";
-
-  if (locationIds.length === 0) {
-    return (
-      <div className="bg-slate-800/40 rounded p-2 text-xs text-slate-500">
-        背景: locations/ にロケが登録されていません
-      </div>
-    );
-  }
-  const setLoc = (id: string) => {
-    onSceneChange((s) => {
-      const next = { ...s };
-      if (id === value) {
-        delete (next as Record<string, unknown>).location_ref;
-      } else {
-        next.location_ref = id;
-      }
-      return next;
-    });
-  };
-  return (
-    <div className="bg-slate-800/40 rounded p-2 space-y-2">
-      <span className="text-slate-300 font-medium text-xs">背景</span>
-      <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-        {locationIds.map((id) => {
-          const active = id === value;
-          return (
-            <LocationCard
-              key={id}
-              id={id}
-              active={active}
-              onClick={() => setLoc(id)}
-            />
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-const _CAMERA_DISTANCES = [
-  { id: "close-up", label: "close-up", desc: "顔寄り" },
-  { id: "medium-close", label: "medium-close", desc: "胸〜顔" },
-  { id: "medium", label: "medium", desc: "腰〜顔" },
-  { id: "wide", label: "wide", desc: "全身" },
-] as const;
-
-// ─── カメラ距離セレクタ (= カード) ──────────────────────────
-function CameraDistancePicker({
-  scene,
-  onSceneChange,
-}: {
-  scene: AbstractScreenplay["scenes"][number];
-  onSceneChange: (
-    fn: (
-      s: AbstractScreenplay["scenes"][number],
-    ) => AbstractScreenplay["scenes"][number],
-  ) => void;
-}) {
-  const value = scene.camera_distance ?? "";
-  const setVal = (id: string) => {
-    onSceneChange((s) => {
-      const next = { ...s };
-      if (id === value || !id) {
-        delete next.camera_distance;
-      } else {
-        next.camera_distance = id as NonNullable<typeof next.camera_distance>;
-      }
-      return next;
-    });
-  };
-  return (
-    <div className="bg-slate-800/40 rounded p-2 space-y-2">
-      <span className="text-slate-300 font-medium text-xs">カメラ距離</span>
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
-        {_CAMERA_DISTANCES.map((c) => {
-          const active = c.id === value;
-          return (
-            <button
-              key={c.id}
-              type="button"
-              className={`flex flex-col items-center justify-center rounded border p-2 transition text-[11px] ${
-                active
-                  ? "border-emerald-500 bg-emerald-900/30 text-emerald-200"
-                  : "border-slate-700 bg-slate-900/40 text-slate-400 opacity-60 hover:opacity-100"
-              }`}
-              onClick={() => setVal(c.id)}
-              title={active ? `${c.id} を解除` : `${c.id} を選択`}
-            >
-              <img
-                src={`/camera-distance/${c.id}.png`}
-                alt={c.label}
-                className={`w-12 h-20 mb-1 rounded object-cover ${
-                  active ? "" : "opacity-70"
-                }`}
-              />
-              <span className="font-medium">{c.label}</span>
-              <span className="text-[10px] text-slate-500">{c.desc}</span>
-            </button>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
 /**
  * 抽象台本に出てくる匿名 speaker_N を全シーンから集めて返す。
  * 出現回数とシーン数も同時に算出し、UI のヒント表示に使う。
@@ -1049,13 +841,6 @@ function groupByBase(refs: string[]): Map<string, string[]> {
 
 const wardrobeLabel = (w: string) => w || "base";
 
-const _CAMERA_DISTANCE_SET = new Set([
-  "close-up",
-  "medium-close",
-  "medium",
-  "wide",
-]);
-
 /**
  * frontend 側で abstract から `AbstractDiagnostics` を再計算する。
  * `analyze.compose.diagnose_abstract` (Python) と挙動を合わせる必要がある。
@@ -1082,9 +867,7 @@ function computeDiagnostics(
     !availableSet.has(ref);
 
   const unmapped = new Set<string>();
-  const scenesWithoutLocation: number[] = [];
   const scenesWithoutCharacters: number[] = [];
-  const invalidCamera: { scene_idx: number; value: string }[] = [];
   const unknown = {
     featured: [] as string[],
     speaker_to_ref: [] as { speaker: string; ref: string }[],
@@ -1100,13 +883,6 @@ function computeDiagnostics(
   }
 
   abstract.scenes.forEach((scene, sIdx) => {
-    if (!scene.location_ref) scenesWithoutLocation.push(sIdx);
-
-    const cd = scene.camera_distance;
-    if (cd != null && !_CAMERA_DISTANCE_SET.has(cd)) {
-      invalidCamera.push({ scene_idx: sIdx, value: cd });
-    }
-
     const sel = scene.character_selection;
     if (Array.isArray(sel)) {
       for (const ref of sel) {
@@ -1156,9 +932,7 @@ function computeDiagnostics(
 
   return {
     unmapped_speakers: [...unmapped].sort(),
-    scenes_without_location: scenesWithoutLocation,
     scenes_without_characters: scenesWithoutCharacters,
-    invalid_camera_distance: invalidCamera,
     unknown_character_refs: unknown,
   };
 }
@@ -1642,8 +1416,8 @@ function fmtCost(c: number | null | undefined): string {
  * compose の不整合をユーザに見せる警告バナー。
  * すべての項目がクリーンなら緑、1 つでも問題があれば琥珀色で警告表示。
  * frontend が abstract / characterRefs から live 計算した diagnostics を
- * 受け取って、未マッピング speaker / location 未設定 / 人物 0 人 / 不正
- * camera_distance / 未定義キャラ ref を一覧化する。
+ * 受け取って、未マッピング speaker / 人物 0 人 / 未定義キャラ ref を
+ * 一覧化する。
  */
 function CompletenessBanner({
   diag,
@@ -1660,12 +1434,6 @@ function CompletenessBanner({
   if (diag.unmapped_speakers.length > 0) {
     issues.push(`未マッピング話者: ${diag.unmapped_speakers.join(", ")}`);
   }
-  if (diag.scenes_without_location.length > 0) {
-    const ids = diag.scenes_without_location.map((i) => `#${i + 1}`).join(", ");
-    issues.push(
-      `背景未設定 ${diag.scenes_without_location.length} シーン (${ids})`,
-    );
-  }
   if (diag.scenes_without_characters.length > 0) {
     const ids = diag.scenes_without_characters
       .map((i) => `#${i + 1}`)
@@ -1673,12 +1441,6 @@ function CompletenessBanner({
     issues.push(
       `人物 0 人 ${diag.scenes_without_characters.length} シーン (${ids})`,
     );
-  }
-  if (diag.invalid_camera_distance.length > 0) {
-    const t = diag.invalid_camera_distance
-      .map((x) => `#${x.scene_idx + 1}=${x.value}`)
-      .join(", ");
-    issues.push(`不正カメラ距離: ${t}`);
   }
   const u = diag.unknown_character_refs;
   if (u) {
@@ -1724,26 +1486,18 @@ function CompletenessBanner({
   );
 }
 
-const _BULK_CAMERA = ["close-up", "medium-close", "medium", "wide"] as const;
 const _BULK_ANIM = ["subtle", "standard", "expressive"] as const;
 
 /**
- * 全シーンに同じ値を一括適用するセレクタ群。
- * 17 シーンクリック地獄を回避するため、location / camera_distance /
- * animation_style の 3 種をまとめて bulk apply できる。
+ * 全シーンに同じ値を一括適用するセレクタ。
+ * 17 シーンクリック地獄を回避するため、animation_style を bulk apply できる
+ * (= location_ref / camera_distance は analyze が SSOT)。
  */
 function BulkApplyBar({
-  locationIds,
   onApply,
 }: {
-  locationIds: string[];
-  onApply: (
-    field: "location_ref" | "camera_distance" | "animation_style",
-    value: string | undefined,
-  ) => void;
+  onApply: (field: "animation_style", value: string | undefined) => void;
 }) {
-  const [locVal, setLocVal] = useState("");
-  const [camVal, setCamVal] = useState("");
   const [animVal, setAnimVal] = useState("");
   return (
     <div className="border border-slate-700 rounded p-2 space-y-2 bg-slate-800/30">
@@ -1751,44 +1505,6 @@ function BulkApplyBar({
         🪄 全シーンに一括適用 (個別シーンの値を上書きします)
       </span>
       <div className="flex flex-wrap gap-3 text-xs items-center">
-        <label className="flex items-center gap-1">
-          <span className="text-slate-500 shrink-0">背景</span>
-          <select
-            className="select text-xs"
-            value={locVal}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v) onApply("location_ref", v);
-              setLocVal("");
-            }}
-          >
-            <option value="">(選んで適用)</option>
-            {locationIds.map((id) => (
-              <option key={id} value={id}>
-                {id}
-              </option>
-            ))}
-          </select>
-        </label>
-        <label className="flex items-center gap-1">
-          <span className="text-slate-500 shrink-0">カメラ距離</span>
-          <select
-            className="select text-xs"
-            value={camVal}
-            onChange={(e) => {
-              const v = e.target.value;
-              if (v) onApply("camera_distance", v);
-              setCamVal("");
-            }}
-          >
-            <option value="">(選んで適用)</option>
-            {_BULK_CAMERA.map((c) => (
-              <option key={c} value={c}>
-                {c}
-              </option>
-            ))}
-          </select>
-        </label>
         <label className="flex items-center gap-1">
           <span className="text-slate-500 shrink-0">動き</span>
           <select

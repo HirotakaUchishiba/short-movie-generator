@@ -47,7 +47,7 @@
 
 **Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7** は auto_loop が pipeline raw を canonical 化する内部経路 (= `_import_raw_as_final()`)。**Stage 8** はユーザの公開アクションが起点で、`run-next` では自動起動しない。
 
-**Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の `voice_overrides` が自動推論される。analyze 経由でないプロジェクト (= `analyze_job_id` 無し、legacy 残骸の screenplay template を選択した場合のみ発生) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
+**Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の `voice_overrides` が自動推論される。`identity` / `annotation` / `location_ref` / `camera_distance` は analyze pipeline が SSOT として産出するため Stage 1 に編集 UI は無い (= `IdentityEditor` / `AnnotationEditor` / `SceneFieldEditor` は撤去済み、`docs/plannings/2026-05-12_legacy-schema-removal.md` 参照)。analyze 経由でないプロジェクト (= `analyze_job_id` 無し、legacy 残骸の screenplay template を選択した場合のみ発生) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
 
 ### 操作フロー
 
@@ -104,7 +104,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 - `docs/content-strategy.md` — **動画制作の根本戦略**。Transformation / コンテンツ軸 / POV / MVP / 最適化
 - `docs/architecture-decisions.md` — AI モデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、cost_tracking 仕様
-- `docs/abstract-screenplay-design.md` — **抽象台本生成 + compose 合成** の設計 (analyze pipeline は構成・セリフ・感情・話者だけ抽出し、ビジュアルは scene 個別の `location_ref` / `character_selection` / `animation_style` で注入)
+- `docs/abstract-screenplay-design.md` — **抽象台本生成 + compose 合成** の設計 (analyze pipeline は構成・セリフ・感情・話者に加え `location_ref` / `camera_distance` を `locations/` カタログから自動選定する。`identity` / `annotation` も analyze が SSOT として産出する)
 
 ### フロー (= `docs/plannings/`)
 
@@ -187,17 +187,26 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 
 `id` は base ID のみ (`__wardrobe` を含めない)。compose で resolved ID から base に剥がして読む。
 
-完全 screenplay (= `screenplays/<名前>.json`) のスキーマ:
+完全 screenplay (= compose 済み snapshot) のスキーマ:
 
 ```json
 {
   "caption": "知らないと損する3つのコツ\n\n#tips #ライフハック",
   "scenes": [
     {
-      "location_ref": "home_office",
+      "identity": {
+        "character_refs": ["f1__office"],
+        "location_ref": "home_office",
+        "start_emotion": "焦り",
+        "camera_distance": "medium-close"
+      },
+      "annotation": {
+        "visual_intent_id": "talking_head_animated",
+        "duration_bucket": 5,
+        "motion_intensity": "medium"
+      },
       "background_prompt": "デスクに駆け寄るエンジニア cinematic lighting, shallow depth of field",
       "animation_prompt": "subject rushes to desk, opens laptop, leans back relieved",
-      "character_refs": ["f1__office"],
       "characters": [{ "name": "f1__office" }],
       "lipsync": true,
       "lines": [
@@ -217,7 +226,7 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 }
 ```
 
-`duration` は Stage 2 (TTS) が実音声長から書き込む派生値。Stage 1 抽象台本には書かない。
+`identity` は clip_library の hard match キー (= nested dict のみ。flat schema は撤去済み)。compose の `_derive_identity` が必ず派生し、`location_ref` / `start_emotion` 欠落は fail-fast する。`annotation` は analyze が best-effort で付与。abstract 台本 (= analyze 出力 / template) では `location_ref` / `camera_distance` が scene root に flat で入り、compose が `identity` に畳み込む。`duration` は Stage 2 (TTS) が実音声長から書き込む派生値。Stage 1 抽象台本には書かない。
 
 ロケ詳細 (= `locations/<id>.json`) のスキーマ:
 
@@ -241,15 +250,17 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 | `caption`  | string(必須) | SNS投稿用キャプション本文＋ハッシュタグ |
 | `scenes[]` | array(必須)  | シーン配列。各シーン=1Klingクリップ     |
 
-| シーン              | 説明                                                                                                                                                                                                      |
-| ------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `duration`          | シーン秒数。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では書かない                                                                                                                          |
-| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`location_ref` がある場合はロケ情報がプロンプト先頭に自動注入される                                                                                            |
-| `location_ref`      | グローバル `locations/<id>.json` のキー。ロケ整合性 (装飾/光/色/小物/カメラ距離) を自動注入                                                                                                               |
-| `animation_prompt`  | Kling V3用（英語推奨）。シーン全体の動きを1文で                                                                                                                                                           |
-| `character_refs`    | `characters/<base>/<wardrobe>.png` を参照。**解決済み ref** (例: `f1__office`) を入れる。衣装無しは `<base>` 単独 (= `base.png` を参照)。キャラ無しは `[]` を明示。既定は `config.DEFAULT_CHARACTER_REFS` |
-| `lipsync`           | 既定true。silent時は無視                                                                                                                                                                                  |
-| `lines[]`           | シーン内のセリフ配列                                                                                                                                                                                      |
+| シーン              | 説明                                                                                                                                                                                       |
+| ------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| `duration`          | シーン秒数。Stage 2 (TTS) が実音声長から自動算出する派生値。Stage 1 では書かない                                                                                                           |
+| `identity`          | clip_library の hard match キー (= nested dict)。`character_refs` / `location_ref` / `start_emotion` / `camera_distance`。compose が `_derive_identity` で必ず派生。flat schema は撤去済み |
+| `annotation`        | clip_library の soft rank メタ (= nested dict)。`visual_intent_id` / `duration_bucket` / `motion_intensity`。analyze が best-effort で付与、全 field optional                              |
+| `background_prompt` | Imagen用。被写体=日本語+スタイル修飾=英語。`identity.location_ref` のロケ情報がプロンプト先頭に自動注入される                                                                              |
+| `location_ref`      | abstract 台本では scene root に flat で入る (= analyze が `locations/` カタログから選定)。compose が `identity.location_ref` に畳み込む                                                    |
+| `animation_prompt`  | Kling V3用（英語推奨）。シーン全体の動きを1文で                                                                                                                                            |
+| `character_refs`    | composed では `identity.character_refs`。`characters/<base>/<wardrobe>.png` を参照する**解決済み ref** (例: `f1__office`)。衣装無しは `<base>` 単独。キャラ無し (背景のみ) は `[]`         |
+| `lipsync`           | 既定true。silent時は無視                                                                                                                                                                   |
+| `lines[]`           | シーン内のセリフ配列                                                                                                                                                                       |
 
 | ライン                | 説明                                                                                                                                                             |
 | --------------------- | ---------------------------------------------------------------------------------------------------------------------------------------------------------------- |

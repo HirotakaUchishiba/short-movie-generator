@@ -103,3 +103,18 @@ def delete_location(loc_id: str) -> bool:
         return False
     p.unlink()
     return True
+
+
+def build_location_catalog() -> list[dict]:
+    """登録済みロケ全件を analyze prompt 注入用の dict list で返す。
+
+    video_analyzer が Claude に「この集合から最近傍を選べ」と渡す catalog。
+    壊れた json は skip する (= 1 件の不正で analyze 全体を止めない)。
+    """
+    catalog: list[dict] = []
+    for loc_id in list_locations():
+        try:
+            catalog.append(load_location(loc_id).to_dict())
+        except (FileNotFoundError, json.JSONDecodeError):
+            continue
+    return catalog

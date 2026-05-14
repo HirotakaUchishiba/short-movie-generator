@@ -28,8 +28,10 @@ def _minimal_sp() -> dict:
         "caption": "x #y",
         "scenes": [
             {"duration": 3.0, "background_prompt": "bg",
-             "animation_prompt": "motion",
-             "lines": [{"text": "やばい", "start": 0.0, "end": 1.0}]},
+             "animation_prompt": "motion", "location_ref": "home_office",
+             "lines": [
+                 {"text": "やばい", "start": 0.0, "end": 1.0, "emotion": "焦り"},
+             ]},
         ],
     }
 

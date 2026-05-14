@@ -23,6 +23,7 @@ import atomic_assets
 import config
 import furigana_store
 from analyze import cache as _cache
+from analyze import location as loc_mod
 from analyze.intent_resolver import (
     SceneIntentAssignment,
     detect_novel_intent_candidates,
@@ -447,12 +448,17 @@ def run(
         # Step 1: visual_intents.yaml を catalog として Claude に渡し、
         # per-scene annotation を要求する。catalog ロードは SSOT
         # (= part_registry_loader 経由) なので、yaml drift しない。
+        # あわせて locations/ カタログを渡し、per-scene location_ref /
+        # camera_distance を Claude に選定させる (= analyze が identity の
+        # 必須入力を SSOT として産出する)。
         intent_catalog = load_intent_catalog()
+        location_catalog = loc_mod.build_location_catalog()
         _emit(on_progress, "phase_start", {
             "phase": "claude",
             "frame_count": len(frame_paths),
             "known_furigana_count": len(known_furigana),
             "intent_catalog_size": len(intent_catalog),
+            "location_catalog_size": len(location_catalog),
         })
         try:
             screenplay, claude_usage = build_screenplay(
@@ -465,6 +471,7 @@ def run(
                 known_furigana=known_furigana,
                 atomic_menu=atomic_assets.build_prompt_menu(),
                 intent_catalog=intent_catalog or None,
+                location_catalog=location_catalog or None,
             )
         except ScreenplayParseError as e:
             # Claude 課金は発生済みなので、parse 失敗でも usage を emit して

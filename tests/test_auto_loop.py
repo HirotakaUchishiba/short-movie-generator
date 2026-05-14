@@ -55,7 +55,10 @@ def _fake_screenplay() -> dict:
                 "duration": 3.0,
                 "background_prompt": "bg",
                 "animation_prompt": "motion",
-                "lines": [{"text": "hello", "start": 0.0, "end": 1.0}],
+                "location_ref": "home_office",
+                "lines": [
+                    {"text": "hello", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                ],
             },
         ],
     }

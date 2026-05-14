@@ -71,7 +71,12 @@ def test_run_pipeline_uses_snapshot_when_script_generated(tmp_project):
     }
     snapshot_body = {
         "caption": "edited via UI",
-        "scenes": [{"lines": [{"text": "edited"}]}],
+        "scenes": [
+            {
+                "location_ref": "home_office",
+                "lines": [{"text": "edited", "emotion": "中立"}],
+            },
+        ],
     }
     _write_template(sp_dir, "demo", template_body)
     _write_snapshot(ts_path, snapshot_body)

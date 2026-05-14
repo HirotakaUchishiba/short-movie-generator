@@ -50,11 +50,15 @@ def _seed_assets(isolated_assets) -> None:
 
 
 def _scene(prompt: str = "subject in office"):
-    return {
-        "characters": [{"name": "f1__office"}],
+    identity = {
         "character_refs": ["f1__office"],
         "location_ref": "home_office",
+        "start_emotion": "中立",
         "camera_distance": "medium-close",
+    }
+    return {
+        "characters": [{"name": "f1__office"}],
+        "identity": identity,
         "background_prompt": prompt,
         "lines": [{"text": "ok", "start": 0.0, "end": 1.0}],
     }

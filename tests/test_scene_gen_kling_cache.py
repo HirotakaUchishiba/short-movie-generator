@@ -48,12 +48,17 @@ def stub_pipeline(monkeypatch):
 
 def _scene(duration=4.5, animation_prompt="subject sits at desk",
            camera_distance="medium-close", location_ref="home_office"):
+    identity = {
+        "character_refs": ["f1__office"],
+        "location_ref": location_ref,
+        "start_emotion": "中立",
+        "camera_distance": camera_distance,
+    }
     return {
         "duration": duration,
         "animation_prompt": animation_prompt,
         "background_prompt": "subject in office",
-        "camera_distance": camera_distance,
-        "location_ref": location_ref,
+        "identity": identity,
         "lines": [{"text": "やったー", "start": 0.0, "end": 1.0}],
     }
 

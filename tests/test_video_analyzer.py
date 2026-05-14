@@ -174,7 +174,7 @@ def _build_with_catalog(tmp_path, body: dict, catalog):
 
 
 def test_build_screenplay_normalizes_valid_annotation(tmp_path) -> None:
-    """catalog にある id + 高 confidence は annotation がそのまま残る。"""
+    """catalog にある id + 全 field valid は annotation がそのまま残る。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -202,7 +202,7 @@ def test_build_screenplay_normalizes_valid_annotation(tmp_path) -> None:
 
 
 def test_build_screenplay_demotes_unknown_intent_id(tmp_path) -> None:
-    """catalog にない id は drop されるが、他フィールドは残る。"""
+    """catalog にない id は visual_intent_id のみ None になり、他フィールドは残る。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -220,12 +220,68 @@ def test_build_screenplay_demotes_unknown_intent_id(tmp_path) -> None:
     }
     result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
     ann = result["scenes"][0]["annotation"]
-    assert "visual_intent_id" not in ann
-    assert ann == {"duration_bucket": 10, "motion_intensity": "medium"}
+    # 未知 id は None に降格、annotation 自体は残る
+    assert ann == {
+        "visual_intent_id": None,
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+    }
+
+
+def test_build_screenplay_keeps_annotation_for_low_confidence(tmp_path) -> None:
+    """Phase 4: 低 confidence でも annotation は drop されず、id もそのまま残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "confidence": 0.1,  # 低 conf
+                "duration_bucket": 5,
+                "motion_intensity": "low",
+            },
+            "lines": [{"text": "test", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
+    ann = result["scenes"][0]["annotation"]
+    # 低 confidence でも visual_intent_id を維持する
+    assert ann == {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 5,
+        "motion_intensity": "low",
+    }
+
+
+def test_build_screenplay_partial_invalid_keeps_annotation(tmp_path) -> None:
+    """個別 field invalid は当該 field のみ None。annotation 全体は残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "duration_bucket": "five",  # 不正型
+                "motion_intensity": "extreme",  # enum 外
+            },
+            "lines": [{"text": "test", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
+    ann = result["scenes"][0]["annotation"]
+    assert ann == {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": None,
+        "motion_intensity": None,
+    }
 
 
 def test_build_screenplay_drops_empty_annotation(tmp_path) -> None:
-    """すべて drop される annotation は scene から key 自体を削除する。"""
+    """すべて invalid (全 field None) のときのみ scene から annotation key を削除。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -234,7 +290,6 @@ def test_build_screenplay_drops_empty_annotation(tmp_path) -> None:
             "animation_prompt": "m",
             "annotation": {
                 "visual_intent_id": "ghost",
-                "confidence": 0.1,  # 低 conf
                 "duration_bucket": "five",  # 不正型
                 "motion_intensity": "extreme",  # enum 外
             },
@@ -311,3 +366,157 @@ def test_build_screenplay_injects_catalog_into_prompt(tmp_path) -> None:
     assert "利用可能な visual intent 集合" in joined
     assert "talking_head_calm" in joined
     assert "reaction_surprise" in joined
+
+
+# ───────────── location_catalog wire (= analyze location 自動選定) ─────────────
+
+
+def _make_location_catalog():
+    """テスト用 location catalog (= 2 entry の最小集合)。"""
+    return [
+        {"id": "home_office", "decor": "北欧風オフィス", "lighting": "自然光",
+         "color_palette": "白基調", "props": "MacBook", "camera_distance": "medium-close"},
+        {"id": "warm_cafe", "decor": "暖色カフェ", "lighting": "間接照明",
+         "color_palette": "ブラウン", "props": "マグカップ", "camera_distance": "medium"},
+    ]
+
+
+def _build_with_location_catalog(tmp_path, body: dict, catalog):
+    """build_screenplay を mock claude + location_catalog で呼ぶ helper。"""
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        return video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            location_catalog=catalog,
+        )
+
+
+def test_build_screenplay_injects_location_catalog_into_prompt(tmp_path) -> None:
+    """location_catalog 指定時、user content に location 集合セクションが注入される。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "home_office", "camera_distance": "medium-close",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            location_catalog=_make_location_catalog(),
+        )
+    call_kwargs = mock_client.messages.stream.call_args.kwargs
+    user_text_blocks = [
+        b["text"] for b in call_kwargs["messages"][0]["content"]
+        if b.get("type") == "text"
+    ]
+    joined = "\n".join(user_text_blocks)
+    assert "利用可能な location 集合" in joined
+    assert "home_office" in joined
+    assert "warm_cafe" in joined
+
+
+def test_build_screenplay_keeps_valid_location(tmp_path) -> None:
+    """catalog にある location_ref + enum 内 camera_distance はそのまま残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "warm_cafe", "camera_distance": "medium",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    scene = result["scenes"][0]
+    assert scene["location_ref"] == "warm_cafe"
+    assert scene["camera_distance"] == "medium"
+
+
+def test_build_screenplay_corrects_unknown_location_ref(tmp_path) -> None:
+    """catalog に無い location_ref は catalog 先頭 (= 最近傍) に矯正される。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "nonexistent_loc", "camera_distance": "medium",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    # catalog 先頭 = home_office に矯正
+    assert result["scenes"][0]["location_ref"] == "home_office"
+
+
+def test_build_screenplay_corrects_missing_location_ref(tmp_path) -> None:
+    """location_ref が欠落していても catalog 先頭に矯正される (= compose fail-fast 防止)。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    assert result["scenes"][0]["location_ref"] == "home_office"
+
+
+def test_build_screenplay_drops_invalid_camera_distance(tmp_path) -> None:
+    """enum 外の camera_distance は drop される (= _derive_identity の fallback に委ねる)。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "home_office", "camera_distance": "extreme-zoom",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    assert "camera_distance" not in result["scenes"][0]
+
+
+def test_build_screenplay_skips_location_normalize_when_catalog_none(tmp_path) -> None:
+    """location_catalog 渡さない (= 旧経路) なら location 正規化は走らない。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "location_ref": "anything_goes",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        result, _u = video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            # location_catalog 未指定
+        )
+    # 正規化が走らないので生の location_ref がそのまま残る
+    assert result["scenes"][0]["location_ref"] == "anything_goes"

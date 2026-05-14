@@ -153,12 +153,11 @@ export interface Scene {
   background_prompt?: string;
   animation_prompt?: string;
   animation_style?: "subtle" | "standard" | "expressive";
-  character_refs?: string[];
   characters?: CharacterDef[];
-  location_ref?: string;
-  camera_distance?: CameraDistance;
   lipsync?: boolean;
   lines?: Line[];
+  identity?: Identity;
+  annotation?: Annotation;
   // クライアント側で付与される React key 用 ID。API 送信時に strip される。
   _uid?: string;
 }
@@ -484,9 +483,7 @@ export interface AbstractScreenplay {
 
 export interface AbstractDiagnostics {
   unmapped_speakers: string[];
-  scenes_without_location: number[];
   scenes_without_characters: number[];
-  invalid_camera_distance: { scene_idx: number; value: string }[];
   unknown_character_refs: {
     featured: string[];
     speaker_to_ref: { speaker: string; ref: string }[];

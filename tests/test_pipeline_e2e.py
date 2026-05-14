@@ -80,9 +80,9 @@ def env(tmp_path, monkeypatch):
 
 @pytest.fixture
 def stub_locations(monkeypatch):
-    """validator が location_ref を要求しないようにスタブ。"""
+    """minimal_screenplay が参照する location を validator が承認するようスタブ。"""
     from analyze import location as loc_mod
-    monkeypatch.setattr(loc_mod, "list_locations", lambda: [])
+    monkeypatch.setattr(loc_mod, "list_locations", lambda: ["home_office"])
 
 
 @pytest.fixture
@@ -93,17 +93,19 @@ def minimal_screenplay():
             {
                 "background_prompt": "test bg 1",
                 "animation_prompt": "test motion 1",
+                "location_ref": "home_office",
                 "lipsync": False,
                 "lines": [
-                    {"text": "こんにちは"},
+                    {"text": "こんにちは", "emotion": "中立"},
                 ],
             },
             {
                 "background_prompt": "test bg 2",
                 "animation_prompt": "test motion 2",
+                "location_ref": "home_office",
                 "lipsync": False,
                 "lines": [
-                    {"text": "さようなら"},
+                    {"text": "さようなら", "emotion": "中立"},
                 ],
             },
         ],

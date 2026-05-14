@@ -117,14 +117,6 @@ SCHEMA: dict = {
                             "フィールドで composed 結果には残らない"
                         ),
                     },
-                    "location_ref": {
-                        "type": "string",
-                        "description": (
-                            "グローバル locations/<id>.json のキーを参照。"
-                            "ロケの装飾・光源・色味・小道具・カメラ距離が "
-                            "background_prompt の先頭に自動注入される"
-                        ),
-                    },
                     "action_id": {
                         "type": "string",
                         "minLength": 1,
@@ -136,19 +128,9 @@ SCHEMA: dict = {
                             "存在チェックは _check_atomic_refs で実施"
                         ),
                     },
-                    "camera_distance": {
-                        "type": "string",
-                        "enum": ["close-up", "medium-close", "medium", "wide"],
-                        "description": "シーンごとのカメラ距離 override",
-                    },
                     "animation_prompt": {
                         "type": "string",
                         "description": "Kling V3に渡すモーションプロンプト（英語推奨、シーン全体の動き）",
-                    },
-                    "character_refs": {
-                        "type": "array",
-                        "items": {"type": "string", "minLength": 1},
-                        "description": "characters/<name>.png を参照。未指定なら config.DEFAULT_CHARACTER_REFS",
                     },
                     "lipsync": {
                         "type": "boolean",
@@ -177,6 +159,26 @@ SCHEMA: dict = {
                         "enum": ["subtle", "standard", "expressive"],
                         "description": "シーンごとのアニメーションの強さ",
                     },
+                    # ── abstract 入力フィールド (= analyze pipeline が産出) ──
+                    # compose が identity に畳み込む元データ。composed snapshot
+                    # では compose が pop するので残らないが、abstract / snapshot
+                    # 直書きの段階では scene root に存在する。
+                    "location_ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "locations/<id>.json のキー。analyze が catalog から "
+                            "選定し、compose が identity.location_ref に畳み込む"
+                        ),
+                    },
+                    "camera_distance": {
+                        "type": "string",
+                        "enum": ["close-up", "medium-close", "medium", "wide"],
+                        "description": (
+                            "シーンの寄り引き。analyze が選定し、compose が "
+                            "identity.camera_distance に畳み込む"
+                        ),
+                    },
                     # ───── Compositional Architecture (= clip library) ─────
                     # 詳細: docs/plannings/2026-05-10_compositional-architecture.md §3
                     # Phase 1 ではすべて optional。新スキーマで使う場合のみ指定する。
@@ -185,9 +187,8 @@ SCHEMA: dict = {
                         "additionalProperties": False,
                         "description": (
                             "Layer 1 (clip library) の hard match キー。"
-                            "新スキーマで使う場合は 4 フィールドすべて指定する。"
-                            "旧スキーマ (= scene.character_refs/location_ref/start_emotion を"
-                            "直接持つ) でも clip_library._scene_to_identity が変換する"
+                            "scene の identity 情報はこの入れ子のみで表現する "
+                            "(= flat schema は撤去済み)"
                         ),
                         "properties": {
                             "character_refs": {
@@ -230,30 +231,6 @@ SCHEMA: dict = {
                             },
                             "generation_seed": {"type": "integer"},
                         },
-                    },
-                    "start_emotion": {
-                        "type": "string",
-                        "description": (
-                            "scene 開始時のキャラ表情 (= bg.png 生成時点)。"
-                            "旧スキーマ互換用 (= identity が無い場合に直接読まれる)"
-                        ),
-                    },
-                    "visual_intent_id": {
-                        "type": "string",
-                        "description": (
-                            "annotation.visual_intent_id の旧スキーマ互換 alias。"
-                            "annotation 入れ子と併用しないこと"
-                        ),
-                    },
-                    "duration_bucket": {
-                        "type": "integer",
-                        "enum": [5, 10],
-                        "description": "annotation.duration_bucket の旧スキーマ互換 alias",
-                    },
-                    "motion_intensity": {
-                        "type": "string",
-                        "enum": ["low", "medium", "high"],
-                        "description": "annotation.motion_intensity の旧スキーマ互換 alias",
                     },
                     "scene_parts": {
                         "type": "object",
@@ -456,14 +433,31 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
     return errors
 
 
+def _resolve_scene_location_ref(scene: dict) -> str | None:
+    """scene から location_ref を解決する (= identity / scene root flat の順)。
+
+    concrete snapshot は identity.location_ref、abstract / snapshot 直書きは
+    scene root の flat location_ref を持つ。両形式を許容する。
+    """
+    ident = scene.get("identity")
+    if isinstance(ident, dict):
+        ref = ident.get("location_ref")
+        if isinstance(ref, str) and ref:
+            return ref
+    ref = scene.get("location_ref")
+    if isinstance(ref, str) and ref:
+        return ref
+    return None
+
+
 def _check_location_refs(screenplay: dict) -> list[str]:
-    """scenes[].location_ref が グローバル locations/<id>.json に存在するか検証。"""
+    """scene の location_ref が グローバル locations/<id>.json に存在するか検証。"""
     from analyze import location as loc_mod
     errors: list[str] = []
     available = set(loc_mod.list_locations())
     for s_idx, scene in enumerate(screenplay.get("scenes", [])):
-        ref = scene.get("location_ref")
-        if ref is None or ref == "":
+        ref = _resolve_scene_location_ref(scene)
+        if ref is None:
             continue
         if ref not in available:
             keys = ", ".join(sorted(available)) or "(空)"
@@ -479,7 +473,7 @@ def _check_character_refs(screenplay: dict) -> list[str]:
 
     対象:
         featured_characters / speaker_to_ref の値 / scene.character_selection /
-        scene.character_refs / line.speaker (speaker_N raw 匿名 ID は除外)
+        scene.identity.character_refs / line.speaker (speaker_N raw 匿名 ID は除外)
 
     characters/ が空 (= テスト環境) の場合は検証スキップする。
     Stage 3 (Imagen 背景合成) でファイル参照失敗するのを台本作成段階で弾くのが
@@ -520,12 +514,14 @@ def _check_character_refs(screenplay: dict) -> list[str]:
                         f"scenes/{s_idx}/character_selection: '{ref}' は "
                         f"characters/ に未定義",
                     )
-        for ref in scene.get("character_refs") or []:
-            if _missing(ref):
-                errors.append(
-                    f"scenes/{s_idx}/character_refs: '{ref}' は "
-                    f"characters/ に未定義",
-                )
+        ident = scene.get("identity")
+        if isinstance(ident, dict):
+            for ref in ident.get("character_refs") or []:
+                if _missing(ref):
+                    errors.append(
+                        f"scenes/{s_idx}/identity/character_refs: '{ref}' は "
+                        f"characters/ に未定義",
+                    )
         for l_idx, line in enumerate(scene.get("lines") or []):
             sp = line.get("speaker")
             if not isinstance(sp, str) or not sp:
@@ -666,32 +662,19 @@ def _check_part_registry(screenplay: dict) -> list[str]:
                         f"scenes/{s_idx}/annotation/visual_intent_id: "
                         f"'{vi}' は config/part_registry/visual_intents.yaml に未定義"
                     )
-        # 旧スキーマ alias (= flat field)
-        flat_vi = scene.get("visual_intent_id")
-        if isinstance(flat_vi, str):
-            if intent_ids and flat_vi not in intent_ids:
-                errors.append(
-                    f"scenes/{s_idx}/visual_intent_id: "
-                    f"'{flat_vi}' は config/part_registry/visual_intents.yaml に未定義"
-                )
 
         # G-10: visual_intent_id の valid_start_emotions 制約チェック。
-        # annotation 側を優先し、無ければ flat alias を見る。id 不正は上で
-        # reject 済みなので、ここでは valid id 前提で start_emotion だけ見る。
-        effective_vi = ann_vi if ann_vi is not None else flat_vi
-        if isinstance(effective_vi, str) and effective_vi in intent_valid_emotions:
-            valid_emos = intent_valid_emotions[effective_vi]
+        # id 不正は上で reject 済みなので、ここでは valid id 前提で
+        # start_emotion だけ見る。
+        if isinstance(ann_vi, str) and ann_vi in intent_valid_emotions:
+            valid_emos = intent_valid_emotions[ann_vi]
             if valid_emos:
                 start_emo = _resolve_scene_start_emotion(scene)
                 if start_emo is not None and start_emo not in valid_emos:
-                    field_path = (
-                        f"scenes/{s_idx}/annotation/visual_intent_id"
-                        if ann_vi is not None
-                        else f"scenes/{s_idx}/visual_intent_id"
-                    )
+                    field_path = f"scenes/{s_idx}/annotation/visual_intent_id"
                     allowed = ", ".join(sorted(valid_emos))
                     errors.append(
-                        f"{field_path}: '{effective_vi}' の valid_start_emotions "
+                        f"{field_path}: '{ann_vi}' の valid_start_emotions "
                         f"({allowed}) に start_emotion='{start_emo}' は含まれない"
                     )
 
@@ -713,16 +696,13 @@ def _load_visual_intent_valid_emotions() -> dict[str, frozenset[str]]:
 
 
 def _resolve_scene_start_emotion(scene: dict) -> str | None:
-    """scene から start_emotion を解決する (= identity / flat / lines[0].emotion の順)。"""
+    """scene から start_emotion を解決する (= identity / lines[0].emotion の順)。"""
 
     ident = scene.get("identity")
     if isinstance(ident, dict):
         emo = ident.get("start_emotion")
         if isinstance(emo, str) and emo:
             return emo
-    flat = scene.get("start_emotion")
-    if isinstance(flat, str) and flat:
-        return flat
     lines = scene.get("lines") or []
     for line in lines:
         if not isinstance(line, dict):

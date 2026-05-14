@@ -475,7 +475,12 @@ def _abstract_screenplay() -> dict:
         "scenes": [
             {
                 "duration": 5.0,
-                "location_ref": "home_office",
+                "identity": {
+                    "character_refs": ["f1"],
+                    "location_ref": "home_office",
+                    "start_emotion": "中立",
+                    "camera_distance": "medium-close",
+                },
                 "character_selection": ["f1"],
                 "animation_style": "subtle",
                 "lines": [
@@ -603,7 +608,12 @@ def test_character_refs_unknown_ref_rejected(monkeypatch) -> None:
     from analyze import character_meta as cmeta_mod
     monkeypatch.setattr(cmeta_mod, "list_character_images", lambda: ["f1"])
     sp = _valid_screenplay()
-    sp["scenes"][0]["character_refs"] = ["ghost"]
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["ghost"],
+        "location_ref": "home_office",
+        "start_emotion": "中立",
+        "camera_distance": "medium-close",
+    }
     with pytest.raises(ValueError, match="characters/"):
         screenplay_validator.validate_screenplay(sp)
 
@@ -732,13 +742,58 @@ def test_global_parts_optional_passes() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-def test_legacy_alias_fields_pass() -> None:
-    """新スキーマの annotation / identity を入れ子で持たず、旧 alias で書いたケース。"""
+def test_legacy_flat_start_emotion_rejected() -> None:
+    """flat schema 撤去 (Phase 3): scene.start_emotion は identity 入れ子のみ。"""
     sp = _valid_screenplay()
     sp["scenes"][0]["start_emotion"] = "中立"
+    with pytest.raises(ValueError, match="start_emotion"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_legacy_flat_visual_intent_id_rejected() -> None:
+    """flat schema 撤去 (Phase 3): scene.visual_intent_id は annotation 入れ子のみ。"""
+    sp = _valid_screenplay()
     sp["scenes"][0]["visual_intent_id"] = "talking_head_calm"
+    with pytest.raises(ValueError, match="visual_intent_id"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_legacy_flat_duration_bucket_rejected() -> None:
+    """flat schema 撤去 (Phase 3): scene.duration_bucket は annotation 入れ子のみ。"""
+    sp = _valid_screenplay()
     sp["scenes"][0]["duration_bucket"] = 5
+    with pytest.raises(ValueError, match="duration_bucket"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_legacy_flat_motion_intensity_rejected() -> None:
+    """flat schema 撤去 (Phase 3): scene.motion_intensity は annotation 入れ子のみ。"""
+    sp = _valid_screenplay()
     sp["scenes"][0]["motion_intensity"] = "low"
+    with pytest.raises(ValueError, match="motion_intensity"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_legacy_flat_character_refs_rejected() -> None:
+    """flat schema 撤去 (Phase 3): scene.character_refs は identity 入れ子のみ。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["character_refs"] = ["f1"]
+    with pytest.raises(ValueError, match="character_refs"):
+        screenplay_validator.validate_screenplay(sp)
+
+
+def test_abstract_flat_location_ref_accepted() -> None:
+    """location_ref は abstract 入力フィールドとして scene root に許容される
+    (= analyze が catalog から選定し compose が identity に畳み込む)。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["location_ref"] = "home_office"
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_abstract_flat_camera_distance_accepted() -> None:
+    """camera_distance は abstract 入力フィールドとして scene root に許容される。"""
+    sp = _valid_screenplay()
+    sp["scenes"][0]["camera_distance"] = "medium-close"
     screenplay_validator.validate_screenplay(sp)
 
 
@@ -884,20 +939,30 @@ def test_identity_missing_camera_distance_fails() -> None:
 def test_visual_intent_start_emotion_in_valid_set_passes() -> None:
     """talking_head_calm は valid_start_emotions=[中立, 喜び, 満足, 困惑]。中立 は OK。"""
     sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        "start_emotion": "中立",
+        "camera_distance": "medium-close",
+    }
     sp["scenes"][0]["annotation"] = {
         "visual_intent_id": "talking_head_calm",
     }
-    sp["scenes"][0]["start_emotion"] = "中立"
     screenplay_validator.validate_screenplay(sp)
 
 
 def test_visual_intent_start_emotion_outside_valid_set_fails() -> None:
     """talking_head_calm に start_emotion=怒り を入れると reject (= valid_start_emotions に無い)。"""
     sp = _valid_screenplay()
+    sp["scenes"][0]["identity"] = {
+        "character_refs": ["f1"],
+        "location_ref": "home_office",
+        "start_emotion": "怒り",
+        "camera_distance": "medium-close",
+    }
     sp["scenes"][0]["annotation"] = {
         "visual_intent_id": "talking_head_calm",
     }
-    sp["scenes"][0]["start_emotion"] = "怒り"
     with pytest.raises(ValueError, match="valid_start_emotions"):
         screenplay_validator.validate_screenplay(sp)
 
@@ -939,12 +1004,12 @@ def test_visual_intent_check_uses_identity_start_emotion_when_present() -> None:
         screenplay_validator.validate_screenplay(sp)
 
 
-def test_visual_intent_check_works_with_flat_alias() -> None:
-    """flat alias の visual_intent_id でも valid_start_emotions 制約が効く。"""
+def test_visual_intent_flat_alias_rejected() -> None:
+    """flat schema 撤去 (Phase 3): visual_intent_id の flat alias は schema reject。"""
     sp = _valid_screenplay()
     sp["scenes"][0]["visual_intent_id"] = "talking_head_calm"
     sp["scenes"][0]["start_emotion"] = "怒り"
-    with pytest.raises(ValueError, match="valid_start_emotions"):
+    with pytest.raises(ValueError, match="visual_intent_id|start_emotion"):
         screenplay_validator.validate_screenplay(sp)
 
 
