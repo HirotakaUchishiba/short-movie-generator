@@ -174,7 +174,7 @@ def _build_with_catalog(tmp_path, body: dict, catalog):
 
 
 def test_build_screenplay_normalizes_valid_annotation(tmp_path) -> None:
-    """catalog にある id + 高 confidence は annotation がそのまま残る。"""
+    """catalog にある id + 全 field valid は annotation がそのまま残る。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -202,7 +202,7 @@ def test_build_screenplay_normalizes_valid_annotation(tmp_path) -> None:
 
 
 def test_build_screenplay_demotes_unknown_intent_id(tmp_path) -> None:
-    """catalog にない id は drop されるが、他フィールドは残る。"""
+    """catalog にない id は visual_intent_id のみ None になり、他フィールドは残る。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -220,12 +220,68 @@ def test_build_screenplay_demotes_unknown_intent_id(tmp_path) -> None:
     }
     result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
     ann = result["scenes"][0]["annotation"]
-    assert "visual_intent_id" not in ann
-    assert ann == {"duration_bucket": 10, "motion_intensity": "medium"}
+    # 未知 id は None に降格、annotation 自体は残る
+    assert ann == {
+        "visual_intent_id": None,
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+    }
+
+
+def test_build_screenplay_keeps_annotation_for_low_confidence(tmp_path) -> None:
+    """Phase 4: 低 confidence でも annotation は drop されず、id もそのまま残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "confidence": 0.1,  # 低 conf
+                "duration_bucket": 5,
+                "motion_intensity": "low",
+            },
+            "lines": [{"text": "test", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
+    ann = result["scenes"][0]["annotation"]
+    # 低 confidence でも visual_intent_id を維持する
+    assert ann == {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 5,
+        "motion_intensity": "low",
+    }
+
+
+def test_build_screenplay_partial_invalid_keeps_annotation(tmp_path) -> None:
+    """個別 field invalid は当該 field のみ None。annotation 全体は残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "annotation": {
+                "visual_intent_id": "talking_head_calm",
+                "duration_bucket": "five",  # 不正型
+                "motion_intensity": "extreme",  # enum 外
+            },
+            "lines": [{"text": "test", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
+    ann = result["scenes"][0]["annotation"]
+    assert ann == {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": None,
+        "motion_intensity": None,
+    }
 
 
 def test_build_screenplay_drops_empty_annotation(tmp_path) -> None:
-    """すべて drop される annotation は scene から key 自体を削除する。"""
+    """すべて invalid (全 field None) のときのみ scene から annotation key を削除。"""
     body = {
         "caption": "x",
         "scenes": [{
@@ -234,7 +290,6 @@ def test_build_screenplay_drops_empty_annotation(tmp_path) -> None:
             "animation_prompt": "m",
             "annotation": {
                 "visual_intent_id": "ghost",
-                "confidence": 0.1,  # 低 conf
                 "duration_bucket": "five",  # 不正型
                 "motion_intensity": "extreme",  # enum 外
             },
