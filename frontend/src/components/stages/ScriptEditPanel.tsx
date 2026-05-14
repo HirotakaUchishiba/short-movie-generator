@@ -5,6 +5,7 @@ import type {
   AbstractDiagnostics,
   AbstractScreenplay,
   AnalyzeJobDetail,
+  SpeakerProfile,
 } from "../../types";
 import { freshUid } from "../../uid";
 import { GlobalPartsEditor } from "./GlobalPartsEditor";
@@ -329,6 +330,7 @@ export default function ScriptEditPanel({
               : []
           }
           isExplicit={Array.isArray(abstract.featured_characters)}
+          analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
           onChange={(next) => {
             setAbstract({ ...abstract, featured_characters: next });
             setDirty(true);
@@ -345,6 +347,8 @@ export default function ScriptEditPanel({
         <SpeakerMappingSection
           rawSpeakers={collectRawSpeakers(abstract)}
           allRefs={characterRefs}
+          profiles={abstract.speaker_profiles ?? {}}
+          analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
           mapping={
             (abstract.speaker_to_ref as Record<string, string> | undefined) ??
             {}
@@ -808,6 +812,18 @@ function collectRawSpeakers(
   }));
 }
 
+/**
+ * analyze が speaker_profiles を産出したか (= casting 検出を実行したか)。
+ * featured_characters / speaker_to_ref が「analyze 推定」由来であることを
+ * 示すバッジの表示条件に使う。
+ */
+export function hasAnalyzeSpeakerProfiles(
+  abstract: AbstractScreenplay,
+): boolean {
+  const profiles = abstract.speaker_profiles;
+  return !!profiles && Object.keys(profiles).length > 0;
+}
+
 // ─── 被写体 (base) × 衣装 (wardrobe) の解決ヘルパー ─────────
 
 /** resolved id (= `"<base>__<wardrobe>"` or `"<base>"`) を分解する。 */
@@ -1042,6 +1058,18 @@ function BaseCharacterCard({
   );
 }
 
+/** analyze が推定した初期値であることを示す小バッジ。 */
+function AnalyzeSuggestedBadge() {
+  return (
+    <span
+      className="text-[10px] text-violet-300 bg-violet-500/10 rounded px-1.5 py-0.5"
+      title="analyze が参考動画から推定した初期値です。必要なら修正してください"
+    >
+      ✨ analyze 推定
+    </span>
+  );
+}
+
 /**
  * analyze で検出された匿名 speaker_N を実 character ref にマッピングする。
  * ここを 1 回設定するだけで、各 line の話者と各シーンの登場人物が compose で
@@ -1051,11 +1079,17 @@ function SpeakerMappingSection({
   rawSpeakers,
   allRefs,
   mapping,
+  profiles,
+  analyzeSuggested,
   onChange,
 }: {
   rawSpeakers: { id: string; lines: number; scenes: number }[];
   allRefs: string[];
   mapping: Record<string, string>;
+  /** analyze が検出した speaker ごとの profile (= マッピング判断のヒント) */
+  profiles: Record<string, SpeakerProfile>;
+  /** analyze が casting 検出を実行したか (= 「✨ analyze 推定」バッジ表示) */
+  analyzeSuggested: boolean;
   onChange: (speaker: string, ref: string | null) => void;
 }) {
   const baseGroups = useMemo(() => groupByBase(allRefs), [allRefs]);
@@ -1075,6 +1109,7 @@ function SpeakerMappingSection({
           検出された話者 {rawSpeakers.length} 名 — 各話者を演じる被写体を選択
           (衣装はカード内で切替)
         </span>
+        {analyzeSuggested && <AnalyzeSuggestedBadge />}
       </div>
       <div className="space-y-3">
         {rawSpeakers.map((sp) => {
@@ -1082,6 +1117,12 @@ function SpeakerMappingSection({
           const selectedBase = selectedRef ? splitRef(selectedRef).base : "";
           const selectedWardrobe = selectedRef
             ? splitRef(selectedRef).wardrobe
+            : "";
+          const prof = profiles[sp.id];
+          const profileHint = prof
+            ? [prof.gender, prof.age_range, prof.description]
+                .filter((x): x is string => !!x)
+                .join(" / ")
             : "";
           return (
             <div key={sp.id} className="bg-slate-800/40 rounded p-2 space-y-2">
@@ -1103,6 +1144,14 @@ function SpeakerMappingSection({
                   </button>
                 )}
               </div>
+              {profileHint && (
+                <div
+                  className="text-[11px] text-violet-300/80"
+                  title="analyze が参考動画から推定した話者の特徴"
+                >
+                  ✨ {profileHint}
+                </div>
+              )}
               <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
                 {[...baseGroups.entries()].map(([baseId, wardrobes]) => {
                   const active = baseId === selectedBase;
@@ -1138,6 +1187,7 @@ function FeaturedCharactersSection({
   allRefs,
   selected,
   isExplicit,
+  analyzeSuggested,
   onChange,
   onClearExplicit,
 }: {
@@ -1146,6 +1196,8 @@ function FeaturedCharactersSection({
   selected: string[];
   /** abstract.featured_characters が明示的に書かれているか */
   isExplicit: boolean;
+  /** analyze が casting 検出を実行したか (= 「✨ analyze 推定」バッジ表示) */
+  analyzeSuggested: boolean;
   onChange: (next: string[]) => void;
   onClearExplicit: () => void;
 }) {
@@ -1186,6 +1238,7 @@ function FeaturedCharactersSection({
           被写体ごとに 1 衣装を選択 ({selected.length} 人)
           {!isExplicit && <span className="ml-2 text-amber-400">(未指定)</span>}
         </span>
+        {analyzeSuggested && isExplicit && <AnalyzeSuggestedBadge />}
         {isExplicit && (
           <button
             type="button"

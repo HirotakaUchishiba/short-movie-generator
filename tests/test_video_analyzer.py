@@ -520,3 +520,170 @@ def test_build_screenplay_skips_location_normalize_when_catalog_none(tmp_path) -
         )
     # 正規化が走らないので生の location_ref がそのまま残る
     assert result["scenes"][0]["location_ref"] == "anything_goes"
+
+
+# ───────────── character_catalog wire (= analyze casting 提案) ─────────────
+
+
+def _make_character_catalog():
+    """テスト用 character catalog (= 2 base の最小集合)。"""
+    return [
+        {"id": "f1", "appearance": {"gender": "female", "age_range": "20s"},
+         "refs": ["f1", "f1__office"]},
+        {"id": "m1", "appearance": {"gender": "male"},
+         "refs": ["m1", "m1__suit"]},
+    ]
+
+
+def _build_with_character_catalog(tmp_path, body: dict, catalog):
+    """build_screenplay を mock claude + character_catalog で呼ぶ helper。"""
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        return video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            character_catalog=catalog,
+        )
+
+
+def test_build_screenplay_injects_character_catalog_into_prompt(tmp_path) -> None:
+    """character_catalog 指定時、user content に character 集合セクションが注入される。"""
+    body = {"caption": "x", "scenes": [{"lines": [
+        {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}]}]}
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            character_catalog=_make_character_catalog(),
+        )
+    call_kwargs = mock_client.messages.stream.call_args.kwargs
+    user_text_blocks = [
+        b["text"] for b in call_kwargs["messages"][0]["content"]
+        if b.get("type") == "text"
+    ]
+    joined = "\n".join(user_text_blocks)
+    assert "利用可能な character 集合" in joined
+    assert "f1__office" in joined
+    assert "m1__suit" in joined
+
+
+def test_build_screenplay_passes_speaker_profiles_through(tmp_path) -> None:
+    """speaker_profiles はそのまま素通しされる。"""
+    body = {
+        "caption": "x",
+        "speaker_profiles": {
+            "speaker_1": {"gender": "female", "age_range": "20s",
+                          "description": "明るく早口"},
+        },
+        "scenes": [{"lines": [
+            {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+             "speaker": "speaker_1"}]}],
+    }
+    result, _u = _build_with_character_catalog(
+        tmp_path, body, _make_character_catalog())
+    assert result["speaker_profiles"]["speaker_1"]["gender"] == "female"
+
+
+def test_build_screenplay_keeps_valid_casting(tmp_path) -> None:
+    """catalog の refs に在る featured_characters / speaker_to_ref は残る。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["f1__office"],
+        "speaker_to_ref": {"speaker_1": "f1__office"},
+        "scenes": [{"lines": [
+            {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+             "speaker": "speaker_1"}]}],
+    }
+    result, _u = _build_with_character_catalog(
+        tmp_path, body, _make_character_catalog())
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+    assert result["featured_characters"] == ["f1__office"]
+
+
+def test_build_screenplay_drops_unknown_casting_refs(tmp_path) -> None:
+    """catalog の refs に無い ref は drop され、未マッチ speaker は省略される。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["f1__office", "ghost__nope"],
+        "speaker_to_ref": {"speaker_1": "f1__office", "speaker_2": "ghost__nope"},
+        "scenes": [{"lines": [
+            {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+             "speaker": "speaker_1"}]}],
+    }
+    result, _u = _build_with_character_catalog(
+        tmp_path, body, _make_character_catalog())
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+    assert result["featured_characters"] == ["f1__office"]
+
+
+def test_build_screenplay_unions_featured_with_speaker_to_ref(tmp_path) -> None:
+    """featured_characters は speaker_to_ref の値との和集合 (順序維持) になる。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["f1__office"],
+        "speaker_to_ref": {"speaker_1": "f1__office", "speaker_2": "m1__suit"},
+        "scenes": [{"lines": [
+            {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+             "speaker": "speaker_1"}]}],
+    }
+    result, _u = _build_with_character_catalog(
+        tmp_path, body, _make_character_catalog())
+    # m1__suit は speaker_to_ref にしか無いが featured にも入る
+    assert result["featured_characters"] == ["f1__office", "m1__suit"]
+
+
+def test_build_screenplay_drops_empty_casting(tmp_path) -> None:
+    """全 ref が invalid なら featured_characters / speaker_to_ref キーごと消える。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["ghost__a"],
+        "speaker_to_ref": {"speaker_1": "ghost__b"},
+        "scenes": [{"lines": [
+            {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}]}],
+    }
+    result, _u = _build_with_character_catalog(
+        tmp_path, body, _make_character_catalog())
+    assert "speaker_to_ref" not in result
+    assert "featured_characters" not in result
+
+
+def test_build_screenplay_skips_casting_normalize_when_catalog_none(tmp_path) -> None:
+    """character_catalog 渡さない (= 旧経路) なら casting 正規化は走らない。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["anything_goes"],
+        "speaker_to_ref": {"speaker_1": "whatever"},
+        "scenes": [{
+            "background_prompt": "b", "animation_prompt": "m",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        result, _u = video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            # character_catalog 未指定
+        )
+    # 正規化が走らないので生の値がそのまま残る
+    assert result["featured_characters"] == ["anything_goes"]
+    assert result["speaker_to_ref"] == {"speaker_1": "whatever"}

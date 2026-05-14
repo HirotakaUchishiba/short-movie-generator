@@ -108,3 +108,68 @@ def test_delete_character_meta(isolated_characters):
     )
     assert isolated_characters.delete_character_meta("a") is True
     assert isolated_characters.delete_character_meta("a") is False
+
+
+def test_appearance_round_trip(isolated_characters):
+    """appearance は voice.json に保存/読込される。"""
+    meta = isolated_characters.CharacterMeta(
+        id="f1",
+        voice_overrides={"voice_id": "v1"},
+        appearance={"gender": "female", "age_range": "20s",
+                    "description": "黒髪ロング"},
+    )
+    isolated_characters.save_character_meta(meta)
+    loaded = isolated_characters.load_character_meta("f1")
+    assert loaded.appearance == {
+        "gender": "female", "age_range": "20s", "description": "黒髪ロング",
+    }
+
+
+def test_appearance_omitted_when_empty(isolated_characters):
+    """appearance が空なら to_dict / voice.json に含まれない。"""
+    import json
+    meta = isolated_characters.CharacterMeta(id="f1")
+    assert "appearance" not in meta.to_dict()
+    isolated_characters.save_character_meta(meta)
+    p = isolated_characters.CHARACTERS_DIR / "f1" / "voice.json"
+    assert "appearance" not in json.loads(p.read_text())
+
+
+def test_build_character_catalog_groups_by_base(isolated_characters):
+    """build_character_catalog は画像を持つ resolved id を base 単位にまとめ、
+    base の appearance を添える。"""
+    base = isolated_characters.CHARACTERS_DIR / "f1"
+    base.mkdir(parents=True)
+    (base / "base.png").write_bytes(b"x")
+    (base / "office.png").write_bytes(b"x")
+    isolated_characters.save_character_meta(isolated_characters.CharacterMeta(
+        id="f1", appearance={"gender": "female"},
+    ))
+    m1 = isolated_characters.CHARACTERS_DIR / "m1"
+    m1.mkdir(parents=True)
+    (m1 / "base.png").write_bytes(b"x")
+
+    catalog = isolated_characters.build_character_catalog()
+    assert [c["id"] for c in catalog] == ["f1", "m1"]
+    assert catalog[0]["appearance"] == {"gender": "female"}
+    assert catalog[0]["refs"] == ["f1", "f1__office"]
+    # appearance 未設定の m1 は空 dict
+    assert catalog[1]["appearance"] == {}
+    assert catalog[1]["refs"] == ["m1"]
+
+
+def test_build_character_catalog_empty_when_no_characters(isolated_characters):
+    isolated_characters.CHARACTERS_DIR.mkdir(parents=True, exist_ok=True)
+    assert isolated_characters.build_character_catalog() == []
+
+
+def test_build_character_catalog_skips_broken_voice_json(isolated_characters):
+    """壊れた voice.json は appearance 空で続行する。"""
+    base = isolated_characters.CHARACTERS_DIR / "f1"
+    base.mkdir(parents=True)
+    (base / "base.png").write_bytes(b"x")
+    (base / "voice.json").write_text("{ broken json")
+    catalog = isolated_characters.build_character_catalog()
+    assert len(catalog) == 1
+    assert catalog[0]["id"] == "f1"
+    assert catalog[0]["appearance"] == {}

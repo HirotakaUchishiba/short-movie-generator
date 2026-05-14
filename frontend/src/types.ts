@@ -466,6 +466,12 @@ export interface GlobalParts {
   bgm?: GlobalPartsBgm;
 }
 
+export interface SpeakerProfile {
+  gender?: string;
+  age_range?: string;
+  description?: string;
+}
+
 export interface AbstractScreenplay {
   caption: string;
   scenes: AbstractScene[];
@@ -475,6 +481,9 @@ export interface AbstractScreenplay {
   // analyze 時に Claude が割り振った匿名 speaker_N を実 character ref に
   // マッピングする辞書。compose で line.speaker と scene の登場人物を解決する。
   speaker_to_ref?: Record<string, string>;
+  // analyze が参考動画から検出した speaker ごとの profile (= 話者マッピング
+  // UI のヒント)。gender / age_range / description はすべて best-effort。
+  speaker_profiles?: Record<string, SpeakerProfile>;
   // Compositional Architecture: screenplay-wide parts (= UI 3 で編集対象)
   global_parts?: GlobalParts;
   // future-proof で broadly に許容する。

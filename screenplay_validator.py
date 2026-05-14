@@ -48,6 +48,23 @@ SCHEMA: dict = {
                 "line.voice_overrides の解決に使う"
             ),
         },
+        "speaker_profiles": {
+            "type": "object",
+            "additionalProperties": {
+                "type": "object",
+                "properties": {
+                    "gender": {"type": "string"},
+                    "age_range": {"type": "string"},
+                    "description": {"type": "string"},
+                },
+            },
+            "description": (
+                "anonymous speaker (= speaker_1, ...) → profile の dict。"
+                "analyze が参考動画から検出する gender / age_range / description。"
+                "Stage 1 の話者マッピング UI でヒントとして表示される。"
+                "すべて best-effort・optional"
+            ),
+        },
         "subtitle_y_from_bottom": {
             "type": "integer",
             "minimum": 0,

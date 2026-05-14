@@ -36,6 +36,10 @@ BASE_WARDROBE_SEP = "__"
 class CharacterMeta:
     id: str  # base id (= voice 単位)
     voice_overrides: dict[str, Any] = field(default_factory=dict)
+    # appearance: analyze の speaker_profiles とマッチさせる外見ヒント
+    # (gender / age_range / description)。すべて optional。無くても casting
+    # 提案は動く (= analyze は appearance 不在のキャラも候補にする)。
+    appearance: dict[str, Any] = field(default_factory=dict)
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -50,13 +54,19 @@ class CharacterMeta:
         return errors
 
     def to_dict(self) -> dict:
-        return {"id": self.id, "voice_overrides": dict(self.voice_overrides)}
+        d: dict = {"id": self.id, "voice_overrides": dict(self.voice_overrides)}
+        # appearance は optional。空なら voice.json に書かない (= 既存ファイルを
+        # 不要な空 dict で汚さない)。
+        if self.appearance:
+            d["appearance"] = dict(self.appearance)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "CharacterMeta":
         return cls(
             id=d.get("id", ""),
             voice_overrides=dict(d.get("voice_overrides") or {}),
+            appearance=dict(d.get("appearance") or {}),
         )
 
 
@@ -205,3 +215,33 @@ def delete_character_meta(char_id: str) -> bool:
         flat.unlink()
         is_deleted = True
     return is_deleted
+
+
+def build_character_catalog() -> list[dict]:
+    """利用可能なキャラ全件を analyze prompt 注入用の dict list で返す。
+
+    video_analyzer が Claude に「speaker_profiles をこの集合と突合せて
+    featured_characters / speaker_to_ref を提案せよ」と渡す catalog。
+    画像を持つ resolved id を base 単位にまとめ、base の appearance を添える。
+    壊れた voice.json は appearance 空で続行する (= 1 件の不正で止めない)。
+
+    各 entry:
+      ``{"id": <base>, "appearance": {...}, "refs": [<resolved id>, ...]}``
+    """
+    by_base: dict[str, list[str]] = {}
+    for resolved in list_character_images():
+        base, _ = split_resolved_id(resolved)
+        by_base.setdefault(base, []).append(resolved)
+
+    catalog: list[dict] = []
+    for base_id in sorted(by_base):
+        try:
+            appearance = load_character_meta(base_id).appearance
+        except (json.JSONDecodeError, ValueError):
+            appearance = {}
+        catalog.append({
+            "id": base_id,
+            "appearance": appearance,
+            "refs": sorted(by_base[base_id]),
+        })
+    return catalog
