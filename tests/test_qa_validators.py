@@ -191,6 +191,29 @@ def test_character_drift_skipped_when_no_clip(tmp_path):
     assert "skipped" in results[0].reason or "unavailable" in results[0].reason
 
 
+def test_character_drift_reads_refs_from_nested_identity(tmp_path):
+    """character_refs は nested identity から読む (= flat schema 撤去後)。"""
+    (tmp_path / "kling_0.mp4").write_bytes(b"x")
+    from qa.validators import character_drift
+    seen_refs: list = []
+
+    def _spy(refs):
+        seen_refs.append(list(refs))
+        return []  # 空 → scene を skip (= frame 抽出まで進まない)
+
+    with patch.object(character_drift, "_load_clip_model",
+                      return_value=object()), \
+         patch.object(character_drift, "_resolve_character_ref_paths",
+                      side_effect=_spy):
+        character_drift.check_character_drift(
+            str(tmp_path),
+            screenplay={"scenes": [
+                {"identity": {"character_refs": ["f1__office"]}},
+            ]},
+        )
+    assert seen_refs == [["f1__office"]]
+
+
 def test_lipsync_quality_skipped_without_dependencies(tmp_path):
     (tmp_path / "scene_0.mp4").write_bytes(b"x")
     from qa.validators import lipsync_quality

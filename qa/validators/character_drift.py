@@ -131,7 +131,8 @@ def check_character_drift(
                 continue
             s_idx = int(m.group(1))
             scene = scenes[s_idx] if s_idx < len(scenes) else None
-            refs = (scene or {}).get("character_refs") or []
+            identity = (scene or {}).get("identity") or {}
+            refs = identity.get("character_refs") or []
             ref_paths = _resolve_character_ref_paths(refs)
             if not ref_paths:
                 # キャラ無しシーンは判定 skip (= 背景のみ)
