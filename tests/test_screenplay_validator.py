@@ -782,20 +782,19 @@ def test_legacy_flat_character_refs_rejected() -> None:
         screenplay_validator.validate_screenplay(sp)
 
 
-def test_legacy_flat_location_ref_rejected() -> None:
-    """flat schema 撤去 (Phase 3): scene.location_ref は identity 入れ子のみ。"""
+def test_abstract_flat_location_ref_accepted() -> None:
+    """location_ref は abstract 入力フィールドとして scene root に許容される
+    (= analyze が catalog から選定し compose が identity に畳み込む)。"""
     sp = _valid_screenplay()
     sp["scenes"][0]["location_ref"] = "home_office"
-    with pytest.raises(ValueError, match="location_ref"):
-        screenplay_validator.validate_screenplay(sp)
+    screenplay_validator.validate_screenplay(sp)
 
 
-def test_legacy_flat_camera_distance_rejected() -> None:
-    """flat schema 撤去 (Phase 3): scene.camera_distance は identity 入れ子のみ。"""
+def test_abstract_flat_camera_distance_accepted() -> None:
+    """camera_distance は abstract 入力フィールドとして scene root に許容される。"""
     sp = _valid_screenplay()
     sp["scenes"][0]["camera_distance"] = "medium-close"
-    with pytest.raises(ValueError, match="camera_distance"):
-        screenplay_validator.validate_screenplay(sp)
+    screenplay_validator.validate_screenplay(sp)
 
 
 # ───── _check_part_registry (= part_registry yaml 整合性チェック) ─────

@@ -75,3 +75,32 @@ def test_load_fills_id_when_missing(isolated_locations, tmp_path):
     loc = isolated_locations.load_location("abc")
     assert loc.id == "abc"
     assert loc.decor == "X"
+
+
+def test_build_location_catalog_returns_full_dicts(isolated_locations):
+    """build_location_catalog は全ロケを id + 属性付き dict list で返す。"""
+    isolated_locations.save_location(isolated_locations.Location(
+        id="home_office", decor="北欧風", camera_distance="medium-close",
+    ))
+    isolated_locations.save_location(isolated_locations.Location(
+        id="warm_cafe", decor="暖色カフェ", camera_distance="medium",
+    ))
+    catalog = isolated_locations.build_location_catalog()
+    assert [c["id"] for c in catalog] == ["home_office", "warm_cafe"]
+    assert catalog[0]["decor"] == "北欧風"
+    assert catalog[0]["camera_distance"] == "medium-close"
+
+
+def test_build_location_catalog_empty_when_no_locations(isolated_locations):
+    """ロケが 1 件も無ければ空 list を返す。"""
+    assert isolated_locations.build_location_catalog() == []
+
+
+def test_build_location_catalog_skips_broken_json(isolated_locations, tmp_path):
+    """壊れた json は skip し、正常なロケだけ返す。"""
+    isolated_locations.save_location(isolated_locations.Location(id="good"))
+    bad = tmp_path / "locations" / "broken.json"
+    with open(bad, "w") as f:
+        f.write("{ not valid json")
+    catalog = isolated_locations.build_location_catalog()
+    assert [c["id"] for c in catalog] == ["good"]

@@ -159,6 +159,26 @@ SCHEMA: dict = {
                         "enum": ["subtle", "standard", "expressive"],
                         "description": "シーンごとのアニメーションの強さ",
                     },
+                    # ── abstract 入力フィールド (= analyze pipeline が産出) ──
+                    # compose が identity に畳み込む元データ。composed snapshot
+                    # では compose が pop するので残らないが、abstract / snapshot
+                    # 直書きの段階では scene root に存在する。
+                    "location_ref": {
+                        "type": "string",
+                        "minLength": 1,
+                        "description": (
+                            "locations/<id>.json のキー。analyze が catalog から "
+                            "選定し、compose が identity.location_ref に畳み込む"
+                        ),
+                    },
+                    "camera_distance": {
+                        "type": "string",
+                        "enum": ["close-up", "medium-close", "medium", "wide"],
+                        "description": (
+                            "シーンの寄り引き。analyze が選定し、compose が "
+                            "identity.camera_distance に畳み込む"
+                        ),
+                    },
                     # ───── Compositional Architecture (= clip library) ─────
                     # 詳細: docs/plannings/2026-05-10_compositional-architecture.md §3
                     # Phase 1 ではすべて optional。新スキーマで使う場合のみ指定する。
@@ -413,22 +433,36 @@ def _check_line_bounds(screenplay: dict) -> list[str]:
     return errors
 
 
+def _resolve_scene_location_ref(scene: dict) -> str | None:
+    """scene から location_ref を解決する (= identity / scene root flat の順)。
+
+    concrete snapshot は identity.location_ref、abstract / snapshot 直書きは
+    scene root の flat location_ref を持つ。両形式を許容する。
+    """
+    ident = scene.get("identity")
+    if isinstance(ident, dict):
+        ref = ident.get("location_ref")
+        if isinstance(ref, str) and ref:
+            return ref
+    ref = scene.get("location_ref")
+    if isinstance(ref, str) and ref:
+        return ref
+    return None
+
+
 def _check_location_refs(screenplay: dict) -> list[str]:
-    """scenes[].identity.location_ref が グローバル locations/<id>.json に存在するか検証。"""
+    """scene の location_ref が グローバル locations/<id>.json に存在するか検証。"""
     from analyze import location as loc_mod
     errors: list[str] = []
     available = set(loc_mod.list_locations())
     for s_idx, scene in enumerate(screenplay.get("scenes", [])):
-        ident = scene.get("identity")
-        if not isinstance(ident, dict):
-            continue
-        ref = ident.get("location_ref")
-        if ref is None or ref == "":
+        ref = _resolve_scene_location_ref(scene)
+        if ref is None:
             continue
         if ref not in available:
             keys = ", ".join(sorted(available)) or "(空)"
             errors.append(
-                f"scenes/{s_idx}/identity/location_ref: '{ref}' は locations/ に未定義 "
+                f"scenes/{s_idx}/location_ref: '{ref}' は locations/ に未定義 "
                 f"(定義済み: {keys})"
             )
     return errors

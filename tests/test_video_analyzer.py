@@ -366,3 +366,157 @@ def test_build_screenplay_injects_catalog_into_prompt(tmp_path) -> None:
     assert "利用可能な visual intent 集合" in joined
     assert "talking_head_calm" in joined
     assert "reaction_surprise" in joined
+
+
+# ───────────── location_catalog wire (= analyze location 自動選定) ─────────────
+
+
+def _make_location_catalog():
+    """テスト用 location catalog (= 2 entry の最小集合)。"""
+    return [
+        {"id": "home_office", "decor": "北欧風オフィス", "lighting": "自然光",
+         "color_palette": "白基調", "props": "MacBook", "camera_distance": "medium-close"},
+        {"id": "warm_cafe", "decor": "暖色カフェ", "lighting": "間接照明",
+         "color_palette": "ブラウン", "props": "マグカップ", "camera_distance": "medium"},
+    ]
+
+
+def _build_with_location_catalog(tmp_path, body: dict, catalog):
+    """build_screenplay を mock claude + location_catalog で呼ぶ helper。"""
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        return video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            location_catalog=catalog,
+        )
+
+
+def test_build_screenplay_injects_location_catalog_into_prompt(tmp_path) -> None:
+    """location_catalog 指定時、user content に location 集合セクションが注入される。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "home_office", "camera_distance": "medium-close",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            location_catalog=_make_location_catalog(),
+        )
+    call_kwargs = mock_client.messages.stream.call_args.kwargs
+    user_text_blocks = [
+        b["text"] for b in call_kwargs["messages"][0]["content"]
+        if b.get("type") == "text"
+    ]
+    joined = "\n".join(user_text_blocks)
+    assert "利用可能な location 集合" in joined
+    assert "home_office" in joined
+    assert "warm_cafe" in joined
+
+
+def test_build_screenplay_keeps_valid_location(tmp_path) -> None:
+    """catalog にある location_ref + enum 内 camera_distance はそのまま残る。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "warm_cafe", "camera_distance": "medium",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    scene = result["scenes"][0]
+    assert scene["location_ref"] == "warm_cafe"
+    assert scene["camera_distance"] == "medium"
+
+
+def test_build_screenplay_corrects_unknown_location_ref(tmp_path) -> None:
+    """catalog に無い location_ref は catalog 先頭 (= 最近傍) に矯正される。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "nonexistent_loc", "camera_distance": "medium",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    # catalog 先頭 = home_office に矯正
+    assert result["scenes"][0]["location_ref"] == "home_office"
+
+
+def test_build_screenplay_corrects_missing_location_ref(tmp_path) -> None:
+    """location_ref が欠落していても catalog 先頭に矯正される (= compose fail-fast 防止)。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    assert result["scenes"][0]["location_ref"] == "home_office"
+
+
+def test_build_screenplay_drops_invalid_camera_distance(tmp_path) -> None:
+    """enum 外の camera_distance は drop される (= _derive_identity の fallback に委ねる)。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "home_office", "camera_distance": "extreme-zoom",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    result, _u = _build_with_location_catalog(
+        tmp_path, body, _make_location_catalog(),
+    )
+    assert "camera_distance" not in result["scenes"][0]
+
+
+def test_build_screenplay_skips_location_normalize_when_catalog_none(tmp_path) -> None:
+    """location_catalog 渡さない (= 旧経路) なら location 正規化は走らない。"""
+    body = {
+        "caption": "x",
+        "scenes": [{
+            "duration": 5.0,
+            "background_prompt": "b",
+            "animation_prompt": "m",
+            "location_ref": "anything_goes",
+            "lines": [{"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立"}],
+        }],
+    }
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        result, _u = video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            # location_catalog 未指定
+        )
+    # 正規化が走らないので生の location_ref がそのまま残る
+    assert result["scenes"][0]["location_ref"] == "anything_goes"
