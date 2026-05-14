@@ -483,9 +483,7 @@ export interface AbstractScreenplay {
 
 export interface AbstractDiagnostics {
   unmapped_speakers: string[];
-  scenes_without_location: number[];
   scenes_without_characters: number[];
-  invalid_camera_distance: { scene_idx: number; value: string }[];
   unknown_character_refs: {
     featured: string[];
     speaker_to_ref: { speaker: string; ref: string }[];

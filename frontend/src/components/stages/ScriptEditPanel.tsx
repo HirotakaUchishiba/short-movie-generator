@@ -932,11 +932,7 @@ function computeDiagnostics(
 
   return {
     unmapped_speakers: [...unmapped].sort(),
-    // location_ref / camera_distance は analyze が SSOT として valid 値を必ず
-    // 産出するため、これらの診断は不要 (= 型互換のため空配列のみ返す)。
-    scenes_without_location: [],
     scenes_without_characters: scenesWithoutCharacters,
-    invalid_camera_distance: [],
     unknown_character_refs: unknown,
   };
 }
