@@ -1027,3 +1027,33 @@ def test_visual_intent_check_skipped_for_unknown_intent() -> None:
     assert any("ghost_intent_xyz" in e for e in errors)
     # valid_start_emotions 由来の error は出ない
     assert not any("valid_start_emotions" in e for e in errors)
+
+
+# ───── speaker_profiles (= analyze casting 検出) ─────
+
+
+def test_speaker_profiles_valid_passes() -> None:
+    """gender / age_range / description を持つ speaker_profiles は通る。"""
+    sp = _valid_screenplay()
+    sp["speaker_profiles"] = {
+        "speaker_1": {"gender": "female", "age_range": "20s",
+                      "description": "明るく早口"},
+        "speaker_2": {"description": "落ち着いた低い声"},
+    }
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_speaker_profiles_empty_passes() -> None:
+    """speaker_profiles 不在 / 空は通る (= best-effort・optional)。"""
+    sp = _valid_screenplay()
+    screenplay_validator.validate_screenplay(sp)
+    sp["speaker_profiles"] = {}
+    screenplay_validator.validate_screenplay(sp)
+
+
+def test_speaker_profiles_wrong_type_rejected() -> None:
+    """speaker_profiles が object でなければ reject される。"""
+    sp = _valid_screenplay()
+    sp["speaker_profiles"] = "speaker_1: female"
+    with pytest.raises(ValueError, match="speaker_profiles"):
+        screenplay_validator.validate_screenplay(sp)
