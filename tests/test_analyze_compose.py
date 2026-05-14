@@ -65,9 +65,9 @@ def test_compose_basic_round_trip(isolated_dirs):
     assert len(sp["scenes"]) == 1
     scene = sp["scenes"][0]
     assert scene["duration"] == 5.0
-    assert scene["character_refs"] == ["f1__office"]
+    assert scene["identity"]["character_refs"] == ["f1__office"]
     assert scene["characters"] == [{"name": "f1__office"}]
-    assert scene["location_ref"] == "home_office"
+    assert scene["identity"]["location_ref"] == "home_office"
     assert scene["lipsync"] is True
     # SSOT 一本化: compose 出力はカメラ距離 + 人物表現のみ。ロケ詳細は
     # scene_gen.`_build_background_prompt` で `locations/<id>.json` から注入される
@@ -119,7 +119,7 @@ def test_compose_per_scene_location(isolated_dirs):
     abstract = _abstract_minimal()
     abstract["scenes"][0]["location_ref"] = "park"
     sp = compose_screenplay(abstract)
-    assert sp["scenes"][0]["location_ref"] == "park"
+    assert sp["scenes"][0]["identity"]["location_ref"] == "park"
     assert "wide shot" in sp["scenes"][0]["background_prompt"]
 
 
@@ -208,7 +208,7 @@ def test_compose_character_selection_explicit_subset(isolated_dirs):
     abstract["scenes"][0]["character_selection"] = ["f1__office"]
     sp = compose_screenplay(abstract)
     chars = sp["scenes"][0]["characters"]
-    refs = sp["scenes"][0]["character_refs"]
+    refs = sp["scenes"][0]["identity"]["character_refs"]
     assert [c["name"] for c in chars] == ["f1__office"]
     assert refs == ["f1__office"]
 
@@ -220,7 +220,8 @@ def test_compose_character_selection_empty_means_no_people(isolated_dirs):
     sp = compose_screenplay(abstract)
     scene = sp["scenes"][0]
     assert scene["characters"] == []
-    assert scene["character_refs"] == []
+    # 0 人でも identity は派生される (= 背景のみシーン、character_refs は空)
+    assert scene["identity"]["character_refs"] == []
     assert "no people" in scene["background_prompt"]
     assert "scenery only" in scene["background_prompt"]
 

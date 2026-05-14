@@ -27,6 +27,17 @@ def _scene(**kw) -> dict:
     return base
 
 
+def _bg_scene(**kw) -> dict:
+    """_build_background_prompt 専用の scene fixture (= nested identity 経由)。
+    validator は flat を許容するため validator 系には使わない。"""
+    scene = _scene(**kw)
+    if "location_ref" in scene:
+        identity = dict(scene.get("identity") or {})
+        identity.setdefault("location_ref", scene["location_ref"])
+        scene["identity"] = identity
+    return scene
+
+
 def _sp(scenes) -> dict:
     return {"caption": "test", "scenes": scenes}
 
@@ -42,7 +53,7 @@ def test_build_bg_prompt_injects_location_at_head(isolated_locations) -> None:
         props="MacBook と白マグ",
         camera_distance="medium-close",
     ))
-    sp = _sp([_scene(location_ref="home_office")])
+    sp = _sp([_bg_scene(location_ref="home_office")])
     out = scene_gen._build_background_prompt(sp["scenes"][0], sp)
 
     decor_pos = out.index("ナチュラルウッド")
@@ -69,7 +80,7 @@ def test_build_bg_prompt_partial_location_fields(isolated_locations) -> None:
     isolated_locations.save_location(isolated_locations.Location(
         id="bedroom", decor="ベッドのある部屋",
     ))
-    sp = _sp([_scene(location_ref="bedroom")])
+    sp = _sp([_bg_scene(location_ref="bedroom")])
     out = scene_gen._build_background_prompt(sp["scenes"][0], sp)
     assert "location decor" in out
     assert "ベッドのある部屋" in out
@@ -82,7 +93,7 @@ def test_location_lighting_suppresses_emotion_lighting_cue(isolated_locations) -
     isolated_locations.save_location(isolated_locations.Location(
         id="loc1", lighting="朝の自然光",
     ))
-    sp = _sp([_scene(
+    sp = _sp([_bg_scene(
         location_ref="loc1",
         lines=[{"text": "x", "start": 0, "emotion": "驚き"}],
     )])
@@ -97,7 +108,7 @@ def test_location_color_palette_also_suppresses_emotion_lighting(
     isolated_locations.save_location(isolated_locations.Location(
         id="loc1", color_palette="白基調",
     ))
-    sp = _sp([_scene(
+    sp = _sp([_bg_scene(
         location_ref="loc1",
         lines=[{"text": "x", "start": 0, "emotion": "驚き"}],
     )])
@@ -112,7 +123,7 @@ def test_emotion_lighting_kept_when_no_location_lighting(
     isolated_locations.save_location(isolated_locations.Location(
         id="loc1", decor="X",
     ))
-    sp = _sp([_scene(
+    sp = _sp([_bg_scene(
         location_ref="loc1",
         lines=[{"text": "x", "start": 0, "emotion": "驚き"}],
     )])
@@ -122,7 +133,7 @@ def test_emotion_lighting_kept_when_no_location_lighting(
 
 def test_build_bg_prompt_no_location_loaded(isolated_locations) -> None:
     """ref が locations/ に無くてもクラッシュしない。"""
-    sp = _sp([_scene(location_ref="missing_loc")])
+    sp = _sp([_bg_scene(location_ref="missing_loc")])
     out = scene_gen._build_background_prompt(sp["scenes"][0], sp)
     assert "デスクに向かう女性" in out
     assert "location decor" not in out

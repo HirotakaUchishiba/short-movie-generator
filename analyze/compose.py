@@ -239,28 +239,39 @@ def compose_screenplay(abstract: dict) -> dict:
         # 旧 alias / scene_parts / action_id / その他 abstract 由来 key を
         # すべて維持する。下で派生フィールドを上書き。
         scene: dict[str, Any] = dict(src)
+        # flat schema (Phase 5 撤去): src 由来の flat alias を pop。
+        # downstream はすべて nested identity 経由で読む。
+        scene.pop("character_refs", None)
+        scene.pop("location_ref", None)
+        scene.pop("camera_distance", None)
         # 派生フィールド (= compose が常に生成する)
         scene["characters"] = [{"name": cid} for cid in scene_chars]
-        scene["character_refs"] = list(scene_chars)
-        scene["location_ref"] = location_ref
         scene["lipsync"] = True
         scene["lines"] = []   # 下で line 個別 voice merge 後に再構築
         if "duration" in src:
             scene["duration"] = float(src["duration"])
-        # camera_distance は src にあれば残す。無ければ key 自体を入れない
-        # (= 旧実装と互換)。dict(src) 起点なので有る場合は自動的に残る。
-        if not src.get("camera_distance"):
-            scene.pop("camera_distance", None)
 
         # ── Step 2: identity 派生 (= clip_library cache 鍵) ──
         # 必須フィールド (location_ref / start_emotion / camera_distance) が
         # 揃っていれば scene["identity"] を必ず入れる。character_refs は空でも
         # 許容 (= 背景のみシーン)。必須欠落は ValueError で fail-fast し、
         # 部分 identity を生成しない (= 不変条件 #2: 誤 hit 防止)。
+        # _derive_identity / _compose_background は scene の flat field を
+        # 参照する設計のため、derive / background_prompt 生成前に temporary に
+        # flat を注入し、生成後に pop する。
+        scene["character_refs"] = list(scene_chars)
+        scene["location_ref"] = location_ref
+        if src.get("camera_distance"):
+            scene["camera_distance"] = src["camera_distance"]
         scene["identity"] = _derive_identity(scene, src)
 
         scene["background_prompt"] = _compose_background(scene, location_ref)
         scene["animation_prompt"] = _compose_animation(src, scene_anim)
+
+        # temporary flat の片付け (= flat schema は Phase 5 で撤去済)
+        scene.pop("character_refs", None)
+        scene.pop("location_ref", None)
+        scene.pop("camera_distance", None)
 
         for line in src.get("lines") or []:
             new_line = dict(line)
