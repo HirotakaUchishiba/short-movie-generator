@@ -493,6 +493,12 @@ export interface AbstractScreenplay {
 export interface AbstractDiagnostics {
   unmapped_speakers: string[];
   scenes_without_characters: number[];
+  // location_ref が空のシーン idx (= analyze pre-fill 後、ユーザが意図的に
+  // 空に戻したケースを CompletenessBanner で警告するため)
+  scenes_without_location: number[];
+  // camera_distance が enum 外のシーン (= 通常 analyze 経由では発生しないが
+  // 旧データ / 手動編集の漏れを検知するため)
+  invalid_camera_distance: { scene_idx: number; value: string }[];
   unknown_character_refs: {
     featured: string[];
     speaker_to_ref: { speaker: string; ref: string }[];

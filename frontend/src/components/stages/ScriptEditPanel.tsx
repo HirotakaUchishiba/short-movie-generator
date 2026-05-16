@@ -45,10 +45,26 @@ export default function ScriptEditPanel({
   const [job, setJob] = useState<AnalyzeJobDetail | null>(null);
   const [abstract, setAbstract] = useState<AbstractScreenplay | null>(null);
   const [characterRefs, setCharacterRefs] = useState<string[]>([]);
+  // locations/<id>.json の id 一覧 (= LocationPicker の選択肢)。analyze が
+  // pre-fill した scene.location_ref をユーザが訂正できるようにするために fetch。
+  const [locationIds, setLocationIds] = useState<string[]>([]);
   const [status, setStatus] = useState<Status>("loading");
   const [message, setMessage] = useState<string | null>(null);
   const [dirty, setDirty] = useState(false);
   const [boundaryWorking, setBoundaryWorking] = useState(false);
+
+  useEffect(() => {
+    let cancelled = false;
+    api
+      .listLocations()
+      .then((d) => {
+        if (!cancelled) setLocationIds(d.locations.map((l) => l.id));
+      })
+      .catch(() => {});
+    return () => {
+      cancelled = true;
+    };
+  }, []);
 
   useEffect(() => {
     let cancelled = false;
@@ -421,6 +437,8 @@ export default function ScriptEditPanel({
                   | Record<string, string>
                   | undefined) ?? {}
               }
+              locationIds={locationIds}
+              analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
               flatStartIdx={flatStartByScene[sIdx] ?? 0}
               sceneCount={sceneCount}
               boundaryWorking={boundaryWorking}
@@ -508,6 +526,8 @@ function SceneEditor({
   scene,
   featuredRefs,
   speakerToRef,
+  locationIds,
+  analyzeSuggested,
   flatStartIdx,
   sceneCount,
   boundaryWorking,
@@ -521,6 +541,10 @@ function SceneEditor({
   scene: AbstractScreenplay["scenes"][number];
   featuredRefs: string[];
   speakerToRef: Record<string, string>;
+  /** LocationPicker の選択肢 (= locations/<id>.json の id 一覧) */
+  locationIds: string[];
+  /** analyze が casting 検出を実行したか (= 「✨ analyze 推定」バッジ表示) */
+  analyzeSuggested: boolean;
   flatStartIdx: number;
   sceneCount: number;
   boundaryWorking: boolean;
@@ -567,9 +591,21 @@ function SceneEditor({
       </div>
 
       <div className="p-3 space-y-3">
-        {/* アニメーション (シーン個別設定) */}
+        {/* シーン個別設定 (= 背景 / カメラ距離 / 動き)。analyze が pre-fill
+            した値を初期表示し、ユーザが訂正できる。 */}
         <div className="space-y-2 text-xs">
-          <div className="bg-slate-800/40 rounded p-2">
+          <div className="bg-slate-800/40 rounded p-2 space-y-2">
+            {analyzeSuggested && (
+              <div className="flex justify-end">
+                <AnalyzeSuggestedBadge />
+              </div>
+            )}
+            <LocationPicker
+              scene={scene}
+              locationIds={locationIds}
+              onSceneChange={onSceneChange}
+            />
+            <CameraDistancePicker scene={scene} onSceneChange={onSceneChange} />
             <label className="flex items-center gap-1">
               <span className="text-slate-500 shrink-0">🎬 動き</span>
               <select
@@ -865,7 +901,7 @@ const wardrobeLabel = (w: string) => w || "base";
  * 空配列なら character ref 物理存在検証はスキップ (= テスト・初期化中の挙動と
  * server 側 conftest のスタブと同等)。
  */
-function computeDiagnostics(
+export function computeDiagnostics(
   abstract: AbstractScreenplay,
   availableCharacters: string[],
 ): AbstractDiagnostics {
@@ -884,6 +920,11 @@ function computeDiagnostics(
 
   const unmapped = new Set<string>();
   const scenesWithoutCharacters: number[] = [];
+  const scenesWithoutLocation: number[] = [];
+  const invalidCamera: { scene_idx: number; value: string }[] = [];
+  const validCameras = new Set(
+    CAMERA_DISTANCE_OPTIONS.map((c) => c.value as string),
+  );
   const unknown = {
     featured: [] as string[],
     speaker_to_ref: [] as { speaker: string; ref: string }[],
@@ -899,6 +940,14 @@ function computeDiagnostics(
   }
 
   abstract.scenes.forEach((scene, sIdx) => {
+    const loc = scene.location_ref;
+    if (typeof loc !== "string" || !loc) {
+      scenesWithoutLocation.push(sIdx);
+    }
+    const cam = scene.camera_distance;
+    if (typeof cam === "string" && cam && !validCameras.has(cam)) {
+      invalidCamera.push({ scene_idx: sIdx, value: cam });
+    }
     const sel = scene.character_selection;
     if (Array.isArray(sel)) {
       for (const ref of sel) {
@@ -949,6 +998,8 @@ function computeDiagnostics(
   return {
     unmapped_speakers: [...unmapped].sort(),
     scenes_without_characters: scenesWithoutCharacters,
+    scenes_without_location: scenesWithoutLocation,
+    invalid_camera_distance: invalidCamera,
     unknown_character_refs: unknown,
   };
 }
@@ -1067,6 +1118,110 @@ function AnalyzeSuggestedBadge() {
     >
       ✨ analyze 推定
     </span>
+  );
+}
+
+const CAMERA_DISTANCE_OPTIONS = [
+  { value: "close-up", label: "close-up (顔寄り)" },
+  { value: "medium-close", label: "medium-close (胸〜顔)" },
+  { value: "medium", label: "medium (腰〜顔)" },
+  { value: "wide", label: "wide (全身)" },
+] as const;
+
+/**
+ * シーンの背景 (= location_ref) を選ぶ。analyze が pre-fill した値を初期表示し、
+ * ユーザが訂正できる。空選択で `(未設定)` (= completeness banner で警告)。
+ */
+function LocationPicker({
+  scene,
+  locationIds,
+  onSceneChange,
+}: {
+  scene: AbstractScreenplay["scenes"][number];
+  locationIds: string[];
+  onSceneChange: (
+    fn: (
+      s: AbstractScreenplay["scenes"][number],
+    ) => AbstractScreenplay["scenes"][number],
+  ) => void;
+}) {
+  const value = scene.location_ref ?? "";
+  return (
+    <label className="flex items-center gap-1">
+      <span className="text-slate-500 shrink-0">🏠 背景</span>
+      <select
+        className="select text-xs flex-1"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          onSceneChange((s) => {
+            const next = { ...s };
+            if (v) {
+              next.location_ref = v;
+            } else {
+              delete (next as Record<string, unknown>).location_ref;
+            }
+            return next;
+          });
+        }}
+      >
+        <option value="">(未設定)</option>
+        {locationIds.map((id) => (
+          <option key={id} value={id}>
+            {id}
+          </option>
+        ))}
+      </select>
+    </label>
+  );
+}
+
+/**
+ * シーンのカメラ距離 (= camera_distance) を選ぶ。analyze が pre-fill した値を
+ * 初期表示し、ユーザが訂正できる。空選択は `_derive_identity` の fallback
+ * (= ロケ既定 → "medium-close") に委ねる。
+ */
+function CameraDistancePicker({
+  scene,
+  onSceneChange,
+}: {
+  scene: AbstractScreenplay["scenes"][number];
+  onSceneChange: (
+    fn: (
+      s: AbstractScreenplay["scenes"][number],
+    ) => AbstractScreenplay["scenes"][number],
+  ) => void;
+}) {
+  const value = scene.camera_distance ?? "";
+  return (
+    <label className="flex items-center gap-1">
+      <span className="text-slate-500 shrink-0">🎥 距離</span>
+      <select
+        className="select text-xs flex-1"
+        value={value}
+        onChange={(e) => {
+          const v = e.target.value;
+          onSceneChange((s) => {
+            const next = { ...s };
+            if (v) {
+              next.camera_distance = v as NonNullable<
+                typeof next.camera_distance
+              >;
+            } else {
+              delete (next as Record<string, unknown>).camera_distance;
+            }
+            return next;
+          });
+        }}
+      >
+        <option value="">(自動: ロケ既定)</option>
+        {CAMERA_DISTANCE_OPTIONS.map((c) => (
+          <option key={c.value} value={c.value}>
+            {c.label}
+          </option>
+        ))}
+      </select>
+    </label>
   );
 }
 
@@ -1494,6 +1649,18 @@ function CompletenessBanner({
     issues.push(
       `人物 0 人 ${diag.scenes_without_characters.length} シーン (${ids})`,
     );
+  }
+  if (diag.scenes_without_location.length > 0) {
+    const ids = diag.scenes_without_location.map((i) => `#${i + 1}`).join(", ");
+    issues.push(
+      `背景未設定 ${diag.scenes_without_location.length} シーン (${ids})`,
+    );
+  }
+  if (diag.invalid_camera_distance.length > 0) {
+    const t = diag.invalid_camera_distance
+      .map((x) => `#${x.scene_idx + 1}='${x.value}'`)
+      .join(", ");
+    issues.push(`不正なカメラ距離: ${t}`);
   }
   const u = diag.unknown_character_refs;
   if (u) {
