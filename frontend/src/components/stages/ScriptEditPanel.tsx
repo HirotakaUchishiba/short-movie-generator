@@ -920,6 +920,11 @@ function computeDiagnostics(
 
   const unmapped = new Set<string>();
   const scenesWithoutCharacters: number[] = [];
+  const scenesWithoutLocation: number[] = [];
+  const invalidCamera: { scene_idx: number; value: string }[] = [];
+  const validCameras = new Set(
+    CAMERA_DISTANCE_OPTIONS.map((c) => c.value as string),
+  );
   const unknown = {
     featured: [] as string[],
     speaker_to_ref: [] as { speaker: string; ref: string }[],
@@ -935,6 +940,14 @@ function computeDiagnostics(
   }
 
   abstract.scenes.forEach((scene, sIdx) => {
+    const loc = scene.location_ref;
+    if (typeof loc !== "string" || !loc) {
+      scenesWithoutLocation.push(sIdx);
+    }
+    const cam = scene.camera_distance;
+    if (typeof cam === "string" && cam && !validCameras.has(cam)) {
+      invalidCamera.push({ scene_idx: sIdx, value: cam });
+    }
     const sel = scene.character_selection;
     if (Array.isArray(sel)) {
       for (const ref of sel) {
@@ -985,6 +998,8 @@ function computeDiagnostics(
   return {
     unmapped_speakers: [...unmapped].sort(),
     scenes_without_characters: scenesWithoutCharacters,
+    scenes_without_location: scenesWithoutLocation,
+    invalid_camera_distance: invalidCamera,
     unknown_character_refs: unknown,
   };
 }
@@ -1634,6 +1649,18 @@ function CompletenessBanner({
     issues.push(
       `人物 0 人 ${diag.scenes_without_characters.length} シーン (${ids})`,
     );
+  }
+  if (diag.scenes_without_location.length > 0) {
+    const ids = diag.scenes_without_location.map((i) => `#${i + 1}`).join(", ");
+    issues.push(
+      `背景未設定 ${diag.scenes_without_location.length} シーン (${ids})`,
+    );
+  }
+  if (diag.invalid_camera_distance.length > 0) {
+    const t = diag.invalid_camera_distance
+      .map((x) => `#${x.scene_idx + 1}='${x.value}'`)
+      .join(", ");
+    issues.push(`不正なカメラ距離: ${t}`);
   }
   const u = diag.unknown_character_refs;
   if (u) {
