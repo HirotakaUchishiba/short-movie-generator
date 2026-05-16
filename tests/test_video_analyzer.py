@@ -687,3 +687,206 @@ def test_build_screenplay_skips_casting_normalize_when_catalog_none(tmp_path) ->
     # 正規化が走らないので生の値がそのまま残る
     assert result["featured_characters"] == ["anything_goes"]
     assert result["speaker_to_ref"] == {"speaker_1": "whatever"}
+
+
+# ───────────── Rule A (wardrobe-by-location) / Rule B (distinct base) ─────────────
+
+
+def _make_location_catalog_with_wardrobes():
+    """テスト用 location catalog (= recommended_wardrobes 付き)。"""
+    return [
+        {"id": "home_office", "recommended_wardrobes": ["office"]},
+        {"id": "warm_cafe", "recommended_wardrobes": ["casual"]},
+        {"id": "soft_gradient"},  # recommended_wardrobes 無し
+    ]
+
+
+def _make_character_catalog_multi_wardrobe():
+    """3 wardrobes × 2 base の catalog。"""
+    return [
+        {"id": "f1", "appearance": {"gender": "female"},
+         "refs": ["f1", "f1__office", "f1__casual", "f1__loungewear"]},
+        {"id": "m1", "appearance": {"gender": "male"},
+         "refs": ["m1", "m1__office", "m1__casual"]},
+    ]
+
+
+def _build_with_both_catalogs(tmp_path, body, char_cat, loc_cat):
+    """build_screenplay を mock claude + character + location catalog で呼ぶ。"""
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        return video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            character_catalog=char_cat,
+            location_catalog=loc_cat,
+        )
+
+
+def test_rule_b_drops_duplicate_base(tmp_path) -> None:
+    """同じ base が複数 speaker にマッピングされていれば 2 件目以降は drop。"""
+    body = {
+        "caption": "x",
+        "featured_characters": ["f1__office", "f1__casual"],
+        "speaker_to_ref": {"speaker_1": "f1__office", "speaker_2": "f1__casual"},
+        "scenes": [{"location_ref": "home_office", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+            {"text": "b", "start": 1, "end": 2, "emotion": "中立", "speaker": "speaker_2"},
+        ]}],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    # speaker_2 (= 2 件目の f1) は drop
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+    # featured も同 base 重複が排除される (= cleaned_s2r 優先)
+    assert result["featured_characters"] == ["f1__office"]
+
+
+def test_rule_a_swaps_wardrobe_to_match_dominant_location(tmp_path) -> None:
+    """speaker が主に登場するシーンの location の recommended_wardrobes に
+    合うように wardrobe が swap される。"""
+    body = {
+        "caption": "x",
+        "speaker_to_ref": {"speaker_1": "f1__casual"},  # Claude は casual を選んだ
+        "scenes": [
+            {"location_ref": "home_office", "lines": [
+                {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+                {"text": "b", "start": 1, "end": 2, "emotion": "中立", "speaker": "speaker_1"},
+            ]},
+        ],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    # home_office (= recommended ["office"]) に合わせて casual → office に swap
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+    assert result["featured_characters"] == ["f1__office"]
+
+
+def test_rule_a_keeps_wardrobe_when_already_matching(tmp_path) -> None:
+    """wardrobe が既に recommended_wardrobes に含まれていれば swap しない。"""
+    body = {
+        "caption": "x",
+        "speaker_to_ref": {"speaker_1": "f1__office"},
+        "scenes": [{"location_ref": "home_office", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+        ]}],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+
+
+def test_rule_a_keeps_when_no_recommended_wardrobes(tmp_path) -> None:
+    """location に recommended_wardrobes が無ければ swap しない (graceful)。"""
+    body = {
+        "caption": "x",
+        "speaker_to_ref": {"speaker_1": "f1__casual"},
+        "scenes": [{"location_ref": "soft_gradient", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+        ]}],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    # soft_gradient は recommended なし → Claude の選択を尊重
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__casual"}
+
+
+def test_rule_a_keeps_when_no_matching_variant(tmp_path) -> None:
+    """character に適合 wardrobe バリアントが無ければ swap しない (graceful)。"""
+    body = {
+        "caption": "x",
+        # m1 は loungewear バリアントを持たない (catalog で m1 の refs は
+        # ["m1", "m1__office", "m1__casual"] のみ)
+        "speaker_to_ref": {"speaker_1": "m1__casual"},
+        "scenes": [{"location_ref": "cozy_living", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+        ]}],
+    }
+    # cozy_living で loungewear を推奨するが m1 には無い → swap せず keep
+    loc_cat = [{"id": "cozy_living", "recommended_wardrobes": ["loungewear"]}]
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(), loc_cat)
+    assert result["speaker_to_ref"] == {"speaker_1": "m1__casual"}
+
+
+def test_rule_a_picks_dominant_location_by_line_count(tmp_path) -> None:
+    """speaker が複数 location に出現するとき、line 数が多い location を dominant とする。"""
+    body = {
+        "caption": "x",
+        "speaker_to_ref": {"speaker_1": "f1__casual"},
+        "scenes": [
+            # cafe で 1 line
+            {"location_ref": "warm_cafe", "lines": [
+                {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+            ]},
+            # office で 3 line → dominant
+            {"location_ref": "home_office", "lines": [
+                {"text": "b", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+                {"text": "c", "start": 1, "end": 2, "emotion": "中立", "speaker": "speaker_1"},
+                {"text": "d", "start": 2, "end": 3, "emotion": "中立", "speaker": "speaker_1"},
+            ]},
+        ],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    # home_office (= dominant、recommended ["office"]) に合わせて casual → office
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+
+
+def test_rule_a_skipped_when_location_catalog_none(tmp_path) -> None:
+    """location_catalog 未指定なら Rule A はスキップ (= Claude の選択を尊重)。"""
+    body = {
+        "caption": "x",
+        "speaker_to_ref": {"speaker_1": "f1__casual"},
+        "scenes": [{"location_ref": "home_office", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+        ]}],
+    }
+    # character_catalog のみ (location_catalog なし)
+    f = tmp_path / "f.jpg"
+    f.write_bytes(b"\xff\xd8\xff\xd9")
+    mock_client = MagicMock()
+    mock_client.messages.stream.return_value = _stub_stream(json.dumps(body))
+    with patch("anthropic.Anthropic", return_value=mock_client):
+        result, _u = video_analyzer.build_screenplay(
+            frame_paths=[str(f)],
+            transcript={"text": "", "segments": [], "words": [], "duration": 0},
+            phrase_features=[],
+            source_video_path="/tmp/x.mov",
+            api_key="fake",
+            character_catalog=_make_character_catalog_multi_wardrobe(),
+            # location_catalog 未指定
+        )
+    # swap せずそのまま
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__casual"}
+
+
+def test_featured_prefers_s2r_swapped_wardrobe(tmp_path) -> None:
+    """Rule A が wardrobe を swap した場合、featured_characters も同 base の
+    新しい ref に同期する (= 旧 ref が featured に残らない)。"""
+    body = {
+        "caption": "x",
+        # featured と s2r の両方が casual。Rule A で s2r が office に swap される
+        "featured_characters": ["f1__casual"],
+        "speaker_to_ref": {"speaker_1": "f1__casual"},
+        "scenes": [{"location_ref": "home_office", "lines": [
+            {"text": "a", "start": 0, "end": 1, "emotion": "中立", "speaker": "speaker_1"},
+        ]}],
+    }
+    result, _u = _build_with_both_catalogs(
+        tmp_path, body, _make_character_catalog_multi_wardrobe(),
+        _make_location_catalog_with_wardrobes())
+    # featured には swap 後の office のみ (= raw_feat の casual は同 base で skip)
+    assert result["featured_characters"] == ["f1__office"]
+    assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
