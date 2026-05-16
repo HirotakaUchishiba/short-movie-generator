@@ -4,5 +4,6 @@
   "lighting": "柔らかい自然光、暖色系",
   "color_palette": "白基調、ベージュ、グリーンのアクセント",
   "props": "シルバーのMacBook、白いマグカップ",
-  "camera_distance": "medium-close"
+  "camera_distance": "medium-close",
+  "recommended_wardrobes": ["office"]
 }

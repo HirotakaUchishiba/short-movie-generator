@@ -104,3 +104,53 @@ def test_build_location_catalog_skips_broken_json(isolated_locations, tmp_path):
         f.write("{ not valid json")
     catalog = isolated_locations.build_location_catalog()
     assert [c["id"] for c in catalog] == ["good"]
+
+
+def test_recommended_wardrobes_round_trip(isolated_locations):
+    """recommended_wardrobes は to_dict / from_dict / 保存 で保持される。"""
+    loc = isolated_locations.Location(
+        id="home_office",
+        decor="x",
+        camera_distance="medium-close",
+        recommended_wardrobes=["office", "casual"],
+    )
+    isolated_locations.save_location(loc)
+    loaded = isolated_locations.load_location("home_office")
+    assert loaded.recommended_wardrobes == ["office", "casual"]
+
+
+def test_recommended_wardrobes_omitted_when_empty(isolated_locations):
+    """recommended_wardrobes が空なら to_dict / 保存 json に含まれない。"""
+    import json
+    loc = isolated_locations.Location(id="home_office", decor="x")
+    assert "recommended_wardrobes" not in loc.to_dict()
+    isolated_locations.save_location(loc)
+    p = isolated_locations.LOCATIONS_DIR / "home_office.json"
+    assert "recommended_wardrobes" not in json.loads(p.read_text())
+
+
+def test_recommended_wardrobes_invalid_type_rejected(isolated_locations):
+    """recommended_wardrobes が list[str] でなければ validate でエラー。"""
+    loc = isolated_locations.Location(
+        id="x", recommended_wardrobes=["ok", 123],  # type: ignore[list-item]
+    )
+    errors = loc.validate()
+    assert any("recommended_wardrobes" in e for e in errors)
+
+
+def test_from_dict_filters_non_string_wardrobes(isolated_locations):
+    """from_dict は list 中の非 string 要素を黙って drop する (= json 汚れ耐性)。"""
+    loc = isolated_locations.Location.from_dict(
+        {"id": "x", "recommended_wardrobes": ["office", 123, "casual"]},
+    )
+    assert loc.recommended_wardrobes == ["office", "casual"]
+
+
+def test_build_catalog_includes_recommended_wardrobes(isolated_locations):
+    """build_location_catalog の entry に recommended_wardrobes が含まれる。"""
+    isolated_locations.save_location(isolated_locations.Location(
+        id="home_office", recommended_wardrobes=["office"],
+    ))
+    catalog = isolated_locations.build_location_catalog()
+    assert catalog[0]["id"] == "home_office"
+    assert catalog[0]["recommended_wardrobes"] == ["office"]
