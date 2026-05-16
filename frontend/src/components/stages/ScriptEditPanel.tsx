@@ -901,7 +901,7 @@ const wardrobeLabel = (w: string) => w || "base";
  * 空配列なら character ref 物理存在検証はスキップ (= テスト・初期化中の挙動と
  * server 側 conftest のスタブと同等)。
  */
-function computeDiagnostics(
+export function computeDiagnostics(
   abstract: AbstractScreenplay,
   availableCharacters: string[],
 ): AbstractDiagnostics {
