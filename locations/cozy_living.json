@@ -4,5 +4,6 @@
   "lighting": "柔らかい自然光と間接照明のミックス、午後の暖色光",
   "color_palette": "オフホワイト、ライトグレー、テラコッタのアクセント",
   "props": "白いマグカップ、書籍、ブランケット",
-  "camera_distance": "medium-close"
+  "camera_distance": "medium-close",
+  "recommended_wardrobes": ["loungewear", "casual"]
 }

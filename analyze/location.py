@@ -7,7 +7,7 @@ from __future__ import annotations
 
 import json
 import re
-from dataclasses import asdict, dataclass
+from dataclasses import asdict, dataclass, field
 from pathlib import Path
 
 import config
@@ -25,6 +25,12 @@ class Location:
     color_palette: str = ""
     props: str = ""
     camera_distance: str = "medium"
+    # recommended_wardrobes: analyze の casting 提案で wardrobe を選ぶ際に
+    # 優先される wardrobe バリアント名のリスト (例: home_office なら ["office"])。
+    # video_analyzer の post-processing が dominant location の本リストと照合し、
+    # 不整合な wardrobe を同 base の適合バリアントに swap する。空 / 未設定なら
+    # rule は適用されず、Claude の選択をそのまま使う (= graceful)。
+    recommended_wardrobes: list[str] = field(default_factory=list)
 
     def validate(self) -> list[str]:
         errors: list[str] = []
@@ -36,13 +42,26 @@ class Location:
             errors.append(
                 f"camera_distance must be one of {ALLOWED_CAMERA_DISTANCES}",
             )
+        if not isinstance(self.recommended_wardrobes, list) or not all(
+            isinstance(w, str) for w in self.recommended_wardrobes
+        ):
+            errors.append("recommended_wardrobes must be a list of strings")
         return errors
 
     def to_dict(self) -> dict:
-        return asdict(self)
+        d = asdict(self)
+        # recommended_wardrobes は optional。空なら省略 (= 既存 json を汚さない)。
+        if not self.recommended_wardrobes:
+            d.pop("recommended_wardrobes", None)
+        return d
 
     @classmethod
     def from_dict(cls, d: dict) -> "Location":
+        raw = d.get("recommended_wardrobes")
+        wardrobes = (
+            [w for w in raw if isinstance(w, str)]
+            if isinstance(raw, list) else []
+        )
         return cls(
             id=d.get("id", ""),
             decor=d.get("decor", ""),
@@ -50,6 +69,7 @@ class Location:
             color_palette=d.get("color_palette", ""),
             props=d.get("props", ""),
             camera_distance=d.get("camera_distance", "medium"),
+            recommended_wardrobes=wardrobes,
         )
 
 

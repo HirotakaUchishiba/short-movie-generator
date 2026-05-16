@@ -4,5 +4,6 @@
   "lighting": "暖色系のペンダントライト、夕方の窓光",
   "color_palette": "ブラウン基調、クリーム色、深緑のアクセント",
   "props": "エスプレッソマシン、ガラス瓶のコーヒー豆、白マグカップ",
-  "camera_distance": "medium"
+  "camera_distance": "medium",
+  "recommended_wardrobes": ["casual"]
 }

@@ -4,5 +4,6 @@
   "lighting": "晴れた午後の自然光、木漏れ日、暖色寄り",
   "color_palette": "グリーン基調、ベージュ、空のライトブルー",
   "props": "ステンレスのウォーターボトル、布のトートバッグ",
-  "camera_distance": "medium"
+  "camera_distance": "medium",
+  "recommended_wardrobes": ["casual"]
 }

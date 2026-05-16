@@ -143,10 +143,10 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 責務を 2 つに分離。VideoStyle は廃止 (= 各 scene が animation_style / location_ref / character_selection を直接持つ)。
 
-| SSOT                   | 場所                                 | 内容                                                                |
-| ---------------------- | ------------------------------------ | ------------------------------------------------------------------- |
-| **キャラエンティティ** | `characters/<base>/...` (ネスト)     | 全身参照画像 (衣装バリアント) と voice メタ                         |
-| **ロケ集**             | `locations/<id>.json` + .preview.png | 1 ロケ = decor + lighting + color_palette + props + camera_distance |
+| SSOT                   | 場所                                 | 内容                                                                                               |
+| ---------------------- | ------------------------------------ | -------------------------------------------------------------------------------------------------- |
+| **キャラエンティティ** | `characters/<base>/...` (ネスト)     | 全身参照画像 (衣装バリアント) と voice メタ                                                        |
+| **ロケ集**             | `locations/<id>.json` + .preview.png | 1 ロケ = decor + lighting + color_palette + props + camera_distance + (任意) recommended_wardrobes |
 
 #### `characters/` ディレクトリ構造
 
@@ -237,9 +237,12 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
   "lighting": "柔らかい自然光、暖色系",
   "color_palette": "白基調、ベージュ、グリーンのアクセント",
   "props": "シルバーのMacBook、白いマグカップ",
-  "camera_distance": "medium-close"
+  "camera_distance": "medium-close",
+  "recommended_wardrobes": ["office"]
 }
 ```
+
+`recommended_wardrobes` は optional。analyze の casting 提案で wardrobe を選ぶ際、各 speaker の dominant location の本リストに合う wardrobe バリアント (例: `f1__office`) に swap される (= `docs/plannings/2026-05-16_wardrobe-by-location.md`)。空 / 未設定なら Claude の選択を尊重 (graceful)。
 
 ロケのサムネは `locations/<id>.preview.png` に置く。`POST /api/locations/<id>/preview` で Imagen から自動生成可能 (= LocationPicker の「🪄 生成」ボタン)。
 
