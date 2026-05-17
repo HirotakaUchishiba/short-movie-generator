@@ -47,103 +47,116 @@ def get_connection() -> Iterator[sqlite3.Connection]:
 
 def init_db() -> None:
     with get_connection() as conn:
-        # schema v7: 旧 v_axis_performance (= 4 軸同時 GROUP BY で重複行を吐く) を
-        # drop。schema.sql の CREATE VIEW IF NOT EXISTS は drop 後の空の状態に
-        # 軸別 4 view を新規作成する。新 DB は drop 対象が無いので no-op。
-        conn.execute("DROP VIEW IF EXISTS v_axis_performance")
-        # schema v9: v_active_posts / v_strategy_performance は posts.rollback_at の
-        # 列追加後に作り直す必要があるので、既存 view を drop してから schema.sql の
-        # CREATE VIEW IF NOT EXISTS が新スキーマで再生成する形にする。
-        # v_performance は v_active_posts に依存するので先に drop する (= Phase A
-        # で LEFT JOIN posts → LEFT JOIN v_active_posts に変更したため、旧 DB の
-        # 既存 view も作り直す必要がある)。
-        # schema v11: v_transformation_performance / v_halo_effect は screenplays
-        # に新列追加後に再生成する必要がある (= 既存 DB に列が無い間に view を
-        # 作ると不整合になるので drop してから後段の _ensure_column 経路で列を
-        # 確保し、schema.sql 適用時に view を新規作成する)。
-        conn.execute("DROP VIEW IF EXISTS v_halo_effect")
-        conn.execute("DROP VIEW IF EXISTS v_transformation_performance")
-        conn.execute("DROP VIEW IF EXISTS v_performance")
-        conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
-        # schema v12: 軸別 view 4 つを v_active_posts 経由に切り替え
-        # (= rollback 済 post を集計から除外する不変条件を遵守)。
-        # 既存 view は JOIN posts p のままなので drop してから schema.sql 適用で
-        # JOIN v_active_posts p の新定義で再作成する。
-        conn.execute("DROP VIEW IF EXISTS v_hook_type_performance")
-        conn.execute("DROP VIEW IF EXISTS v_tone_performance")
-        conn.execute("DROP VIEW IF EXISTS v_dominant_emotion_performance")
-        conn.execute("DROP VIEW IF EXISTS v_theme_performance")
-        conn.execute("DROP VIEW IF EXISTS v_active_posts")
-        # 既存 DB に rollback_at が無い間は v_active_posts の SELECT * が
-        # 不整合を起こすので、schema.sql 実行前に列を追加しておく。
-        _table_exists = conn.execute(
-            "SELECT 1 FROM sqlite_master WHERE type='table' AND name='posts'"
-        ).fetchone()
-        if _table_exists:
-            _ensure_column(conn, "posts", "rollback_at", "rollback_at TEXT")
-            _ensure_column(conn, "posts", "rollback_reason", "rollback_reason TEXT")
-        with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
-            conn.executescript(f.read())
-        # 既存 DB の videos に final_* カラムが無い場合に追加 (additive migration)
-        _ensure_column(conn, "videos", "final_imported",
-                       "final_imported INTEGER NOT NULL DEFAULT 0")
-        _ensure_column(conn, "videos", "final_filename", "final_filename TEXT")
-        _ensure_column(conn, "videos", "final_audio_match_score",
-                       "final_audio_match_score REAL")
-        # analyze_jobs に project_ts を後付け (= from-reference-video 経路で
-        # 生成された project の TS 紐付け、save hook の back link)。standalone
-        # analyze (= 旧経路) は NULL のまま。
-        _ensure_column(conn, "analyze_jobs", "project_ts", "project_ts TEXT")
-        # schema v5: reference_videos に source_url / fetched_at / license_status を
-        # 追加。既存 row は NULL / "unconfirmed" のまま (= UI upload 経路は影響なし)。
-        _ensure_column(conn, "reference_videos", "source_url", "source_url TEXT")
-        _ensure_column(conn, "reference_videos", "fetched_at", "fetched_at TEXT")
-        _ensure_column(conn, "reference_videos", "license_status",
-                       "license_status TEXT DEFAULT 'unconfirmed'")
-        # schema v7: experiment_assignments.observed_value (= Haiku 事後 tag) を追加。
-        _ensure_column(conn, "experiment_assignments", "observed_value",
-                       "observed_value TEXT")
-        # schema v8 (Phase X-1): experiment_assignments に scene 粒度 +
-        # composition identity を追加。Phase 3 の動画粒度書き込みは
-        # scene_idx=NULL で続行可能 (= back-compat)。
-        _ensure_column(conn, "experiment_assignments", "scene_idx",
-                       "scene_idx INTEGER")
-        _ensure_column(conn, "experiment_assignments", "composition_id",
-                       "composition_id TEXT")
-        _ensure_column(conn, "experiment_assignments", "composition_version",
-                       "composition_version TEXT")
-        # post_metrics(post_id, fetched_at) UNIQUE 制約 (= 同タイムスタンプの
-        # double-insert を抑止)。既存 DB に重複が残っている場合は最新 id のみ残す。
-        _ensure_unique_post_metrics(conn)
-        # schema v10: PDCA 中核 KPI を post_metrics に追加 (= additive)。
-        # content-strategy.md がフック / 80-20 / アルゴリズム適合 / Halo proxy
-        # として要求する 6 指標。
-        _ensure_column(conn, "post_metrics", "impressions", "impressions INTEGER")
-        _ensure_column(conn, "post_metrics", "subscribers_gained",
-                       "subscribers_gained INTEGER")
-        _ensure_column(conn, "post_metrics", "traffic_browse_pct",
-                       "traffic_browse_pct REAL")
-        _ensure_column(conn, "post_metrics", "traffic_suggested_pct",
-                       "traffic_suggested_pct REAL")
-        _ensure_column(conn, "post_metrics", "traffic_search_pct",
-                       "traffic_search_pct REAL")
-        _ensure_column(conn, "post_metrics", "traffic_external_pct",
-                       "traffic_external_pct REAL")
-        # schema v11: content-strategy.md Phase 1 の概念モデルを screenplays に
-        # 追加 (= transformation / tree_main_branch / pov_id)。Halo effect 計測
-        # と "Transformation 軸の一貫性" 評価の根。既存 DB は NULL のまま。
-        _ensure_column(conn, "screenplays", "transformation", "transformation TEXT")
-        _ensure_column(conn, "screenplays", "tree_main_branch",
-                       "tree_main_branch TEXT")
-        _ensure_column(conn, "screenplays", "pov_id", "pov_id TEXT")
-        row = conn.execute("SELECT MAX(version) AS v FROM schema_version").fetchone()
-        current = (row["v"] or 0) if row else 0
-        if current < CURRENT_SCHEMA_VERSION:
-            conn.execute(
-                "INSERT INTO schema_version(version, applied_at) VALUES(?, ?)",
-                (CURRENT_SCHEMA_VERSION, _now()),
-            )
+        _drop_legacy_views(conn)
+        _apply_schema_and_migrations(conn)
+        _record_schema_version(conn)
     logger.info("analytics DB initialized at %s", _db_path())
+
+
+def _drop_legacy_views(conn: sqlite3.Connection) -> None:
+    """schema 更新時に再生成すべき view を予め drop する。
+
+    schema v7-v12 の経緯で view 定義が変わったため、CREATE VIEW IF NOT EXISTS
+    だけでは既存 DB の旧定義が残ってしまう。drop してから schema.sql 適用で
+    新定義として再作成する。新 DB は drop 対象が無いので no-op。
+    """
+    # schema v7: 旧 v_axis_performance (= 4 軸同時 GROUP BY で重複行)
+    conn.execute("DROP VIEW IF EXISTS v_axis_performance")
+    # schema v9 + v11: v_performance / v_strategy_performance / v_halo_effect /
+    # v_transformation_performance は posts.rollback_at / screenplays 列追加後に
+    # 再作成する必要があるため、依存順 (v_performance → v_active_posts) で drop。
+    conn.execute("DROP VIEW IF EXISTS v_halo_effect")
+    conn.execute("DROP VIEW IF EXISTS v_transformation_performance")
+    conn.execute("DROP VIEW IF EXISTS v_performance")
+    conn.execute("DROP VIEW IF EXISTS v_strategy_performance")
+    # schema v12: 軸別 view 4 つを v_active_posts 経由に切り替え (= rollback 済
+    # post を集計から除外する不変条件)。
+    conn.execute("DROP VIEW IF EXISTS v_hook_type_performance")
+    conn.execute("DROP VIEW IF EXISTS v_tone_performance")
+    conn.execute("DROP VIEW IF EXISTS v_dominant_emotion_performance")
+    conn.execute("DROP VIEW IF EXISTS v_theme_performance")
+    conn.execute("DROP VIEW IF EXISTS v_active_posts")
+
+
+def _apply_schema_and_migrations(conn: sqlite3.Connection) -> None:
+    """schema.sql を適用し additive な列追加 migration を流す。
+
+    実行順:
+      1. posts.rollback_at / rollback_reason (= v9 で追加)
+      2. schema.sql 適用 (= CREATE TABLE/VIEW IF NOT EXISTS)
+      3. 既存 DB に無い列を _ensure_column で追加 (v5/v7/v8/v10/v11)
+      4. post_metrics の UNIQUE INDEX (= 既存重複は dedupe してから貼る)
+    """
+    # v_active_posts の SELECT * が rollback_at 無しの DB で不整合を起こすため、
+    # schema.sql 実行前に posts へ列を追加しておく。
+    _table_exists = conn.execute(
+        "SELECT 1 FROM sqlite_master WHERE type='table' AND name='posts'"
+    ).fetchone()
+    if _table_exists:
+        _ensure_column(conn, "posts", "rollback_at", "rollback_at TEXT")
+        _ensure_column(conn, "posts", "rollback_reason", "rollback_reason TEXT")
+    with open(SCHEMA_PATH, "r", encoding="utf-8") as f:
+        conn.executescript(f.read())
+    # 既存 DB の videos に final_* カラムが無い場合に追加 (additive migration)
+    _ensure_column(conn, "videos", "final_imported",
+                   "final_imported INTEGER NOT NULL DEFAULT 0")
+    _ensure_column(conn, "videos", "final_filename", "final_filename TEXT")
+    _ensure_column(conn, "videos", "final_audio_match_score",
+                   "final_audio_match_score REAL")
+    # analyze_jobs に project_ts を後付け (= from-reference-video 経路で生成
+    # された project の TS 紐付け、save hook の back link)。standalone analyze
+    # (= 旧経路) は NULL のまま。
+    _ensure_column(conn, "analyze_jobs", "project_ts", "project_ts TEXT")
+    # schema v5: reference_videos に source_url / fetched_at / license_status を
+    # 追加。既存 row は NULL / "unconfirmed" のまま。
+    _ensure_column(conn, "reference_videos", "source_url", "source_url TEXT")
+    _ensure_column(conn, "reference_videos", "fetched_at", "fetched_at TEXT")
+    _ensure_column(conn, "reference_videos", "license_status",
+                   "license_status TEXT DEFAULT 'unconfirmed'")
+    # schema v7: experiment_assignments.observed_value (= Haiku 事後 tag)
+    _ensure_column(conn, "experiment_assignments", "observed_value",
+                   "observed_value TEXT")
+    # schema v8 (Phase X-1): experiment_assignments に scene 粒度 +
+    # composition identity を追加。Phase 3 の動画粒度書き込みは
+    # scene_idx=NULL で続行可能 (= back-compat)。
+    _ensure_column(conn, "experiment_assignments", "scene_idx", "scene_idx INTEGER")
+    _ensure_column(conn, "experiment_assignments", "composition_id",
+                   "composition_id TEXT")
+    _ensure_column(conn, "experiment_assignments", "composition_version",
+                   "composition_version TEXT")
+    # post_metrics(post_id, fetched_at) UNIQUE 制約 (= 同タイムスタンプの
+    # double-insert を抑止)。既存 DB に重複が残っている場合は最新 id のみ残す。
+    _ensure_unique_post_metrics(conn)
+    # schema v10: PDCA 中核 KPI を post_metrics に追加 (= additive)。
+    _ensure_column(conn, "post_metrics", "impressions", "impressions INTEGER")
+    _ensure_column(conn, "post_metrics", "subscribers_gained",
+                   "subscribers_gained INTEGER")
+    _ensure_column(conn, "post_metrics", "traffic_browse_pct",
+                   "traffic_browse_pct REAL")
+    _ensure_column(conn, "post_metrics", "traffic_suggested_pct",
+                   "traffic_suggested_pct REAL")
+    _ensure_column(conn, "post_metrics", "traffic_search_pct",
+                   "traffic_search_pct REAL")
+    _ensure_column(conn, "post_metrics", "traffic_external_pct",
+                   "traffic_external_pct REAL")
+    # schema v11: content-strategy.md Phase 1 の概念モデルを screenplays に追加
+    # (= transformation / tree_main_branch / pov_id)。Halo effect 計測の根。
+    _ensure_column(conn, "screenplays", "transformation", "transformation TEXT")
+    _ensure_column(conn, "screenplays", "tree_main_branch", "tree_main_branch TEXT")
+    _ensure_column(conn, "screenplays", "pov_id", "pov_id TEXT")
+
+
+def _record_schema_version(conn: sqlite3.Connection) -> None:
+    """現行 CURRENT_SCHEMA_VERSION を schema_version table に記録。"""
+    row = conn.execute(
+        "SELECT MAX(version) AS v FROM schema_version"
+    ).fetchone()
+    current = (row["v"] or 0) if row else 0
+    if current < CURRENT_SCHEMA_VERSION:
+        conn.execute(
+            "INSERT INTO schema_version(version, applied_at) VALUES(?, ?)",
+            (CURRENT_SCHEMA_VERSION, _now()),
+        )
 
 
 _ALLOWED_TABLES = frozenset({
