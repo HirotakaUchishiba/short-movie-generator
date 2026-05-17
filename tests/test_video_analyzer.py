@@ -890,3 +890,241 @@ def test_featured_prefers_s2r_swapped_wardrobe(tmp_path) -> None:
     # featured には swap 後の office のみ (= raw_feat の casual は同 base で skip)
     assert result["featured_characters"] == ["f1__office"]
     assert result["speaker_to_ref"] == {"speaker_1": "f1__office"}
+
+
+# ───── Phase D: unmapped speaker fallback (= _fill_unmapped_speakers) ─────
+# Claude が確信を持てず speaker_to_ref を埋め残しても、speaker_profiles に
+# 載っている全 speaker が必ず resolved ref を持つ状態に補完されることを保証
+
+
+class TestFillUnmappedSpeakers:
+    """`_fill_unmapped_speakers` の単体テスト。
+
+    speaker_profiles + character_catalog の appearance を突合して
+    deterministic に補完する責務を負う。
+    """
+
+    def _catalog(self):
+        """3 base の catalog (= gender 分布: female 2 / male 1)。"""
+        return [
+            {"id": "f1", "appearance": {"gender": "female", "age_range": "20s"},
+             "refs": ["f1", "f1__office"]},
+            {"id": "f2", "appearance": {"gender": "female", "age_range": "30s"},
+             "refs": ["f2", "f2__office"]},
+            {"id": "m1", "appearance": {"gender": "male", "age_range": "20s"},
+             "refs": ["m1", "m1__suit"]},
+        ]
+
+    def test_fills_single_unmapped_with_gender_match(self) -> None:
+        """gender 一致する唯一の base が選ばれる。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {"gender": "male", "age_range": "20s"}},
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # m1 が選ばれる (= 唯一の male)
+        assert out == {"speaker_1": "m1"}
+
+    def test_prefers_age_match_when_gender_ties(self) -> None:
+        """gender 同点のときは age_range 一致が優先される。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {"gender": "female", "age_range": "30s"}},
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # f1 (20s) / f2 (30s) のうち f2 が age 一致で優先される
+        assert out == {"speaker_1": "f2"}
+
+    def test_distinct_character_rule_when_filling(self) -> None:
+        """既に Claude が割り当てた base は fill 候補から除外される。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={
+                "speaker_1": {"gender": "female", "age_range": "20s"},
+                "speaker_2": {"gender": "female", "age_range": "20s"},
+            },
+            cleaned_s2r={"speaker_1": "f1"},  # Claude が f1 を確定済み
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # speaker_2 は f1 が使用済みなので f2 (= 同 gender の残り) が選ばれる
+        assert out == {"speaker_1": "f1", "speaker_2": "f2"}
+
+    def test_relaxes_distinct_rule_when_catalog_exhausted(self) -> None:
+        """全 base が使用済みになったら distinct rule を緩めて再利用。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={
+                "speaker_1": {"gender": "female"},
+                "speaker_2": {"gender": "female"},
+                "speaker_3": {"gender": "female"},  # f1/f2 だけでは足りない
+            },
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # 3 speaker が全 female、catalog には female 2 (f1, f2) のみ
+        # → speaker_3 は f1 (alphabetical 先頭) を再利用する
+        assert out["speaker_1"] == "f1"
+        assert out["speaker_2"] == "f2"
+        assert out["speaker_3"] == "f1"  # 再利用
+
+    def test_hard_reject_on_gender_mismatch(self) -> None:
+        """gender 不一致は hard reject (= 候補から除外)。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {"gender": "male"}},
+            cleaned_s2r={"speaker_2": "m1"},  # m1 (唯一の male) を使用済み
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # gender 一致 base が枯渇 → distinct を緩めて m1 を再利用 (= gender 一致は維持)
+        # female (f1/f2) には hard reject で行かない
+        assert out["speaker_1"] == "m1"
+
+    def test_no_profile_gender_picks_first_available(self) -> None:
+        """speaker_profile に gender 無し → score=0 で全 base 候補、alphabetical 先頭。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {"description": "声だけ"}},
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # 全 base が score 0 で並ぶ → f1 (alphabetical 先頭)
+        assert out == {"speaker_1": "f1"}
+
+    def test_wardrobe_aware_pick_with_dominant_location(self) -> None:
+        """補完時の wardrobe は dominant location の recommended_wardrobes を優先。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {"gender": "female"}},
+            cleaned_s2r={},
+            character_catalog=[
+                {"id": "f1", "appearance": {"gender": "female"},
+                 "refs": ["f1", "f1__office", "f1__casual"]},
+            ],
+            base_to_refs={"f1": ["f1", "f1__office", "f1__casual"]},
+            loc_to_wardrobes={"warm_cafe": ["casual"]},
+            speaker_to_locs={"speaker_1": ["warm_cafe", "warm_cafe"]},
+        )
+        # dominant=warm_cafe → casual wardrobe → f1__casual
+        assert out == {"speaker_1": "f1__casual"}
+
+    def test_keeps_existing_mapping_untouched(self) -> None:
+        """既存の cleaned_s2r エントリは fall-through で温存される。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={
+                "speaker_1": {"gender": "female"},
+                "speaker_2": {"gender": "male"},
+            },
+            cleaned_s2r={"speaker_1": "f1__office"},  # 既存
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1", "f1__office"], "m1": ["m1", "m1__suit"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # speaker_1 は触らない、speaker_2 だけ補完
+        assert out["speaker_1"] == "f1__office"
+        assert out["speaker_2"] == "m1"
+
+    def test_empty_speaker_profiles_returns_input_as_is(self) -> None:
+        """speaker_profiles が空ならそのまま返す。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={},
+            cleaned_s2r={"speaker_1": "f1"},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        assert out == {"speaker_1": "f1"}
+
+
+class TestBuildScreenplayFillsAllSpeakers:
+    """build_screenplay の end-to-end: Claude が埋め残しても全 speaker が
+    speaker_to_ref に登場することを保証する。
+    """
+
+    def test_unmapped_speaker_gets_filled_by_post_process(self, tmp_path) -> None:
+        """Claude が speaker_1 のみ提案 → speaker_2 は post-process で補完。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "female"},
+                "speaker_2": {"gender": "male"},
+            },
+            "featured_characters": ["f1__office"],
+            "speaker_to_ref": {"speaker_1": "f1__office"},  # speaker_2 は欠落
+            "scenes": [{"lines": [
+                {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+                 "speaker": "speaker_1"},
+                {"text": "u", "start": 1.0, "end": 2.0, "emotion": "中立",
+                 "speaker": "speaker_2"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        # 両 speaker が必ず埋まる
+        assert "speaker_1" in result["speaker_to_ref"]
+        assert "speaker_2" in result["speaker_to_ref"]
+        assert result["speaker_to_ref"]["speaker_1"] == "f1__office"
+        # speaker_2 は male 一致の m1 base から選ばれる (resolved は m1 or m1__suit)
+        assert result["speaker_to_ref"]["speaker_2"].startswith("m1")
+
+    def test_all_speakers_unmapped_get_filled(self, tmp_path) -> None:
+        """Claude が speaker_to_ref を完全に省略しても全 speaker が補完される。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "female"},
+                "speaker_2": {"gender": "male"},
+            },
+            # speaker_to_ref / featured_characters なし (= Claude が確信無し)
+            "scenes": [{"lines": [
+                {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+                 "speaker": "speaker_1"},
+                {"text": "u", "start": 1.0, "end": 2.0, "emotion": "中立",
+                 "speaker": "speaker_2"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        s2r = result["speaker_to_ref"]
+        assert "speaker_1" in s2r
+        assert "speaker_2" in s2r
+        # distinct rule で別 base が選ばれる
+        assert s2r["speaker_1"].split("__")[0] != s2r["speaker_2"].split("__")[0]
+
+    def test_unmapped_speaker_propagates_to_featured_characters(self, tmp_path) -> None:
+        """補完された speaker の ref は featured_characters にも入る。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "female"},
+                "speaker_2": {"gender": "male"},
+            },
+            "speaker_to_ref": {"speaker_1": "f1__office"},
+            "scenes": [{"lines": [
+                {"text": "t", "start": 0.0, "end": 1.0, "emotion": "中立",
+                 "speaker": "speaker_1"},
+                {"text": "u", "start": 1.0, "end": 2.0, "emotion": "中立",
+                 "speaker": "speaker_2"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        # speaker_2 用に補完された ref も featured に含まれる
+        feat = result["featured_characters"]
+        assert "f1__office" in feat
+        s2_ref = result["speaker_to_ref"]["speaker_2"]
+        assert s2_ref in feat

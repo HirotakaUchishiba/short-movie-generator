@@ -4,5 +4,10 @@
     "stability": 0.45,
     "style": 0.35,
     "similarity_boost": 0.7
+  },
+  "appearance": {
+    "gender": "female",
+    "age_range": "20s",
+    "description": "明るく親しみやすい20代前半の女性、黒髪セミロング、活発な印象"
   }
 }

@@ -141,23 +141,24 @@ analyze が必ず産出する (= 欠落は fail-fast)。`annotation` および c
 validator は不在を許容する。casting 系は **提案** であり、ユーザが Stage 1 UI で
 訂正する (= 既存の 👥 登場人物 / 🎙 話者マッピング 編集 UI が訂正導線)。
 
-| #   | フィールド                             | 階層  | 由来 / 既定                                                                                                              |
-| --- | -------------------------------------- | ----- | ------------------------------------------------------------------------------------------------------------------------ |
-| 1   | `scenes[].location_ref`                | scene | Claude が `locations/` カタログから最近傍を選定。catalog 外 id は後処理で先頭に矯正                                      |
-| 2   | `scenes[].camera_distance`             | scene | Claude が close-up/medium-close/medium/wide から選定。enum 外は後処理で drop (= location 既定 fallback に委ねる)         |
-| 3   | `scenes[].annotation.visual_intent_id` | scene | Claude 推論で `config/part_registry/visual_intents.yaml` の id を 1 つ選ぶ。catalog 外なら当該 field のみ null に降格    |
-| 4   | `scenes[].annotation.duration_bucket`  | scene | 5 / 10 のいずれか (= visual_intents の `duration_buckets` と整合)                                                        |
-| 5   | `scenes[].annotation.motion_intensity` | scene | low / medium / high                                                                                                      |
-| 6   | `speaker_profiles`                     | root  | 匿名 speaker ごとの gender / age_range / description。フレーム + 音響から検出 (= 話者マッピング UI のヒント)             |
-| 7   | `featured_characters`                  | root  | character catalog が提供されれば Claude が speaker_profiles を appearance と突合して提案。catalog 外 ref は後処理で drop |
-| 8   | `speaker_to_ref`                       | root  | 同上。speaker_N → resolved id の提案。未マッチ speaker は省略 (= 人間が対応付け)                                         |
+| #   | フィールド                             | 階層  | 由来 / 既定                                                                                                                                                                                                                                                                                  |
+| --- | -------------------------------------- | ----- | -------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1   | `scenes[].location_ref`                | scene | Claude が `locations/` カタログから最近傍を選定。catalog 外 id は後処理で先頭に矯正                                                                                                                                                                                                          |
+| 2   | `scenes[].camera_distance`             | scene | Claude が close-up/medium-close/medium/wide から選定。enum 外は後処理で drop (= location 既定 fallback に委ねる)                                                                                                                                                                             |
+| 3   | `scenes[].annotation.visual_intent_id` | scene | Claude 推論で `config/part_registry/visual_intents.yaml` の id を 1 つ選ぶ。catalog 外なら当該 field のみ null に降格                                                                                                                                                                        |
+| 4   | `scenes[].annotation.duration_bucket`  | scene | 5 / 10 のいずれか (= visual_intents の `duration_buckets` と整合)                                                                                                                                                                                                                            |
+| 5   | `scenes[].annotation.motion_intensity` | scene | low / medium / high                                                                                                                                                                                                                                                                          |
+| 6   | `speaker_profiles`                     | root  | 匿名 speaker ごとの gender / age_range / description。フレーム + 音響から検出 (= 話者マッピング UI のヒント)                                                                                                                                                                                 |
+| 7   | `featured_characters`                  | root  | character catalog が提供されれば Claude が speaker_profiles を appearance と突合して提案。catalog 外 ref は後処理で drop                                                                                                                                                                     |
+| 8   | `speaker_to_ref`                       | root  | 同上。speaker_N → resolved id の提案。**speaker_profiles を持つ全 speaker に必ず 1 ref を割り当てる** (= Claude が低 confidence で省略しても post-process の `_fill_unmapped_speakers` が gender / age 一致 + distinct character rule で deterministic に補完。人間が Stage 1 UI で訂正可能) |
 
 #### casting 後処理ルール (= post-processing で決定論的に適用)
 
-Claude の提案には 2 つの判定ロジックが後処理で被さる (= `docs/plannings/2026-05-16_wardrobe-by-location.md` 参照)。両方とも graceful (= 適用不能なら何もしない)。
+Claude の提案には 3 つの判定ロジックが後処理で被さる (= `docs/plannings/2026-05-16_wardrobe-by-location.md` 参照)。すべて graceful (= 適用不能なら何もしない)。
 
-- **Rule B (distinct character)**: 同じ base character を複数 speaker に割り当てない (= 2 件目以降は drop され speaker は未マッピング状態に戻る)
+- **Rule B (distinct character)**: 同じ base character を複数 speaker に割り当てない (= 2 件目以降は drop)
 - **Rule A (wardrobe-by-location)**: 各 speaker の **dominant location** (= 最も多くの line を持つ scene の `location_ref`) の `recommended_wardrobes` に合うように wardrobe を swap する。同 base に該当 wardrobe バリアントが存在しないなら swap しない。`featured_characters` は swap 後の ref に同期される
+- **Phase D (unmapped fallback)**: 上記 2 ルール後に **`speaker_profiles` を持つ全 speaker が `speaker_to_ref` に登場するか** を確認し、欠落 speaker を `_fill_unmapped_speakers()` で補完する。catalog の各 base の `appearance` (= `characters/<id>/voice.json`) と speaker_profile を gender (hard reject) + age_range (soft preference) で matching し、distinct rule を優先しつつ枯渇時は再利用、wardrobe は dominant location に合わせる (= Stage 1 UI で「未選択」状態を構造的に発生させない)
 
 `visual_intent_id` が null の scene は SSE event `novel_intent_candidates` に集計され、UI で「catalog 拡張のヒント」として表示される。`confidence` / `rationale` は Claude が出力しても compose 前の正規化で drop され snapshot には残らない。
 
