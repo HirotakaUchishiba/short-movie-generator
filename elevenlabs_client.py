@@ -93,9 +93,11 @@ def _post_with_retry(url: str, headers: dict, json_body: dict,
         last_body = resp.text or ""
         classification = _classify_status(resp.status_code, last_body.lower())
         if classification == "fail":
+            logger.debug(
+                "ElevenLabs response body (truncated 200ch): %s", last_body[:200],
+            )
             raise ElevenLabsClientError(
-                f"ElevenLabs 非リトライエラー ({resp.status_code}): "
-                f"{last_body[:500]}"
+                f"ElevenLabs 非リトライエラー (status={resp.status_code})"
             )
         if attempt >= MAX_RETRIES - 1:
             break
@@ -104,10 +106,12 @@ def _post_with_retry(url: str, headers: dict, json_body: dict,
             attempt, BACKOFF_SECONDS, retry_after=retry_after
         )
         logger.warning(
-            "ElevenLabs %s (%d回目/%d) — %.1f秒後にリトライ%s: %s",
+            "ElevenLabs %s (%d回目/%d) — %.1f秒後にリトライ%s",
             resp.status_code, attempt + 1, MAX_RETRIES, wait,
             " (Retry-After 由来)" if retry_after is not None else "",
-            last_body[:200],
+        )
+        logger.debug(
+            "ElevenLabs response body (truncated 200ch): %s", last_body[:200],
         )
         time.sleep(wait)
 
@@ -115,8 +119,11 @@ def _post_with_retry(url: str, headers: dict, json_body: dict,
         raise ElevenLabsClientError(
             f"ElevenLabs 接続リトライ上限超過: {last_exc}"
         ) from last_exc
+    logger.debug(
+        "ElevenLabs response body (truncated 200ch): %s", last_body[:200],
+    )
     raise ElevenLabsClientError(
-        f"ElevenLabs リトライ上限超過 ({last_status}): {last_body[:500]}"
+        f"ElevenLabs リトライ上限超過 (status={last_status})"
     )
 
 MODELS_WITHOUT_CONTEXT = {"eleven_v3"}
