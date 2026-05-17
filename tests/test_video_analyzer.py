@@ -900,53 +900,42 @@ def test_featured_prefers_s2r_swapped_wardrobe(tmp_path) -> None:
 class TestFillUnmappedSpeakers:
     """`_fill_unmapped_speakers` の単体テスト。
 
-    speaker_profiles + character_catalog の appearance を突合して
-    deterministic に補完する責務を負う。
+    2026-05-17 方針変更 (= `docs/plannings/2026-05-17_decouple-casting-from-reference.md`):
+    appearance 突合を撤廃し、catalog の alphabetical 順で割当てる。
     """
 
     def _catalog(self):
-        """3 base の catalog (= gender 分布: female 2 / male 1)。"""
+        """3 base の catalog。appearance は dead field 化したので保持されているか
+        否かは問わない (= 後続 PR で削除予定)。"""
         return [
-            {"id": "f1", "appearance": {"gender": "female", "age_range": "20s"},
-             "refs": ["f1", "f1__office"]},
-            {"id": "f2", "appearance": {"gender": "female", "age_range": "30s"},
-             "refs": ["f2", "f2__office"]},
-            {"id": "m1", "appearance": {"gender": "male", "age_range": "20s"},
-             "refs": ["m1", "m1__suit"]},
+            {"id": "f1", "refs": ["f1", "f1__office"]},
+            {"id": "f2", "refs": ["f2", "f2__office"]},
+            {"id": "m1", "refs": ["m1", "m1__suit"]},
         ]
 
-    def test_fills_single_unmapped_with_gender_match(self) -> None:
-        """gender 一致する唯一の base が選ばれる。"""
-        out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={"speaker_1": {"gender": "male", "age_range": "20s"}},
-            cleaned_s2r={},
-            character_catalog=self._catalog(),
-            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
-            loc_to_wardrobes={},
-            speaker_to_locs={},
-        )
-        # m1 が選ばれる (= 唯一の male)
-        assert out == {"speaker_1": "m1"}
-
-    def test_prefers_age_match_when_gender_ties(self) -> None:
-        """gender 同点のときは age_range 一致が優先される。"""
-        out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={"speaker_1": {"gender": "female", "age_range": "30s"}},
-            cleaned_s2r={},
-            character_catalog=self._catalog(),
-            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
-            loc_to_wardrobes={},
-            speaker_to_locs={},
-        )
-        # f1 (20s) / f2 (30s) のうち f2 が age 一致で優先される
-        assert out == {"speaker_1": "f2"}
-
-    def test_distinct_character_rule_when_filling(self) -> None:
-        """既に Claude が割り当てた base は fill 候補から除外される。"""
+    def test_assigns_in_alphabetical_order(self) -> None:
+        """unmapped speaker は catalog alphabetical 先頭から順に割当てられる。"""
         out = video_analyzer._fill_unmapped_speakers(
             speaker_profiles={
-                "speaker_1": {"gender": "female", "age_range": "20s"},
-                "speaker_2": {"gender": "female", "age_range": "20s"},
+                "speaker_1": {"gender": "male"},
+                "speaker_2": {"gender": "female"},
+            },
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        # 元動画の gender に寄せない → catalog 順 (f1, f2, m1, ...) で割当
+        # speaker_1 → f1、speaker_2 → f2
+        assert out == {"speaker_1": "f1", "speaker_2": "f2"}
+
+    def test_distinct_character_rule_when_filling(self) -> None:
+        """既に Claude が割り当てた base は fill 候補から除外される (= distinct rule)。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={
+                "speaker_1": {},
+                "speaker_2": {},
             },
             cleaned_s2r={"speaker_1": "f1"},  # Claude が f1 を確定済み
             character_catalog=self._catalog(),
@@ -954,16 +943,15 @@ class TestFillUnmappedSpeakers:
             loc_to_wardrobes={},
             speaker_to_locs={},
         )
-        # speaker_2 は f1 が使用済みなので f2 (= 同 gender の残り) が選ばれる
+        # speaker_2 は f1 が使用済みなので f2 (= alphabetical 次)
         assert out == {"speaker_1": "f1", "speaker_2": "f2"}
 
     def test_relaxes_distinct_rule_when_catalog_exhausted(self) -> None:
-        """全 base が使用済みになったら distinct rule を緩めて再利用。"""
+        """catalog 全 base 使用済みなら distinct rule を緩めて alphabetical 先頭から再利用。"""
         out = video_analyzer._fill_unmapped_speakers(
             speaker_profiles={
-                "speaker_1": {"gender": "female"},
-                "speaker_2": {"gender": "female"},
-                "speaker_3": {"gender": "female"},  # f1/f2 だけでは足りない
+                "speaker_1": {}, "speaker_2": {}, "speaker_3": {},
+                "speaker_4": {},  # 4 人 vs catalog 3 base
             },
             cleaned_s2r={},
             character_catalog=self._catalog(),
@@ -971,47 +959,48 @@ class TestFillUnmappedSpeakers:
             loc_to_wardrobes={},
             speaker_to_locs={},
         )
-        # 3 speaker が全 female、catalog には female 2 (f1, f2) のみ
-        # → speaker_3 は f1 (alphabetical 先頭) を再利用する
+        # f1, f2, m1 を順番に割当 → 4 人目は alphabetical 先頭の f1 を再利用
         assert out["speaker_1"] == "f1"
         assert out["speaker_2"] == "f2"
-        assert out["speaker_3"] == "f1"  # 再利用
+        assert out["speaker_3"] == "m1"
+        assert out["speaker_4"] == "f1"  # 再利用
 
-    def test_hard_reject_on_gender_mismatch(self) -> None:
-        """gender 不一致は hard reject (= 候補から除外)。"""
+    def test_ignores_speaker_profile_gender(self) -> None:
+        """speaker_profile の gender / age は補完判定に **影響しない**
+        (= 元動画に寄せない方針)。"""
         out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={"speaker_1": {"gender": "male"}},
-            cleaned_s2r={"speaker_2": "m1"},  # m1 (唯一の male) を使用済み
-            character_catalog=self._catalog(),
-            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
-            loc_to_wardrobes={},
-            speaker_to_locs={},
-        )
-        # gender 一致 base が枯渇 → distinct を緩めて m1 を再利用 (= gender 一致は維持)
-        # female (f1/f2) には hard reject で行かない
-        assert out["speaker_1"] == "m1"
-
-    def test_no_profile_gender_picks_first_available(self) -> None:
-        """speaker_profile に gender 無し → score=0 で全 base 候補、alphabetical 先頭。"""
-        out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={"speaker_1": {"description": "声だけ"}},
+            # speaker_1 は male profile だが、catalog 順で f1 が割当てられる
+            speaker_profiles={"speaker_1": {"gender": "male", "age_range": "30s"}},
             cleaned_s2r={},
             character_catalog=self._catalog(),
             base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
             loc_to_wardrobes={},
             speaker_to_locs={},
         )
-        # 全 base が score 0 で並ぶ → f1 (alphabetical 先頭)
+        # gender hard reject が撤廃されたので male profile でも f1 が選ばれる
+        # (= Stage 1 UI で人間が選び直す前提)
+        assert out == {"speaker_1": "f1"}
+
+    def test_no_profile_picks_alphabetical_first(self) -> None:
+        """speaker_profile が空でも catalog alphabetical 先頭が選ばれる。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {}},
+            cleaned_s2r={},
+            character_catalog=self._catalog(),
+            base_to_refs={"f1": ["f1"], "f2": ["f2"], "m1": ["m1"]},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
         assert out == {"speaker_1": "f1"}
 
     def test_wardrobe_aware_pick_with_dominant_location(self) -> None:
-        """補完時の wardrobe は dominant location の recommended_wardrobes を優先。"""
+        """補完時の wardrobe は dominant location の recommended_wardrobes を優先
+        (= location 依存ルールは維持)。"""
         out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={"speaker_1": {"gender": "female"}},
+            speaker_profiles={"speaker_1": {}},
             cleaned_s2r={},
             character_catalog=[
-                {"id": "f1", "appearance": {"gender": "female"},
-                 "refs": ["f1", "f1__office", "f1__casual"]},
+                {"id": "f1", "refs": ["f1", "f1__office", "f1__casual"]},
             ],
             base_to_refs={"f1": ["f1", "f1__office", "f1__casual"]},
             loc_to_wardrobes={"warm_cafe": ["casual"]},
@@ -1023,19 +1012,29 @@ class TestFillUnmappedSpeakers:
     def test_keeps_existing_mapping_untouched(self) -> None:
         """既存の cleaned_s2r エントリは fall-through で温存される。"""
         out = video_analyzer._fill_unmapped_speakers(
-            speaker_profiles={
-                "speaker_1": {"gender": "female"},
-                "speaker_2": {"gender": "male"},
-            },
+            speaker_profiles={"speaker_1": {}, "speaker_2": {}},
             cleaned_s2r={"speaker_1": "f1__office"},  # 既存
             character_catalog=self._catalog(),
-            base_to_refs={"f1": ["f1", "f1__office"], "m1": ["m1", "m1__suit"]},
+            base_to_refs={"f1": ["f1", "f1__office"],
+                          "f2": ["f2"], "m1": ["m1", "m1__suit"]},
             loc_to_wardrobes={},
             speaker_to_locs={},
         )
-        # speaker_1 は触らない、speaker_2 だけ補完
+        # speaker_1 は触らない、speaker_2 は f1 が使用済みなので f2 (alphabetical 次)
         assert out["speaker_1"] == "f1__office"
-        assert out["speaker_2"] == "m1"
+        assert out["speaker_2"] == "f2"
+
+    def test_empty_catalog_returns_input_as_is(self) -> None:
+        """catalog が空なら fill 不能で input をそのまま返す。"""
+        out = video_analyzer._fill_unmapped_speakers(
+            speaker_profiles={"speaker_1": {}},
+            cleaned_s2r={},
+            character_catalog=[],
+            base_to_refs={},
+            loc_to_wardrobes={},
+            speaker_to_locs={},
+        )
+        assert out == {}
 
     def test_empty_speaker_profiles_returns_input_as_is(self) -> None:
         """speaker_profiles が空ならそのまま返す。"""
