@@ -1,26 +1,43 @@
 import logging
+import os
 import subprocess
 import tempfile
+from contextlib import contextmanager
+from typing import Iterator
 
 logger = logging.getLogger(__name__)
 
 
-def _ensure_wav(audio_path: str) -> tuple[str, bool]:
-    """librosaで扱いやすい16kHz mono WAVへ変換。.wavならそのまま返す。"""
+@contextmanager
+def _ensured_wav(audio_path: str) -> Iterator[str]:
+    """librosa で扱いやすい 16kHz mono WAV のパスを yield する context manager。
+
+    入力が既に ``.wav`` なら同じ path をそのまま yield し削除しない。
+    そうでなければ tempfile に変換し、context 終了時に確実に削除する
+    (= 旧 ``(path, is_tmp)`` tuple + caller 側 try/finally の boilerplate を
+    解消、計画書 §4.5)。
+    """
     if audio_path.lower().endswith(".wav"):
-        return audio_path, False
+        yield audio_path
+        return
     tmp = tempfile.NamedTemporaryFile(suffix=".wav", delete=False)
     tmp.close()
-    cmd = [
-        "ffmpeg", "-y", "-i", audio_path,
-        "-ac", "1", "-ar", "16000",
-        "-vn",
-        tmp.name,
-    ]
-    r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
-    if r.returncode != 0:
-        raise RuntimeError(f"ffmpeg conversion failed: {r.stderr[-400:]}")
-    return tmp.name, True
+    try:
+        cmd = [
+            "ffmpeg", "-y", "-i", audio_path,
+            "-ac", "1", "-ar", "16000",
+            "-vn",
+            tmp.name,
+        ]
+        r = subprocess.run(cmd, capture_output=True, text=True, timeout=120)
+        if r.returncode != 0:
+            raise RuntimeError(f"ffmpeg conversion failed: {r.stderr[-400:]}")
+        yield tmp.name
+    finally:
+        try:
+            os.remove(tmp.name)
+        except OSError as e:
+            logger.warning("[acoustic] tmp wav %s 削除失敗: %s", tmp.name, e)
 
 
 def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
@@ -39,8 +56,7 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
     import numpy as np
     import librosa
 
-    wav_path, is_tmp = _ensure_wav(audio_path)
-    try:
+    with _ensured_wav(audio_path) as wav_path:
         duration = max(0.01, end - start)
         y, sr = librosa.load(wav_path, sr=16000, offset=start, duration=duration, mono=True)
 
@@ -89,13 +105,6 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
             "rms_mean": round(rms_mean, 3),
             "duration": round(duration, 3),
         }
-    finally:
-        if is_tmp:
-            import os
-            try:
-                os.remove(wav_path)
-            except OSError as e:
-                logger.warning("[acoustic] tmp wav %s 削除失敗: %s", wav_path, e)
 
 
 def wpm_from_text(text: str, duration: float) -> float:
@@ -166,8 +175,7 @@ def has_background_music(audio_path: str) -> dict:
     import numpy as np
     import librosa
 
-    wav_path, is_tmp = _ensure_wav(audio_path)
-    try:
+    with _ensured_wav(audio_path) as wav_path:
         y, sr = librosa.load(wav_path, sr=22050, mono=True)
         if len(y) < sr:
             return {"present": False, "confidence": 0.0}
@@ -195,10 +203,3 @@ def has_background_music(audio_path: str) -> dict:
             "bg_energy": round(bg_energy, 4),
             "ratio": round(ratio, 3),
         }
-    finally:
-        if is_tmp:
-            import os
-            try:
-                os.remove(wav_path)
-            except OSError as e:
-                logger.warning("[acoustic] tmp wav %s 削除失敗: %s", wav_path, e)
