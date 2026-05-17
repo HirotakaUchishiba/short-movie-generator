@@ -254,6 +254,86 @@ def _collect_novel_intent_candidates(screenplay: dict) -> list[dict]:
     ]
 
 
+def _run_save_phase(
+    screenplay: dict,
+    *,
+    output_path: str,
+    on_progress: ProgressCallback | None,
+    analyze_job_id: str,
+) -> None:
+    """save phase: drift 後処理 + validate + 書き出し + suggested_intents upsert。
+
+    330 行の ``run()`` 末尾から切り出した独立 phase。furigana_store merge、
+    SYSTEM_PROMPT 違反 drift 集計、軽量 validation、screenplay 書き出し、
+    novel intent 提案の aggregated inbox upsert、phase_complete event 発火を
+    1 関数に集約する。
+    """
+    _emit(on_progress, "phase_start", {"phase": "save"})
+    new_hints = furigana_store.collect_from_screenplay(screenplay)
+    if new_hints:
+        furigana_store.merge(new_hints)
+
+    # Claude の SYSTEM_PROMPT 違反を吸収する後処理。発生件数は drift として
+    # 集計し、phase_complete に乗せて SSE / UI / ジョブログから可視化する。
+    drift = {
+        "scene_pronunciation_hints_demoted": _normalize_scene_pronunciation_hints(
+            screenplay,
+        ),
+    }
+    if drift["scene_pronunciation_hints_demoted"]:
+        logger.warning(
+            "[claude_drift] scene 直下の pronunciation_hints を %d シーン分 "
+            "line に展開しました (= SYSTEM_PROMPT 違反)",
+            drift["scene_pronunciation_hints_demoted"],
+        )
+
+    # abstract 形式は composed 必須項目を満たさないので require_composed=False
+    # で軽量検証する。compose 後の strict 検証は staged_pipeline 側が担当。
+    errors = validate_screenplay(
+        screenplay, strict=False, require_composed=False,
+    )
+    if errors:
+        logger.warning("バリデーション警告:")
+        for e in errors:
+            logger.warning("  - %s", e)
+
+    with open(output_path, "w", encoding="utf-8") as f:
+        json.dump(screenplay, f, ensure_ascii=False, indent=2)
+    annotation_stats = _summarize_annotation_stats(screenplay)
+
+    # 設計 §8.2: novel intent 候補を aggregated inbox に upsert
+    # (= data/intent_suggestions.json)。SSE event にも全件含めて UI で
+    # 「💡 提案」セクションに飛べるようにする。
+    suggested_intents = _collect_novel_intent_candidates(screenplay)
+    if suggested_intents:
+        try:
+            inputs = [
+                SuggestionInput(
+                    proposed_id=str(s["proposed_id"]),
+                    description=str(s["description"]),
+                    rationale=str(s.get("rationale") or ""),
+                    scene_indices=tuple(
+                        int(i) for i in s.get("scene_indices") or []
+                    ),
+                    source_screenplay=str(output_path),
+                    source_analyze_job_id=analyze_job_id,
+                )
+                for s in suggested_intents
+            ]
+            suggestion_upsert(inputs)
+        except (OSError, ValueError, TypeError) as e:
+            logger.warning("[suggested_intents] inbox upsert failed: %s", e)
+    _emit(on_progress, "phase_complete", {
+        "phase": "save",
+        "output_path": output_path,
+        "claude_drift": drift,
+        "validation_warnings": len(errors),
+        "annotation_stats": annotation_stats,
+        "suggested_intents": suggested_intents,
+        "suggested_intents_path": None,  # 後方互換: 常に None
+    })
+
+
 def _normalize_scene_pronunciation_hints(screenplay: dict) -> int:
     """scene 直下の pronunciation_hints を各 line に展開して scene からは削除する。
 
@@ -528,75 +608,12 @@ def run(
         _check_cancel(cancel_token)
 
         # ─── Phase: save ─────────────────────────────
-        _emit(on_progress, "phase_start", {"phase": "save"})
-        new_hints = furigana_store.collect_from_screenplay(screenplay)
-        if new_hints:
-            furigana_store.merge(new_hints)
-
-        # Claude の SYSTEM_PROMPT 違反を吸収する後処理。発生件数は drift として
-        # 集計し、phase_complete に乗せて SSE / UI / ジョブログから可視化する。
-        # 件数が多い (= プロンプトと出力の乖離が広がっている) なら CLAUDE.md
-        # / SYSTEM_PROMPT / ANALYZER_MODEL の調整サインになる。
-        drift = {
-            "scene_pronunciation_hints_demoted": _normalize_scene_pronunciation_hints(screenplay),
-        }
-        if drift["scene_pronunciation_hints_demoted"]:
-            logger.warning(
-                "[claude_drift] scene 直下の pronunciation_hints を %d シーン分 "
-                "line に展開しました (= SYSTEM_PROMPT 違反)",
-                drift["scene_pronunciation_hints_demoted"],
-            )
-
-        # abstract 形式は composed 必須項目を満たさないので require_composed=False
-        # で軽量検証する。compose 後の strict 検証は staged_pipeline 側が担当。
-        errors = validate_screenplay(
-            screenplay, strict=False, require_composed=False,
+        _run_save_phase(
+            screenplay,
+            output_path=output_path,
+            on_progress=on_progress,
+            analyze_job_id=analyze_job_id,
         )
-        if errors:
-            logger.warning("バリデーション警告:")
-            for e in errors:
-                logger.warning("  - %s", e)
-
-        with open(output_path, "w", encoding="utf-8") as f:
-            json.dump(screenplay, f, ensure_ascii=False, indent=2)
-        annotation_stats = _summarize_annotation_stats(screenplay)
-
-        # 設計 §8.2 + 2026-05-10_intent-suggestion-flow §5: confidence 低が連続する
-        # シーン群から novel intent 候補を抽出し、aggregated inbox
-        # (= data/intent_suggestions.json) に upsert する。SSE event にも全件含めて
-        # UI 即時表示できるようにする (= AnalyzeJobView のリンクで IntentCatalog
-        # 画面の「💡 提案」セクションに飛べる)。
-        # 旧 `<stem>.suggested_intents.json` 個別 file write は廃止 (= 既存 file は
-        # `scripts/migrate_intent_suggestions.py` で archive 経由 inbox に吸収)。
-        suggested_intents = _collect_novel_intent_candidates(screenplay)
-        suggested_intents_path: str | None = None  # 後方互換: 常に None
-        if suggested_intents:
-            try:
-                inputs = [
-                    SuggestionInput(
-                        proposed_id=str(s["proposed_id"]),
-                        description=str(s["description"]),
-                        rationale=str(s.get("rationale") or ""),
-                        scene_indices=tuple(
-                            int(i) for i in s.get("scene_indices") or []
-                        ),
-                        source_screenplay=str(output_path),
-                        source_analyze_job_id=analyze_job_id,
-                    )
-                    for s in suggested_intents
-                ]
-                suggestion_upsert(inputs)
-            except (OSError, ValueError, TypeError) as e:
-                logger.warning("[suggested_intents] inbox upsert failed: %s", e)
-        _emit(on_progress, "phase_complete", {
-            "phase": "save",
-            "output_path": output_path,
-            "claude_drift": drift,
-            "validation_warnings": len(errors),
-            "annotation_stats": annotation_stats,
-            "suggested_intents": suggested_intents,
-            "suggested_intents_path": suggested_intents_path,
-        })
 
         scenes_count = len(screenplay.get("scenes", []))
         lines_count = sum(len(s.get("lines") or []) for s in screenplay.get("scenes", []))
