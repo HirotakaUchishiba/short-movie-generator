@@ -73,14 +73,18 @@ def _syncso_create_task(video_path: str, audio_path: str) -> str:
         )
 
     if r.status_code >= 400:
+        logger.debug(
+            "Sync.so generate 作成 response body (truncated 200ch): %s",
+            (r.text or "")[:200],
+        )
         raise LipsyncClientError(
-            f"Sync.so generate 作成失敗 ({r.status_code}): {r.text[:300]}"
+            f"Sync.so generate 作成失敗 (status={r.status_code})"
         )
     body = _parse_syncso_response(r, context="generate 作成")
     task_id = body.get("id")
     if not task_id:
         raise LipsyncClientError(
-            f"Sync.so レスポンスに id が無い: {body}"
+            f"Sync.so レスポンスに id が無い (keys={sorted(body.keys()) if isinstance(body, dict) else type(body).__name__})"
         )
     return task_id
 
@@ -98,8 +102,12 @@ def _syncso_poll_until_done(task_id: str) -> str:
             timeout=30,
         )
         if r.status_code >= 400:
+            logger.debug(
+                "Sync.so generate 取得 response body (truncated 200ch): %s",
+                (r.text or "")[:200],
+            )
             raise LipsyncClientError(
-                f"Sync.so generate 取得失敗 ({r.status_code}): {r.text[:200]}"
+                f"Sync.so generate 取得失敗 (status={r.status_code})"
             )
         body = _parse_syncso_response(r, context="generate 取得")
         status = body.get("status")
@@ -109,13 +117,14 @@ def _syncso_poll_until_done(task_id: str) -> str:
             url = body.get("outputUrl") or body.get("output_url")
             if not url:
                 raise LipsyncClientError(
-                    f"Sync.so COMPLETED だが output URL が空: {body}"
+                    f"Sync.so COMPLETED だが output URL が空 (keys={sorted(body.keys())})"
                 )
             return url
 
         if status in {"FAILED", "REJECTED"}:
+            err_detail = body.get("error") or body.get("message") or "(no detail)"
             raise LipsyncClientError(
-                f"Sync.so ジョブ失敗 (status={status}): {body}"
+                f"Sync.so ジョブ失敗 (sync_status={status}, error={err_detail})"
             )
 
         if time.monotonic() > deadline:
