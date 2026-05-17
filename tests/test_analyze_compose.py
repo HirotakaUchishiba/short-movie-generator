@@ -713,21 +713,6 @@ class TestNonDerivedFieldPassThrough:
         sp = compose_screenplay(abstract)
         assert sp["subtitle_y_from_bottom"] == 800
 
-    def test_global_parts_passes(self, isolated_dirs):
-        _seed(isolated_dirs)
-        abstract = _abstract_minimal()
-        abstract["global_parts"] = {
-            "filter_preset": {"id": "warm_cinematic", "params": {}},
-            "intro_card": {"id": "simple_intro", "duration_sec": 1.5, "params": {}},
-            "outro_card": {"id": "subscribe_outro", "duration_sec": 2.0},
-            "bgm": {"path": "assets/bgm/x.mp3", "ducking_curve": 0.4},
-        }
-        sp = compose_screenplay(abstract)
-        assert sp["global_parts"]["filter_preset"]["id"] == "warm_cinematic"
-        assert sp["global_parts"]["intro_card"]["id"] == "simple_intro"
-        assert sp["global_parts"]["outro_card"]["id"] == "subscribe_outro"
-        assert sp["global_parts"]["bgm"]["path"] == "assets/bgm/x.mp3"
-
     def test_featured_characters_passes(self, isolated_dirs):
         _seed(isolated_dirs)
         sp = compose_screenplay(_abstract_minimal())
@@ -754,30 +739,6 @@ class TestNonDerivedFieldPassThrough:
         abstract["arc_id"] = "discovery_arc"
         sp = compose_screenplay(abstract)
         assert sp["arc_id"] == "discovery_arc"
-
-    def test_scene_parts_passes(self, isolated_dirs):
-        _seed(isolated_dirs)
-        abstract = _abstract_minimal()
-        abstract["scenes"][0]["scene_parts"] = {
-            "subtitle_style": {"id": "karaoke_bold", "params": {}},
-            "stickers": [{"id": "fire", "at": 1.0}],
-            "camera_move": {"id": "subtle_zoom_in"},
-            "lower_third": {"id": "name_banner", "at": 0.5, "duration": 2.0},
-            "transition_in": {"id": "fade_quick"},
-            "transition_out": {"id": "dip_to_black"},
-            "frame_layout": {"id": "letterbox_top_bottom"},
-            "sfx": [{"path": "assets/sfx/whoosh.mp3", "at": 0.2}],
-        }
-        sp = compose_screenplay(abstract)
-        sp_in = sp["scenes"][0]["scene_parts"]
-        assert sp_in["subtitle_style"]["id"] == "karaoke_bold"
-        assert sp_in["stickers"][0]["id"] == "fire"
-        assert sp_in["camera_move"]["id"] == "subtle_zoom_in"
-        assert sp_in["lower_third"]["id"] == "name_banner"
-        assert sp_in["transition_in"]["id"] == "fade_quick"
-        assert sp_in["transition_out"]["id"] == "dip_to_black"
-        assert sp_in["frame_layout"]["id"] == "letterbox_top_bottom"
-        assert sp_in["sfx"][0]["path"] == "assets/sfx/whoosh.mp3"
 
     def test_scene_action_id_passes(self, isolated_dirs):
         _seed(isolated_dirs)
@@ -831,8 +792,8 @@ class TestNonDerivedFieldPassThrough:
 
         _seed(isolated_dirs)
         abstract = _abstract_minimal()
-        abstract["global_parts"] = {"filter_preset": {"id": "x"}}
-        abstract["scenes"][0]["scene_parts"] = {"subtitle_style": {"id": "y"}}
+        abstract["hook_id"] = "x"
+        abstract["scenes"][0]["action_id"] = "y"
         before = copy.deepcopy(abstract)
         compose_screenplay(abstract)
         # ただし shallow copy なので nested dict は共有される (= test では

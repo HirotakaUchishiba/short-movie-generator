@@ -212,12 +212,9 @@ export default function StageOverlay() {
     );
   };
 
-  // Phase 3-C で Player を primary preview にした結果、字幕変更は Player 側で
-  // リアルタイム反映される。なので「保存」と「最終 mp4 を焼き直す (= 公開準備)」を
-  // 分離する。
-  // - onSave:    screenplay を PUT するだけ。Player の plan は再 fetch される
-  //              (= regen_count を bumpKey にしている)。AI 課金 0 / レンダリングなし
-  // - onRender:  保存 + ffmpeg/Remotion で最終 mp4 を生成。Stage 7 公開前に必要
+  // 「保存」と「最終 mp4 を焼き直す (= 公開準備)」を分離する。
+  // - onSave:    screenplay を PUT するだけ。AI 課金 0 / レンダリングなし
+  // - onRender:  保存 + ffmpeg で最終 mp4 を生成。Stage 7 公開前に必要
   const onSave = async () => {
     setPending("save");
     setError(null);
@@ -312,7 +309,7 @@ export default function StageOverlay() {
                 className="btn-primary text-xs"
                 disabled={pending !== null}
                 onClick={onRender}
-                title="保存 + 最終 mp4 を再 render (= ffmpeg or Remotion)。Stage 7 公開前に実行する"
+                title="保存 + 最終 mp4 を再 render (= ffmpeg)。Stage 7 公開前に実行する"
               >
                 {pending === "render"
                   ? "焼き直し中..."
@@ -321,8 +318,9 @@ export default function StageOverlay() {
             </div>
           </div>
           <p className="text-[10px] text-slate-500 mb-2">
-            💾 保存だけなら Player の preview は即時反映 (= 焼き直し不要)。 🎬
-            焼き直しは Stage 7 公開 mp4 を更新する時のみ必要。
+            💾 保存だけなら字幕 chunk 編集はサーバに反映される (=
+            焼き直し不要)。 🎬 焼き直しは Stage 7 公開 mp4
+            を更新する時のみ必要。
           </p>
           {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
           <div className="max-h-[640px] overflow-auto space-y-3">

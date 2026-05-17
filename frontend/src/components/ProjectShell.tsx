@@ -76,7 +76,7 @@ const STAGE_RETRY_HINTS: Partial<Record<StageName, string>> = {
     "retry は fal.ai Kling 再生成 — 失敗した scene のみ再課金 (= $0.45/scene)。",
   scene:
     "retry は Sync.so lipsync 再生成 — 失敗 scene のみ再課金 (= $0.07/scene)。",
-  overlay: "retry は ffmpeg / Remotion 再描画のみ — AI 課金は発生しない。",
+  overlay: "retry は ffmpeg 再描画のみ — AI 課金は発生しない。",
   final_import: "retry は file copy のみ — 課金なし。",
   publish: "retry は API 再呼び出しのみ — 動画 upload 自体に追加課金は無し。",
 };

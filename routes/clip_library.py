@@ -125,15 +125,10 @@ def project_clip_status(ts: str):
     from routes._helpers import load_screenplay_for_project, validate_ts
 
     validate_ts(ts)
-    # PR #157 (Phase A) で compose_screenplay() が identity / annotation /
-    # scene_parts を pass-through するようになったため、snapshot 直読み
-    # workaround を撤去し、他の route と同じ load_screenplay_for_project
-    # (= compose 経由) に統一する。
-    #
-    # 副次効果: snapshot に identity が手書きで書かれていない場合でも、
-    # compose の `_derive_identity()` が featured_characters + location_ref +
-    # lines[0].emotion + camera_distance から identity を派生するので、Stage 1
-    # UI で abstract を編集した直後でも clip_library hit 候補を判定できる。
+    # snapshot に identity が手書きで書かれていない場合でも、compose の
+    # `_derive_identity()` が featured_characters + location_ref + lines[0].emotion
+    # + camera_distance から identity を派生するので、Stage 1 UI で abstract を
+    # 編集した直後でも clip_library hit 候補を判定できる。
     sp, _name = load_screenplay_for_project(ts)
     enabled = bool(getattr(config, "CLIP_LIBRARY_ENABLED", False))
 

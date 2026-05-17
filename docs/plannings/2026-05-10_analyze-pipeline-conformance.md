@@ -1,10 +1,16 @@
 # analyze pipeline 設計準拠アップデート計画
 
-**日付**: 2026-05-10
+**日付**: 2026-05-10 (= 完了済み、PR #149-#151)
 **ブランチ**: `docs/analyze-pipeline-conformance-plan` → 各 step 別ブランチへ
-**前提監査結果**: `docs/plannings/2026-05-10_architecture-mismatch-audit.md`
-**設計 SSOT**: `docs/plannings/2026-05-10_compositional-architecture.md`,
-`docs/abstract-screenplay-design.md`, `CLAUDE.md`
+**設計 SSOT**: `docs/abstract-screenplay-design.md`, `CLAUDE.md`
+
+> ⚠️ **2026-05-17 補足**: 本計画は完了している。なお当時前提だった
+> 「compositional architecture (= clip_library + part_registry + Remotion)」のうち
+> **Layer 2/3 (= scene_parts / global_parts / Remotion backend) は
+> `2026-05-17_drop-remotion-and-parts.md` で全廃** された (= Stage 6 は
+> `compositor.py` 単線、`visual_intents` のみ Clip Library cache key として残存)。
+> 本ドキュメント内の Layer 2 / Remotion / scene_parts への参照は **歴史的記述** として
+> 残しているが、現行コードには存在しない。
 
 このドキュメントは「コンテキストなしの新規セッションでもこのドキュメントだけを
 読めば同じパフォーマンスで実装に着手できる」状態を狙って書かれている。

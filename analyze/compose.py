@@ -191,8 +191,8 @@ def compose_screenplay(abstract: dict) -> dict:
 
     保持フィールド (= 旧実装で silent strip されていたもの):
       - root: featured_characters / speaker_to_ref / subtitle_y_from_bottom /
-              hook_id / arc_id / global_parts / その他 root keys
-      - scene: scene_parts / action_id / annotation / camera_distance /
+              hook_id / arc_id / その他 root keys
+      - scene: action_id / annotation / camera_distance /
                duration / animation_style / character_selection /
                _override_background_prompt / _override_animation_prompt /
                旧 alias (start_emotion / visual_intent_id / duration_bucket /
@@ -224,8 +224,8 @@ def compose_screenplay(abstract: dict) -> dict:
     # ── pass-through 起点: abstract の root を shallow copy ──
     # caption は str に正規化、scenes は新規 list (= 各 scene を src 起点で
     # 構築するため後で上書き)。それ以外の非派生 key (featured_characters /
-    # speaker_to_ref / subtitle_y_from_bottom / hook_id / arc_id /
-    # global_parts 等) はそのまま残る。
+    # speaker_to_ref / subtitle_y_from_bottom / hook_id / arc_id 等) は
+    # そのまま残る。
     sp: dict[str, Any] = dict(abstract)
     sp["caption"] = abstract.get("caption", "")
     sp["scenes"] = []
@@ -236,7 +236,7 @@ def compose_screenplay(abstract: dict) -> dict:
         location_ref = src.get("location_ref") or ""
 
         # ── pass-through 起点: src scene を shallow copy ──
-        # 旧 alias / scene_parts / action_id / その他 abstract 由来 key を
+        # 旧 alias / action_id / その他 abstract 由来 key を
         # すべて維持する。下で派生フィールドを上書き。
         scene: dict[str, Any] = dict(src)
         # flat schema (Phase 5 撤去): src 由来の flat alias を pop。

@@ -647,8 +647,8 @@ def test_character_existence_skipped_when_directory_empty(monkeypatch) -> None:
 
 
 
-# ───── Compositional Architecture: identity / annotation / scene_parts / global_parts ─────
-# 詳細: docs/plannings/2026-05-10_compositional-architecture.md §6.3
+# ───── Clip Library: identity / annotation ─────
+# 詳細: docs/plannings/2026-05-10_clip-library-architecture.md
 
 
 def test_identity_optional_for_legacy_screenplay() -> None:

@@ -75,7 +75,7 @@
 [L3: per-screenplay 合成]                                ← Sync.so は per-screenplay 課金
    └─ Sync.so で kling_clean + tts → scene_<S>.mp4
    ↓
-[Remotion で字幕合成 + platform variant render]
+[Stage 6 (ffmpeg / compositor.py) で字幕焼き込み]
 ```
 
 ### 2.2 課金構造の変化
@@ -203,7 +203,6 @@ def compute_clip_key(scene: dict) -> str:
 3 intent で表現する。これにより:
 
 - enum 爆発を抑制 (= 組合せ爆発を回避)
-- scene の transition が分かれているので Remotion 側で transition effect も柔軟になる
 - 1 つの intent 失敗が全体に波及しない
 
 ### 4.3 catalog ファイル
@@ -519,21 +518,12 @@ auto suggest として `analyze_<TS>.suggested_intents.json` に
 
 ---
 
-## 10. Remotion 設計との関係
+## 10. Stage 6 との関係
 
-`2026-05-10_remotion-integration-design.md` とは **独立** に進められる。
-
-| シナリオ                   | 効果                                                                                                                      |
-| -------------------------- | ------------------------------------------------------------------------------------------------------------------------- |
-| クリップライブラリのみ実装 | per-screenplay 課金が大幅減 (= 主に Sync.so のみ)。最終 mp4 は ffmpeg overlay のまま                                      |
-| Remotion のみ実装          | platform 別 variant が出せる。AI 課金は不変                                                                               |
-| **両方**                   | 1 clip pool に対して `(youtube/ig/tiktok) × (字幕 variant) × (アスペクト比) = N variant` がほぼゼロ課金で吐ける。ROI 倍増 |
-
-実装順序の推奨:
-
-1. Remotion Phase 0-1 (= Stage 6 backend 切替) を先行 (= AI 課金に影響しないので安全)
-2. クリップライブラリ Phase 5a-5d (= 大本命)
-3. Remotion Phase 2-3 (= UI 統合 + platform variant) で価値を倍化
+> ⚠️ **2026-05-17 追記**: 当初想定していた Remotion 統合 (= 別 doc) は
+> `2026-05-17_drop-remotion-and-parts.md` で全廃された。Stage 6 は
+> `compositor.py` (ffmpeg / libass) 単線で字幕を焼き込む。
+> Clip Library は Stage 6 backend と独立した上流レイヤーなので影響なし。
 
 ---
 
@@ -576,7 +566,6 @@ auto suggest として `analyze_<TS>.suggested_intents.json` に
 - ✅ analyze pipeline が intent_id を高い confidence で推定する
 - ✅ pool warm 後の per-screenplay 課金が **TTS + Sync.so のみ** に縮退している
 - ✅ `_override_*` 経路は novel intent 用 cold path として残っている
-- ✅ Remotion 統合 (= 別 doc) と組み合わせると platform variant が無料で吐ける
 
 ---
 

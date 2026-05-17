@@ -98,8 +98,7 @@
 
 ビジュアル系派生フィールド (= `background_prompt`, `animation_prompt`, `character_refs`, `characters[]`, `tags`, `lipsync`, line.`voice_overrides`) は **保存しない**。`load_project_screenplay()` が読み出し時に compose で生成する。
 
-`scenes[].annotation` は Layer 1 (Clip Library) の cache lookup key 用で、Layer 2
-(scene 見た目部品 = `scene_parts.subtitle_style` 等) とは別系統。`identity`
+`scenes[].annotation` は Clip Library の cache lookup key 用。`identity`
 (= `character_refs` / `location_ref` / `start_emotion` / `camera_distance` の
 nested dict) は compose が **常に派生する**。`location_ref` / `start_emotion`
 が欠ければ `_derive_identity` が `ValueError` で fail-fast する (= analyze が
