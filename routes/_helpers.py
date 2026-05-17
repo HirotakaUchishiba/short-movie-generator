@@ -89,14 +89,11 @@ def safe_join(base: str, *parts: str) -> str:
 
 # screenplay (root) で変更されても safe な key (= Stage 6 のみ影響)
 _ROOT_SAFE_KEYS = frozenset({
-    "scene_parts",            # 互換: scene 内に置くのが正だが root 直下も許容
-    "global_parts",
     "subtitle_y_from_bottom",
 })
 
 # scene 内で変更されても safe な key
 _SCENE_SAFE_KEYS = frozenset({
-    "scene_parts",
     "_override_background_prompt",
     "_override_animation_prompt",
     "identity",

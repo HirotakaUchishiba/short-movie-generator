@@ -249,9 +249,9 @@ def revoke_overlay_only(ts_path: str) -> None:
     動画生成) は承認状態を維持する。
 
     `revoke_all_approvals` の overlay 限定版。abstract 保存時に Stage 6 にしか
-    影響しない field (= scene_parts / global_parts / subtitle_y_from_bottom 等)
-    だけが変わったケースで使う。CLAUDE.md「コストのかかる操作を安易に実行
-    しない」原則に従い、再 TTS / 再動画生成を促す承認解除を抑止する。
+    影響しない field (= subtitle_y_from_bottom 等) だけが変わったケースで使う。
+    CLAUDE.md「コストのかかる操作を安易に実行しない」原則に従い、再 TTS /
+    再動画生成を促す承認解除を抑止する。
     """
     progress = load(ts_path)
     if "overlay" in progress["stages"]:

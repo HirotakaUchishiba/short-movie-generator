@@ -267,31 +267,9 @@ def test_put_abstract_unchanged_returns_classification(client, isolated_env):
         assert progress_store.is_approved(ts_path, stage), stage
 
 
-def test_put_abstract_safe_only_keeps_tts_approval(client, isolated_env):
-    """scene_parts だけ変更 → Stage 6 のみ revoke、Stage 2-5 は維持。"""
-    import progress_store
-    ts, ts_path = _make_project(isolated_env)
-    _approve_through_overlay(ts_path)
-    r0 = client.get(f"/api/projects/{ts}/abstract")
-    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
-    # scene_parts (= Layer 2) を追加 — Stage 6 (overlay) のみ影響
-    new_abstract["scenes"][0]["scene_parts"] = {
-        "subtitle_style": {"id": "minimal"},
-    }
-    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
-    assert r.status_code == 200, r.get_json()
-    body = r.get_json()
-    assert body["classification"] == "safe_only"
-    assert body["revoked_approvals"] is True
-    # Stage 2-5 の approval は維持
-    for stage in ("tts", "bg", "kling", "scene"):
-        assert progress_store.is_approved(ts_path, stage), stage
-    # Stage 6 (overlay) のみ revoke
-    assert not progress_store.is_approved(ts_path, "overlay")
-
-
 def test_put_abstract_safe_only_subtitle_y(client, isolated_env):
-    """subtitle_y_from_bottom だけ変更 → safe_only。"""
+    """subtitle_y_from_bottom だけ変更 → safe_only (= Stage 6 のみ revoke、
+    Stage 2-5 は維持)。"""
     import progress_store
     ts, ts_path = _make_project(isolated_env)
     _approve_through_overlay(ts_path)
@@ -299,28 +277,13 @@ def test_put_abstract_safe_only_subtitle_y(client, isolated_env):
     new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
     new_abstract["subtitle_y_from_bottom"] = 320
     r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
-    assert r.status_code == 200
+    assert r.status_code == 200, r.get_json()
     body = r.get_json()
     assert body["classification"] == "safe_only"
+    assert body["revoked_approvals"] is True
     for stage in ("tts", "bg", "kling", "scene"):
         assert progress_store.is_approved(ts_path, stage), stage
     assert not progress_store.is_approved(ts_path, "overlay")
-
-
-def test_put_abstract_safe_only_global_parts(client, isolated_env):
-    """global_parts (= filter_preset) だけ変更 → safe_only。"""
-    import progress_store
-    ts, ts_path = _make_project(isolated_env)
-    _approve_through_overlay(ts_path)
-    r0 = client.get(f"/api/projects/{ts}/abstract")
-    new_abstract = json.loads(json.dumps(r0.get_json()["abstract"]))
-    new_abstract["global_parts"] = {"filter_preset": {"id": "warm_cinematic"}}
-    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": new_abstract})
-    assert r.status_code == 200
-    body = r.get_json()
-    assert body["classification"] == "safe_only"
-    for stage in ("tts", "bg", "kling", "scene"):
-        assert progress_store.is_approved(ts_path, stage), stage
 
 
 def test_put_abstract_breaking_caption_change_revokes_all(client, isolated_env):
@@ -364,9 +327,11 @@ def test_classify_abstract_diff_helper_unchanged():
 def test_classify_abstract_diff_helper_safe_only():
     from routes._helpers import classify_abstract_diff
     a = {"caption": "x", "scenes": [{"duration": 3, "lines": []}]}
-    b = {"caption": "x", "scenes": [
-        {"duration": 3, "lines": [], "scene_parts": {"subtitle_style": {"id": "minimal"}}},
-    ]}
+    b = {
+        "caption": "x",
+        "scenes": [{"duration": 3, "lines": []}],
+        "subtitle_y_from_bottom": 320,
+    }
     assert classify_abstract_diff(a, b) == "safe_only"
 
 

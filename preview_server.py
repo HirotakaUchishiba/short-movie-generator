@@ -807,7 +807,7 @@ def api_put_project_abstract(ts):
 
     Phase D-G16: 変更を `classify_abstract_diff` で分類し:
       - unchanged → save スキップ、approval も触らず 200 を返す
-      - safe_only (= scene_parts / global_parts / subtitle_y / overlay 影響のみ)
+      - safe_only (= subtitle_y_from_bottom 等 overlay にしか影響しない field)
                  → Stage 6 (overlay) 承認だけ revoke、Stage 2-5 は維持
       - breaking → 従来通り全 revoke
     CLAUDE.md「コストのかかる操作を安易に実行しない」原則に従い、再 TTS / 再
