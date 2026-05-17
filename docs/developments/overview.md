@@ -11,6 +11,7 @@
 | 観点                                   | 詳細 doc                                                      |
 | -------------------------------------- | ------------------------------------------------------------- |
 | 運用ルール / 台本仕様 / コマンド一覧   | `CLAUDE.md`                                                   |
+| **全体ワークフロー (= 動的版)**        | **`docs/developments/workflow.md`**                           |
 | 静的構造 (レイヤ / 依存方向 / API)     | `docs/developments/architecture.md`                           |
 | ドメイン用語辞書                       | `docs/developments/ubiquitous-language.md`                    |
 | コーディング規約 (Python / TypeScript) | `docs/developments/coding-rules.md`                           |

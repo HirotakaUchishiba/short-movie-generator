@@ -94,6 +94,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 ### 静的設計 (= `docs/developments/`)
 
+- `docs/developments/workflow.md` — **全体ワークフロー** (= 参考動画 → 公開動画までの完全な動的フロー、Stage 別成果物・コスト・モデル一覧)
 - `docs/developments/architecture.md` — レイヤ・依存方向・データフロー・Stage × 外部 API マトリクス
 - `docs/developments/coding-rules.md` — Python / TypeScript コーディング規約・命名・log・error handling
 - `docs/developments/testing.md` — テスト戦略・観点 3 セット・factory・モック規約
