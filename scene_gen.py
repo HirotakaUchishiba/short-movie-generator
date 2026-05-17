@@ -1613,7 +1613,6 @@ def _build_audios_from_per_voice(
     # ── per-line file 構築 (= 各 line を「その speaker の voice」から共通ヘルパーで切出)
     line_actual_silences: dict[tuple[int, int], float] = {}
     by_scene: dict[int, list[dict]] = {}
-    voice_full_dur_cache: dict[str, float] = {}
 
     # screenplay 順に line を走査して per-line ファイルを作る
     for s_idx, scene in enumerate(screenplay["scenes"]):
@@ -1631,9 +1630,7 @@ def _build_audios_from_per_voice(
                 continue
 
             voice_mp3 = per_voice_results[base].mp3_path
-            if base not in voice_full_dur_cache:
-                voice_full_dur_cache[base] = _get_duration(voice_mp3)
-            voice_full_dur = voice_full_dur_cache[base]
+            voice_full_dur = _get_duration(voice_mp3)
 
             # 同 voice 内の次 line の abs_start を tail upper bound に
             # (= 次 line が他 voice なら voice_full_dur を upper bound)
