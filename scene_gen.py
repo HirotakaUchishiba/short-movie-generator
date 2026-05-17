@@ -1759,11 +1759,19 @@ def _full_screenplay_voice_settings() -> dict:
 
 
 def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | None:
-    """Stage 2: screenplay全体を1 ElevenLabs API call で生成し、char timestampsから:
-      - 各 line の scene 内相対 start/end 秒を逆算
-      - 各 scene の duration を逆算
-      - tts_full.mp3 を scene/line に分割保存
+    """Stage 2: screenplay TTS 生成 (= single-voice / per-character の dispatcher)。
+
+    line.speaker から unique speaker base 数を数えて分岐:
+      - 0 or 1 speaker → 既存の 1 ElevenLabs API call (= true "one-shot")。
+        後方互換のため bit-exact で同じ挙動 / 同じ cache。
+      - 2+ speakers → per-character 並列生成 (= per_character_tts module)
+        + cut & merge (= _build_audios_from_per_voice)。各 line は
+        該当 speaker の voice で発話された音声から切り出される。
+
+    関数名に "one_shot" が残るのは callers (staged_pipeline / regen route)
+    互換のため。実体は dispatcher。
     """
+
     if not config.ELEVENLABS_API_KEY:
         logger.warning("ELEVENLABS_API_KEY未設定でTTSスキップ")
         return None
@@ -1771,6 +1779,26 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
     full_text, line_specs = _build_screenplay_text(screenplay)
     if not full_text.strip():
         return None
+
+    import per_character_tts as pct
+    speakers = pct.collect_unique_speakers(screenplay)
+    if len(speakers) >= 2:
+        return _generate_multi_voice_tts(
+            screenplay, ts_path, full_text, line_specs, speakers,
+        )
+    return _generate_single_voice_tts(
+        screenplay, ts_path, full_text, line_specs,
+    )
+
+
+def _generate_single_voice_tts(
+    screenplay: dict, ts_path: str,
+    full_text: str, line_specs: list[dict],
+) -> dict | None:
+    """既存の 1 ElevenLabs API call 経路 (= 単独話者 / speaker 完全 absent)。
+
+    挙動・出力・cache 戦略は per-character 化以前と完全に同一。
+    """
 
     native_speed, _atempo = _split_global_speed()
     voice_id = config.ELEVENLABS_VOICE_ID
@@ -1869,6 +1897,75 @@ def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | N
     logger.info("[1-shot TTS] 完了 (scenes=%d)",
                 len(screenplay["scenes"]))
     return {"full_text": full_text}
+
+
+def _generate_multi_voice_tts(
+    screenplay: dict, ts_path: str,
+    full_text: str, line_specs: list[dict],
+    speakers: list[str],
+) -> dict | None:
+    """per-character voice 経路 (= 複数話者)。
+
+    各 speaker の voice で screenplay 全文を並列生成 → line 順に該当 voice
+    から切出して merged tts_full.mp3 + per-line + per-scene を構築する。
+
+    各 voice の TTS は独立にキャッシュされる (= tts_full.<base>.text_meta.json)
+    ため、speaker 1 人だけ voice_id を変えても他 voice は再呼出されない。
+    """
+
+    import per_character_tts as pct
+
+    native_speed, _atempo = _split_global_speed()
+    project_ts = _project_ts(ts_path)
+
+    # 単独 voice 経路の cache file は競合避けて削除
+    # (= 次に単独話者 screenplay に戻った時に正しく cache miss させる)
+    for stale in ("tts_full.text_meta.json", "tts_full.json"):
+        p = os.path.join(ts_path, stale)
+        if os.path.exists(p):
+            try:
+                os.remove(p)
+            except OSError as e:
+                logger.warning("[multi-voice TTS] %s 削除失敗: %s", p, e)
+
+    # ── per-voice 並列 TTS 生成 (= ElevenLabs N 並列 API call)
+    per_voice_results = pct.generate_per_voice_full_audios(
+        speakers=speakers,
+        full_text=full_text,
+        ts_path=ts_path,
+        speed=native_speed,
+        project_ts=project_ts,
+    )
+
+    # ── cut & merge (= per-line / per-scene / merged tts_full.mp3 を構築)
+    _build_audios_from_per_voice(
+        screenplay, ts_path, per_voice_results, full_text, line_specs,
+    )
+
+    # ── multi-voice marker (= 次回 single 化したら cache miss する形式)
+    # 単独 voice path の text_hash field を含まないので、_generate_single_voice_tts
+    # が次回読んでも cache hit せず再生成される。
+    marker_path = os.path.join(ts_path, "tts_full.text_meta.json")
+    with open(marker_path, "w") as f:
+        json.dump({
+            "mode": "multivoice",
+            "speakers": speakers,
+            "voice_ids": {
+                base: r.voice_id for base, r in per_voice_results.items()
+            },
+            "per_voice_hashes": {
+                base: r.text_hash for base, r in per_voice_results.items()
+            },
+            "full_text": full_text,
+        }, f, ensure_ascii=False, indent=2)
+
+    _persist_tts_derived_timings(screenplay, ts_path)
+
+    logger.info(
+        "[multi-voice TTS] 完了 (scenes=%d, voices=%d: %s)",
+        len(screenplay["scenes"]), len(speakers), ",".join(speakers),
+    )
+    return {"full_text": full_text, "speakers": speakers}
 
 
 def _persist_tts_derived_timings(screenplay: dict, ts_path: str) -> None:

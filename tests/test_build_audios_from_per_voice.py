@@ -324,6 +324,112 @@ class TestPerVoiceFileNamingNoCollisions:
         assert os.path.join(ts_dir, "tts_full.mp3") not in hits
 
 
+class TestDispatcherChoosesPath:
+    """generate_screenplay_tts_one_shot は speaker 数で適切な path に分岐する。"""
+
+    def test_zero_or_one_speaker_uses_single_voice_path(
+        self, ts_dir: str, patch_ffmpeg,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """speaker 0/1 なら _generate_single_voice_tts に行く (= 既存 path)。"""
+        single = MagicMock(return_value={"full_text": "x"})
+        multi = MagicMock()
+        monkeypatch.setattr(scene_gen, "_generate_single_voice_tts", single)
+        monkeypatch.setattr(scene_gen, "_generate_multi_voice_tts", multi)
+        monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "k")
+
+        # 0 speaker
+        sp_zero = {"scenes": [{"lines": [{"text": "a", "emotion": "中立"}]}]}
+        scene_gen.generate_screenplay_tts_one_shot(sp_zero, ts_dir)
+        assert single.call_count == 1
+        assert multi.call_count == 0
+        # 1 speaker
+        sp_one = {"scenes": [{"lines": [
+            {"text": "a", "emotion": "中立", "speaker": "f1"},
+            {"text": "b", "emotion": "中立", "speaker": "f1"},
+        ]}]}
+        scene_gen.generate_screenplay_tts_one_shot(sp_one, ts_dir)
+        assert single.call_count == 2
+        assert multi.call_count == 0
+
+    def test_two_or_more_speakers_uses_multi_voice_path(
+        self, ts_dir: str, patch_ffmpeg,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        single = MagicMock()
+        multi = MagicMock(return_value={"full_text": "x", "speakers": ["f1", "m1"]})
+        monkeypatch.setattr(scene_gen, "_generate_single_voice_tts", single)
+        monkeypatch.setattr(scene_gen, "_generate_multi_voice_tts", multi)
+        monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "k")
+
+        sp = _two_speaker_screenplay()
+        scene_gen.generate_screenplay_tts_one_shot(sp, ts_dir)
+        assert multi.call_count == 1
+        assert single.call_count == 0
+        # 3 番目の arg (speakers) は [f1, m1] (sorted)
+        passed_speakers = multi.call_args.args[-1]
+        assert passed_speakers == ["f1", "m1"]
+
+    def test_no_api_key_returns_none_without_dispatch(
+        self, ts_dir: str,
+        monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """API key 不在なら early return (= single も multi も呼ばれない)。"""
+        single = MagicMock()
+        multi = MagicMock()
+        monkeypatch.setattr(scene_gen, "_generate_single_voice_tts", single)
+        monkeypatch.setattr(scene_gen, "_generate_multi_voice_tts", multi)
+        monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", None)
+
+        result = scene_gen.generate_screenplay_tts_one_shot(
+            _two_speaker_screenplay(), ts_dir,
+        )
+        assert result is None
+        assert single.call_count == 0
+        assert multi.call_count == 0
+
+
+class TestMultiVoiceMarker:
+    """_generate_multi_voice_tts は tts_full.text_meta.json に multivoice marker
+    を書き、次回 single-voice 経路に戻ったとき確実に cache miss させる。"""
+
+    def test_marker_format_lacks_text_hash(
+        self, ts_dir: str, patch_ffmpeg,
+        monkeypatch: pytest.MonkeyPatch, tmp_path: Path,
+    ) -> None:
+        # per-voice generation を mock して fake result を返す
+        f1_res = _write_per_voice_artifacts(ts_dir, "f1", "ハロー  やあ  セーフ")
+        m1_res = _write_per_voice_artifacts(ts_dir, "m1", "ハロー  やあ  セーフ")
+        patch_ffmpeg["file_durs"][f1_res.mp3_path] = 10.0
+        patch_ffmpeg["file_durs"][m1_res.mp3_path] = 10.0
+
+        def fake_gen(*, speakers, full_text, ts_path, speed, project_ts):
+            return {"f1": f1_res, "m1": m1_res}
+
+        monkeypatch.setattr(
+            "per_character_tts.generate_per_voice_full_audios", fake_gen,
+        )
+        monkeypatch.setattr(
+            scene_gen, "_persist_tts_derived_timings", lambda *a, **kw: None,
+        )
+
+        sp = _two_speaker_screenplay()
+        full_text, line_specs = scene_gen._build_screenplay_text(sp)
+        scene_gen._generate_multi_voice_tts(
+            sp, ts_dir, full_text, line_specs, ["f1", "m1"],
+        )
+
+        marker_path = os.path.join(ts_dir, "tts_full.text_meta.json")
+        assert os.path.exists(marker_path)
+        marker = json.loads(Path(marker_path).read_text())
+        assert marker["mode"] == "multivoice"
+        assert marker["speakers"] == ["f1", "m1"]
+        assert "voice_ids" in marker
+        assert "per_voice_hashes" in marker
+        # 重要: text_hash field 不在 → single-voice 経路の cache check で miss
+        assert "text_hash" not in marker
+
+
 class TestClearTtsArtifactsCleansPerVoice:
     """_clear_tts_artifacts が per-voice intermediate も削除する (= regen safety)。"""
 
