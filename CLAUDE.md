@@ -309,8 +309,8 @@ python3 scripts/analyze_video.py path/to/reference.mov --fps 1.5  # フレーム
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
 - librosa で各phraseの pitch/rms/wpm を抽出
-- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・匿名 speaker_N のみ、ビジュアル要素は scene 個別フィールド + speaker_to_ref で後段に注入)。詳細は `docs/abstract-screenplay-design.md`
-- **casting は参考動画に寄せない** (= 2026-05-17 方針、`docs/plannings/2026-05-17_decouple-casting-from-reference.md`): analyze は `speaker_to_ref` を catalog の base から alphabetical 順に割当てるだけで、Stage 1 UI で人間が自由に選び直す前提。`speaker_profiles` (= gender / age) は UI ヒント表示用として残るが appearance 突合判定には使われない
+- 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・各 line.speaker は resolved id 直書き、ビジュアル要素は scene 個別フィールド)。詳細は `docs/abstract-screenplay-design.md`
+- **casting は参考動画に寄せない** (= 2026-05-17 方針、`docs/plannings/2026-05-17_decouple-casting-from-reference.md` + `2026-05-17_drop-speaker-mapping-schema.md`): analyze は character catalog の base を alphabetical 順に line.speaker へ直書きする。Stage 1 UI で人間が自由に選び直す前提。`speaker_to_ref` / `speaker_profiles` の mapping schema は撤廃 (= dead 抽象化を解消)
 - **rewrite phase (= Gemini)**: Claude の inference 直後に `gemini_dialogue_rewriter` が走り、`line.text` + `caption` だけを **同じ意味・同じ感情・独自の言い回し** に書き換える (= 翻案権配慮、2026-05-17 `docs/plannings/2026-05-17_gemini-dialogue-rewrite.md`)。失敗時は graceful に Claude original 維持 (= analyze 全体は止めない)。`ANALYZE_DIALOGUE_REWRITE_ENABLED=0` で kill-switch 可能。文字数比率 ±20% 超 / ASCII `,`/`.` 含 / payload 欠落の line は per-line で original に降格
 - 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)。rewrite phase は `stage="analyze_rewrite"` で個別記録される (= ~$0.02/動画)
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須、`GOOGLE_API_KEY` 必須 (= Imagen + Gemini rewrite)。`OPENAI_API_KEY` は任意（無ければローカル whisper）
@@ -365,7 +365,7 @@ per-character 経路でも、各 voice は **screenplay 全文を読んだ上で
 
 ### analyze pipeline からのヒント
 
-`speaker_profiles` (= gender / age_range / description) / `acoustic.wpm` / `pitch_trend` / `rms_peak` は表示・LLM 補助用で TTS パラメータには反映されない。casting 提案 (= `speaker_to_ref`) と character の `voice.json.voice_id` を通じて間接的に voice 選定に影響する。
+`acoustic.wpm` / `pitch_trend` / `rms_peak` は表示・LLM 補助用で TTS パラメータには反映されない。各 line.speaker (= resolved id) と character の `voice.json.voice_id` を通じて voice 選定に影響する。
 
 ## オーバーレイ
 

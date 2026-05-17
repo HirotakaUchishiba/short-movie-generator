@@ -201,7 +201,6 @@ def test_put_abstract_accepts_abstract_form_without_background_prompt(client, is
     abs_form = {
         "caption": "x",
         "featured_characters": ["f1"],
-        "speaker_to_ref": {"speaker_1": "f1"},
         "scenes": [
             {
                 "duration": 3,
@@ -210,7 +209,7 @@ def test_put_abstract_accepts_abstract_form_without_background_prompt(client, is
                 "animation_style": "subtle",
                 "lines": [
                     {"text": "やばい", "start": 0, "end": 1,
-                     "speaker": "speaker_1"},
+                     "speaker": "f1"},
                 ],
             },
         ],

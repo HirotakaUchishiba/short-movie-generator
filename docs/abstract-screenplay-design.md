@@ -1,15 +1,17 @@
 # 抽象台本生成フェーズ — 設計ドキュメント
 
-| 項目       | 値                                                                                                                      |
-| ---------- | ----------------------------------------------------------------------------------------------------------------------- |
-| 最終更新   | 2026-05-12                                                                                                              |
-| ステータス | **稼働中** (identity 完全自動化 + 旧 flat schema 撤去を反映。`docs/plannings/2026-05-12_legacy-schema-removal.md` 参照) |
+| 項目       | 値                                                                                                                                                                                         |
+| ---------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------ |
+| 最終更新   | 2026-05-17                                                                                                                                                                                 |
+| ステータス | **稼働中** (= 2026-05-17 `speaker_to_ref` / `speaker_profiles` schema 撤廃を反映。`docs/plannings/2026-05-17_drop-speaker-mapping-schema.md` 参照。line.speaker は resolved id 直書き方式) |
 
 ---
 
 ## 0. 目的
 
-参考動画から台本 JSON を生成する際、Claude Vision の出力を「**元動画クローン**」ではなく「**構成・セリフ・感情・ロケ選定だけ抽出した抽象台本**」に変える。analyze pipeline は構成・セリフ・感情に加えて `location_ref` / `camera_distance` を `locations/` カタログから自動選定し、複数人物動画では `speaker_profiles` の検出 + `featured_characters` / `speaker_to_ref` の casting 提案も行う (= 自由記述ビジュアルプロンプトは産出しない。casting 提案はユーザが Stage 1 UI で訂正可能)。
+参考動画から台本 JSON を生成する際、Claude Vision の出力を「**元動画クローン**」ではなく「**構成・セリフ・感情・ロケ選定だけ抽出した抽象台本**」に変える。analyze pipeline は構成・セリフ・感情に加えて `location_ref` / `camera_distance` を `locations/` カタログから自動選定し、各 `line.speaker` には `characters/` の resolved id (= `f1__office` 等) を直接書き込む (= 自由記述ビジュアルプロンプトは産出しない。casting はユーザが Stage 1 UI で訂正可能)。
+
+> ⚠️ **2026-05-17 schema 撤廃**: 旧 `speaker_to_ref` mapping + `speaker_profiles` + raw `speaker_N` 形式は撤廃 (= `docs/plannings/2026-05-17_drop-speaker-mapping-schema.md`)。本ドキュメント以下の説明で `speaker_to_ref` / `speaker_profiles` / `speaker_1` 等の記述は **歴史的記録** であり、現行コードには存在しない。現行は line.speaker が resolved id を直書きする。
 
 さらに **Claude inference の直後に Gemini 2.5 Pro による rewrite phase** が走り、`line.text` + `caption` だけを **同じ意味・同じ感情で独自の言い回し** に書き換える (= 翻案権配慮、`docs/plannings/2026-05-17_gemini-dialogue-rewrite.md`)。これにより:
 

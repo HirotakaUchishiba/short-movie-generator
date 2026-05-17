@@ -5,7 +5,6 @@ import type {
   AbstractDiagnostics,
   AbstractScreenplay,
   AnalyzeJobDetail,
-  SpeakerProfile,
 } from "../../types";
 import { freshUid } from "../../uid";
 
@@ -344,7 +343,7 @@ export default function ScriptEditPanel({
               : []
           }
           isExplicit={Array.isArray(abstract.featured_characters)}
-          analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
+          analyzeSuggested={false}
           onChange={(next) => {
             setAbstract({ ...abstract, featured_characters: next });
             setDirty(true);
@@ -353,48 +352,6 @@ export default function ScriptEditPanel({
             const copy = { ...abstract };
             delete copy.featured_characters;
             setAbstract(copy);
-            setDirty(true);
-          }}
-        />
-
-        {/* 🎙 話者マッピング (= multi-speaker 動画でのみ表示) */}
-        <SpeakerMappingSection
-          rawSpeakers={collectRawSpeakers(abstract)}
-          allRefs={characterRefs}
-          profiles={abstract.speaker_profiles ?? {}}
-          analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
-          mapping={
-            (abstract.speaker_to_ref as Record<string, string> | undefined) ??
-            {}
-          }
-          onChange={(speaker, ref) => {
-            const cur =
-              (abstract.speaker_to_ref as Record<string, string> | undefined) ??
-              {};
-            const nextMap = { ...cur };
-            if (ref) {
-              nextMap[speaker] = ref;
-            } else {
-              delete nextMap[speaker];
-            }
-            const featuredCur = Array.isArray(abstract.featured_characters)
-              ? abstract.featured_characters
-              : [];
-            // 同 base の既存 ref は新 ref で置換 (= featured 重複禁止)。
-            // FeaturedCharactersSection と挙動を揃える。
-            const nextFeatured = ref
-              ? [
-                  ...featuredCur.filter(
-                    (r) => splitRef(r).base !== splitRef(ref).base,
-                  ),
-                  ref,
-                ]
-              : featuredCur;
-            setAbstract({
-              ...abstract,
-              speaker_to_ref: nextMap,
-              featured_characters: nextFeatured,
-            });
             setDirty(true);
           }}
         />
@@ -420,13 +377,9 @@ export default function ScriptEditPanel({
                   ? abstract.featured_characters
                   : []
               }
-              speakerToRef={
-                (abstract.speaker_to_ref as
-                  | Record<string, string>
-                  | undefined) ?? {}
-              }
+              allScenes={abstract.scenes}
               locationIds={locationIds}
-              analyzeSuggested={hasAnalyzeSpeakerProfiles(abstract)}
+              analyzeSuggested={false}
               flatStartIdx={flatStartByScene[sIdx] ?? 0}
               sceneCount={sceneCount}
               boundaryWorking={boundaryWorking}
@@ -435,6 +388,18 @@ export default function ScriptEditPanel({
                 // immutable update: scenes 配列も新規作成して元の参照を破壊しない
                 const nextScenes = [...abstract.scenes];
                 nextScenes[sIdx] = updater(nextScenes[sIdx]);
+                setAbstract({ ...abstract, scenes: nextScenes });
+                setDirty(true);
+              }}
+              onSceneSpeakerBulkApply={(oldRef, newRef) => {
+                // 全 scene の line.speaker が oldRef なら newRef に置換
+                // (= 旧 speaker_to_ref bulk edit の代替)
+                const nextScenes = abstract.scenes.map((sc) => ({
+                  ...sc,
+                  lines: (sc.lines ?? []).map((ln) =>
+                    ln.speaker === oldRef ? { ...ln, speaker: newRef } : ln,
+                  ),
+                }));
                 setAbstract({ ...abstract, scenes: nextScenes });
                 setDirty(true);
               }}
@@ -513,7 +478,7 @@ function SceneEditor({
   sIdx,
   scene,
   featuredRefs,
-  speakerToRef,
+  allScenes,
   locationIds,
   analyzeSuggested,
   flatStartIdx,
@@ -521,6 +486,7 @@ function SceneEditor({
   boundaryWorking,
   ttsReady,
   onSceneChange,
+  onSceneSpeakerBulkApply,
   onMoveLine,
   onAddSceneAfter,
   onDeleteScene,
@@ -528,7 +494,8 @@ function SceneEditor({
   sIdx: number;
   scene: AbstractScreenplay["scenes"][number];
   featuredRefs: string[];
-  speakerToRef: Record<string, string>;
+  /** project の全 scene (= SpeakerPicker の implicit active + bulk-apply 用) */
+  allScenes: AbstractScreenplay["scenes"];
   /** LocationPicker の選択肢 (= locations/<id>.json の id 一覧) */
   locationIds: string[];
   /** analyze が casting 検出を実行したか (= 「✨ analyze 推定」バッジ表示) */
@@ -542,6 +509,8 @@ function SceneEditor({
       s: AbstractScreenplay["scenes"][number],
     ) => AbstractScreenplay["scenes"][number],
   ) => void;
+  /** 全 scene の line.speaker oldRef を newRef に一括置換する */
+  onSceneSpeakerBulkApply: (oldRef: string, newRef: string) => void;
   onMoveLine: (flatIdx: number, fromScene: number, toScene: number) => void;
   onAddSceneAfter: () => void;
   onDeleteScene: () => void;
@@ -762,7 +731,7 @@ function SceneEditor({
                       <SpeakerPicker
                         characters={featuredRefs}
                         selected={line.speaker}
-                        speakerToRef={speakerToRef}
+                        allScenes={allScenes}
                         onChange={(name) => {
                           onSceneChange((s) => {
                             const lines = (s.lines ?? []).slice();
@@ -773,6 +742,7 @@ function SceneEditor({
                             return { ...s, lines };
                           });
                         }}
+                        onBulkApply={onSceneSpeakerBulkApply}
                       />
                     )}
                   </div>
@@ -806,66 +776,24 @@ function SceneEditor({
 }
 
 /**
- * 抽象台本に出てくる匿名 speaker_N を **3 つの source の和集合** で抽出する:
- *   1. `abstract.speaker_profiles` のキー (= analyze が検出した話者)
- *   2. `abstract.speaker_to_ref` のキー (= analyze が casting 提案した話者)
- *   3. `line.speaker` (= 各セリフに振られた raw タグ)
+ * 旧 raw `speaker_N` 形式の残骸を検出する (= 2026-05-17 schema 撤廃後の互換性確認用)。
  *
- * いずれか 1 つでも entry があれば speaker mapping UI を表示する。
- *
- * 設計理由 (= 2026-05-17 PR A 案):
- * Claude の単一人物動画判定が揺らぐと line.speaker が None に落ちる一方
- * speaker_profiles / speaker_to_ref は populate されるケースがあり、
- * line.speaker だけを見るとマッピング UI 全体が render されない bug が
- * 発生していた。defensive に和集合で抽出する。
- *
- * 出現回数とシーン数は line.speaker から集計するため、line タグが無い
- * speaker は 0 lines / 0 scenes として返るが、UI 表示には支障無い。
+ * 撤廃後は line.speaker に resolved id を直書きする方式に変わったため、
+ * 旧 raw `speaker_N` 形式は migration script で resolved id に変換される
+ * 前提。残っていれば migration 漏れの警告として diagnostic に表示する。
  */
-export function collectRawSpeakers(
+export function collectRawSpeakerResidue(
   abstract: AbstractScreenplay,
-): { id: string; lines: number; scenes: number }[] {
+): string[] {
   const allIds = new Set<string>();
   const isRawSpeakerId = (s: string) => /^speaker_\d+$/i.test(s);
-
-  // Source 1: speaker_profiles のキー
-  for (const key of Object.keys(abstract.speaker_profiles ?? {})) {
-    if (isRawSpeakerId(key)) allIds.add(key);
-  }
-  // Source 2: speaker_to_ref のキー
-  for (const key of Object.keys(abstract.speaker_to_ref ?? {})) {
-    if (isRawSpeakerId(key)) allIds.add(key);
-  }
-  // Source 3: line.speaker (= 既存ロジック、出現回数集計にも使う)
-  const lineCount = new Map<string, number>();
-  const sceneSet = new Map<string, Set<number>>();
   for (let sIdx = 0; sIdx < abstract.scenes.length; sIdx++) {
     for (const line of abstract.scenes[sIdx].lines ?? []) {
       const sp = line.speaker;
-      if (!sp || !isRawSpeakerId(sp)) continue;
-      allIds.add(sp);
-      lineCount.set(sp, (lineCount.get(sp) ?? 0) + 1);
-      if (!sceneSet.has(sp)) sceneSet.set(sp, new Set());
-      sceneSet.get(sp)!.add(sIdx);
+      if (sp && isRawSpeakerId(sp)) allIds.add(sp);
     }
   }
-  return [...allIds].sort().map((id) => ({
-    id,
-    lines: lineCount.get(id) ?? 0,
-    scenes: sceneSet.get(id)?.size ?? 0,
-  }));
-}
-
-/**
- * analyze が speaker_profiles を産出したか (= casting 検出を実行したか)。
- * featured_characters / speaker_to_ref が「analyze 推定」由来であることを
- * 示すバッジの表示条件に使う。
- */
-export function hasAnalyzeSpeakerProfiles(
-  abstract: AbstractScreenplay,
-): boolean {
-  const profiles = abstract.speaker_profiles;
-  return !!profiles && Object.keys(profiles).length > 0;
+  return [...allIds].sort();
 }
 
 // ─── 被写体 (base) × 衣装 (wardrobe) の解決ヘルパー ─────────
@@ -913,8 +841,6 @@ export function computeDiagnostics(
   abstract: AbstractScreenplay,
   availableCharacters: string[],
 ): AbstractDiagnostics {
-  const speakerToRef =
-    (abstract.speaker_to_ref as Record<string, string> | undefined) ?? {};
   const featured = (abstract.featured_characters ?? []).filter(
     (c): c is string => typeof c === "string" && !!c,
   );
@@ -926,7 +852,7 @@ export function computeDiagnostics(
     ref !== "" &&
     !availableSet.has(ref);
 
-  const unmapped = new Set<string>();
+  const rawSpeakerResidue = new Set<string>();
   const scenesWithoutCharacters: number[] = [];
   const scenesWithoutLocation: number[] = [];
   const invalidCamera: { scene_idx: number; value: string }[] = [];
@@ -935,16 +861,12 @@ export function computeDiagnostics(
   );
   const unknown = {
     featured: [] as string[],
-    speaker_to_ref: [] as { speaker: string; ref: string }[],
     character_selection: [] as { scene_idx: number; ref: string }[],
     speaker: [] as { scene_idx: number; line_idx: number; ref: string }[],
   };
 
   for (const ref of featured) {
     if (isUnknownRef(ref)) unknown.featured.push(ref);
-  }
-  for (const [k, v] of Object.entries(speakerToRef)) {
-    if (isUnknownRef(v)) unknown.speaker_to_ref.push({ speaker: k, ref: v });
   }
 
   abstract.scenes.forEach((scene, sIdx) => {
@@ -968,10 +890,9 @@ export function computeDiagnostics(
     (scene.lines ?? []).forEach((line, lIdx) => {
       const sp = line.speaker;
       if (!sp || typeof sp !== "string") return;
-      // raw 匿名 ID (= speaker_N+) は collectRawSpeakers と同じ正規表現で
-      // 判定する。speaker_xyz のような変則値は ref 扱いになり物理存在検証へ。
+      // 旧 raw 匿名 ID (= 撤廃済) → migration 漏れの残骸として収集
       if (/^speaker_\d+$/i.test(sp)) {
-        if (!(sp in speakerToRef)) unmapped.add(sp);
+        rawSpeakerResidue.add(sp);
         return;
       }
       if (isUnknownRef(sp)) {
@@ -995,8 +916,7 @@ export function computeDiagnostics(
     }
     const resolved = new Set<string>();
     for (const sp of speakers) {
-      const ref = speakerToRef[sp] ?? (featured.includes(sp) ? sp : null);
-      if (ref) resolved.add(ref);
+      if (featured.includes(sp)) resolved.add(sp);
     }
     if (resolved.size === 0) {
       scenesWithoutCharacters.push(sIdx);
@@ -1004,7 +924,7 @@ export function computeDiagnostics(
   });
 
   return {
-    unmapped_speakers: [...unmapped].sort(),
+    unmapped_speakers: [...rawSpeakerResidue].sort(),
     scenes_without_characters: scenesWithoutCharacters,
     scenes_without_location: scenesWithoutLocation,
     invalid_camera_distance: invalidCamera,
@@ -1234,114 +1154,6 @@ function CameraDistancePicker({
 }
 
 /**
- * analyze で検出された匿名 speaker_N を実 character ref にマッピングする。
- * ここを 1 回設定するだけで、各 line の話者と各シーンの登場人物が compose で
- * 自動的に決まる (= multi-speaker 動画の入力 UX の核)。
- */
-function SpeakerMappingSection({
-  rawSpeakers,
-  allRefs,
-  mapping,
-  profiles,
-  analyzeSuggested,
-  onChange,
-}: {
-  rawSpeakers: { id: string; lines: number; scenes: number }[];
-  allRefs: string[];
-  mapping: Record<string, string>;
-  /** analyze が検出した speaker ごとの profile (= マッピング判断のヒント) */
-  profiles: Record<string, SpeakerProfile>;
-  /** analyze が casting 検出を実行したか (= 「✨ analyze 推定」バッジ表示) */
-  analyzeSuggested: boolean;
-  onChange: (speaker: string, ref: string | null) => void;
-}) {
-  const baseGroups = useMemo(() => groupByBase(allRefs), [allRefs]);
-  if (rawSpeakers.length === 0) return null;
-  if (allRefs.length === 0) {
-    return (
-      <div className="border border-slate-700 rounded p-2 text-xs text-slate-500">
-        🎙 話者マッピング: characters/ ディレクトリに画像がありません。
-      </div>
-    );
-  }
-  return (
-    <div className="border border-slate-700 rounded p-2 space-y-3">
-      <div className="flex items-center gap-2">
-        <span className="text-slate-300 font-medium">🎙 話者マッピング</span>
-        <span className="text-[11px] text-slate-500">
-          検出された話者 {rawSpeakers.length} 名 — 各話者を演じる被写体を選択
-          (衣装はカード内で切替)
-        </span>
-        {analyzeSuggested && <AnalyzeSuggestedBadge />}
-      </div>
-      <div className="space-y-3">
-        {rawSpeakers.map((sp) => {
-          const selectedRef = mapping[sp.id];
-          const selectedBase = selectedRef ? splitRef(selectedRef).base : "";
-          const selectedWardrobe = selectedRef
-            ? splitRef(selectedRef).wardrobe
-            : "";
-          const prof = profiles[sp.id];
-          const profileHint = prof
-            ? [prof.gender, prof.age_range, prof.description]
-                .filter((x): x is string => !!x)
-                .join(" / ")
-            : "";
-          return (
-            <div key={sp.id} className="bg-slate-800/40 rounded p-2 space-y-2">
-              <div className="flex items-baseline gap-2">
-                <span className="font-mono text-emerald-300 text-sm">
-                  {sp.id}
-                </span>
-                <span className="text-[11px] text-slate-500">
-                  {sp.lines} セリフ / {sp.scenes} シーンに登場
-                </span>
-                {selectedRef && (
-                  <button
-                    type="button"
-                    className="ml-auto text-[10px] text-slate-500 hover:text-rose-300"
-                    onClick={() => onChange(sp.id, null)}
-                    title="マッピングをクリア"
-                  >
-                    ⤺ クリア
-                  </button>
-                )}
-              </div>
-              {profileHint && (
-                <div
-                  className="text-[11px] text-violet-300/80"
-                  title="analyze が参考動画から推定した話者の特徴"
-                >
-                  ✨ {profileHint}
-                </div>
-              )}
-              <div className="grid grid-cols-3 sm:grid-cols-4 md:grid-cols-5 gap-2">
-                {[...baseGroups.entries()].map(([baseId, wardrobes]) => {
-                  const active = baseId === selectedBase;
-                  const wardrobe = active
-                    ? selectedWardrobe
-                    : (wardrobes[0] ?? "");
-                  return (
-                    <BaseCharacterCard
-                      key={baseId}
-                      baseId={baseId}
-                      wardrobes={wardrobes}
-                      selectedWardrobe={wardrobe}
-                      active={active}
-                      onSelect={(w) => onChange(sp.id, joinRef(baseId, w))}
-                    />
-                  );
-                })}
-              </div>
-            </div>
-          );
-        })}
-      </div>
-    </div>
-  );
-}
-
-/**
  * 動画全体の登場人物を characters/ 配下の画像から選択するセクション。
  * 選択された ref は abstract.featured_characters に保存され、
  * 各シーンの SceneCharacterSelector / SpeakerPicker の候補として使われる。
@@ -1526,87 +1338,98 @@ function SceneCharacterSelector({
 
 /**
  * 1 line に対して character/<ref>.png を avatar カードとして並べ、speaker を
- * 視覚的に選択させる。**単一選択** で、active 再クリックでは解除しない。
- * 解除したい場合は別途「⤺ クリア」ボタンを使う。
- *
- * `selected` が `speaker_1` のような raw 匿名 ID の場合は `speakerToRef` で
- * resolve し、その ref のカードをハイライトする (= 話者マッピング経由の
- * デフォルト表示)。ユーザがカードをクリックすると ref で直接上書きされ、
- * raw の連結は切れる (= 個別 override)。
- */
 /**
- * per-line `line.speaker` から表示用 resolved id を引く defensive resolver。
+ * per-line `line.speaker` から表示用 resolved id を引く resolver。
+ *
+ * 2026-05-17 schema 撤廃版: line.speaker は resolved id のみを保持する
+ * (= 旧 `speaker_to_ref` mapping や raw `speaker_N` 形式は撤廃)。本関数は
+ * 単純な passthrough だが、`selected` 未設定時に `siblingSpeakers` (= 同
+ * project 内の他 line で実際に使われている speaker 集合) が 1 つだけなら
+ * その値を implicit active として表示する。
  *
  * 解決順:
- *   1. `selected` が raw `speaker_N` 形式 → `speakerToRef[selected]` で resolve
- *   2. `selected` が既に resolved id (= `f1__office` 等) → そのまま使う
- *   3. `selected` が未設定で `speakerToRef` が 1 entry のみ → その値を
- *      implicit active として表示 (= 単一 speaker 動画で line.speaker が
- *      analyze 漏れで null のときも UI で active 表示する)
- *   4. それ以外 → undefined (= active 無し)
- *
- * 設計理由 (= 2026-05-17 PR #205 + PR #206 follow-up):
- * 旧 analyze (= PR #206 前) で作られた project は line.speaker が null の
- * まま snapshot されており、PR #206 の backfill は新規 analyze にしか効か
- * ない。UI 側でも defensive に implicit fallback を入れて既存 project も
- * 救う (= snapshot 修正なしで動かす)。
+ *   1. `selected` が resolved id (= `f1__office` 等) → そのまま使う
+ *   2. `selected` 未設定 + `siblingSpeakers` が 1 種類のみ → 暗黙 active
+ *   3. それ以外 → undefined (= active 無し、ユーザに選ばせる)
  */
 export function resolveLineSpeaker(
   selected: string | undefined,
-  speakerToRef: Record<string, string>,
+  siblingSpeakers: string[] = [],
 ): { resolved: string | undefined; implicit: boolean } {
   if (selected) {
-    const isRaw = /^speaker_\d+$/i.test(selected);
-    const resolved = isRaw ? speakerToRef[selected] : selected;
-    return { resolved, implicit: false };
+    return { resolved: selected, implicit: false };
   }
-  const refs = Object.values(speakerToRef);
-  if (refs.length === 1) {
-    return { resolved: refs[0], implicit: true };
+  const uniq = Array.from(new Set(siblingSpeakers.filter(Boolean)));
+  if (uniq.length === 1) {
+    return { resolved: uniq[0], implicit: true };
   }
   return { resolved: undefined, implicit: false };
+}
+
+/** 全 scene を走査して line.speaker のユニーク集合を返す (= bulk-apply / implicit
+ *  active 判定に使う)。 */
+function collectAllLineSpeakers(
+  scenes: AbstractScreenplay["scenes"],
+): string[] {
+  const set = new Set<string>();
+  for (const sc of scenes) {
+    for (const ln of sc.lines ?? []) {
+      if (typeof ln.speaker === "string" && ln.speaker) {
+        set.add(ln.speaker);
+      }
+    }
+  }
+  return [...set].sort();
 }
 
 function SpeakerPicker({
   characters,
   selected,
-  speakerToRef,
+  allScenes,
   onChange,
+  onBulkApply,
 }: {
   characters: string[];
   selected: string | undefined;
-  speakerToRef: Record<string, string>;
+  /** project の全 scene (= implicit active 判定 + bulk-apply 候補数表示) */
+  allScenes: AbstractScreenplay["scenes"];
   onChange: (name: string | undefined) => void;
+  /** 同じ「現在 active な speaker」を持つ全 line を newRef に置換する */
+  onBulkApply: (oldRef: string, newRef: string) => void;
 }) {
-  const isRaw = !!selected && /^speaker_\d+$/i.test(selected);
-  const { resolved, implicit } = resolveLineSpeaker(selected, speakerToRef);
+  const allSpeakers = useMemo(
+    () => collectAllLineSpeakers(allScenes),
+    [allScenes],
+  );
+  const { resolved, implicit } = resolveLineSpeaker(selected, allSpeakers);
   const resolvedBase = resolved ? splitRef(resolved).base : "";
   const resolvedWardrobe = resolved ? splitRef(resolved).wardrobe : "";
   const baseGroups = useMemo(() => groupByBase(characters), [characters]);
+
+  // bulk-apply の候補数: 現在 active な ref を共有する line 数
+  // (= 「同 speaker の全 line に適用」ボタンに件数を表示)
+  const bulkTargetCount = useMemo(() => {
+    if (!resolved) return 0;
+    let count = 0;
+    for (const sc of allScenes) {
+      for (const ln of sc.lines ?? []) {
+        if (ln.speaker === resolved) count++;
+      }
+    }
+    return count;
+  }, [resolved, allScenes]);
+
   return (
     <div className="border-t border-slate-700/50 pt-2">
       <div className="flex items-baseline gap-2 mb-1">
         <span className="text-[11px] text-slate-400">話者</span>
         <span className="text-[10px] text-slate-500">(1人だけ選択)</span>
-        {isRaw && (
-          <span
-            className="text-[10px] text-amber-300 bg-amber-900/30 rounded px-1.5"
-            title={
-              resolved
-                ? `話者マッピング: ${selected} → ${resolved}`
-                : `${selected} は未マッピング (上のセクションで割当て)`
-            }
-          >
-            🎙 {selected}
-            {resolved ? ` → ${resolved}` : " (未マッピング)"}
-          </span>
-        )}
         {implicit && resolved && (
           <span
             className="text-[10px] text-slate-400 bg-slate-700/40 rounded px-1.5"
             title={
-              `line.speaker 未設定。話者マッピングが 1 件 (${resolved}) しか` +
-              "無いため自動的にこのキャラを話者として採用しています。" +
+              `line.speaker 未設定。動画内で他の line が ${resolved} 1 種類` +
+              "のみ使っているため自動的にこのキャラを話者として採用しています。" +
               "クリックで明示的に固定できます。"
             }
           >
@@ -1645,6 +1468,35 @@ function SpeakerPicker({
           );
         })}
       </div>
+      {/* bulk-apply: 同じ speaker を共有する line が 2+ のときだけ表示 */}
+      {resolved && bulkTargetCount >= 2 && (
+        <div className="mt-2 flex items-center justify-end">
+          <button
+            type="button"
+            className="text-[10px] text-emerald-300 hover:text-emerald-200 hover:bg-emerald-900/30 rounded px-2 py-0.5 border border-emerald-700/40"
+            onClick={() => {
+              // 現在 active な ref を共有する全 line を resolved に書き換える。
+              // 「自動: foo」状態で別キャラに変更したい時の 1 クリック操作。
+              const promptText =
+                `現在 ${resolved} を話者とする ${bulkTargetCount} line を ` +
+                "別キャラに一括変更する場合、変更後のキャラを下のカードで先に選択してください。\n\n" +
+                "(= 先にこの行で別カードをクリック → その後で再び本ボタンを押す)";
+              if (selected && selected !== resolved) {
+                // 既にこの行は別キャラに変更済 → bulk-apply 実行
+                onBulkApply(resolved, selected);
+              } else {
+                window.alert(promptText);
+              }
+            }}
+            title={
+              `「${resolved}」を話者とする ${bulkTargetCount} line すべてを、` +
+              "この行で選択中のキャラに一括変更します"
+            }
+          >
+            ✓ 同 speaker {bulkTargetCount} line に適用
+          </button>
+        </div>
+      )}
     </div>
   );
 }
@@ -1719,10 +1571,6 @@ function CompletenessBanner({
   if (u) {
     if (u.featured.length > 0) {
       issues.push(`未定義キャラ (登場人物): ${u.featured.join(", ")}`);
-    }
-    if (u.speaker_to_ref.length > 0) {
-      const t = u.speaker_to_ref.map((x) => `${x.speaker}→${x.ref}`).join(", ");
-      issues.push(`未定義キャラ (話者マッピング): ${t}`);
     }
     if (u.character_selection.length > 0) {
       const t = u.character_selection

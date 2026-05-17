@@ -467,11 +467,14 @@ def test_subtitles_overlap_with_auto_chunk_in_between_still_caught() -> None:
 
 
 def _abstract_screenplay() -> dict:
-    """compose 前の abstract 形式 (= background_prompt 等の派生フィールド無し)。"""
+    """compose 前の abstract 形式 (= background_prompt 等の派生フィールド無し)。
+
+    2026-05-17 schema 撤廃: line.speaker は resolved id を直書きする
+    (= 旧 raw `speaker_1` 形式 + speaker_to_ref mapping は廃止)。
+    """
     return {
         "caption": "test caption",
         "featured_characters": ["f1", "m1"],
-        "speaker_to_ref": {"speaker_1": "f1", "speaker_2": "m1"},
         "scenes": [
             {
                 "duration": 5.0,
@@ -485,7 +488,7 @@ def _abstract_screenplay() -> dict:
                 "animation_style": "subtle",
                 "lines": [
                     {"text": "やばい", "start": 0.0, "end": 2.0,
-                     "speaker": "speaker_1"},
+                     "speaker": "f1"},
                 ],
             },
         ],
@@ -514,19 +517,6 @@ def test_featured_characters_root_allowed() -> None:
 def test_featured_characters_must_be_array_of_strings() -> None:
     sp = _valid_screenplay()
     sp["featured_characters"] = [{"id": "f1"}]
-    with pytest.raises(ValueError):
-        screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_to_ref_root_allowed() -> None:
-    sp = _valid_screenplay()
-    sp["speaker_to_ref"] = {"speaker_1": "f1", "speaker_2": "m1"}
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_to_ref_value_must_be_string() -> None:
-    sp = _valid_screenplay()
-    sp["speaker_to_ref"] = {"speaker_1": 123}
     with pytest.raises(ValueError):
         screenplay_validator.validate_screenplay(sp)
 
@@ -560,7 +550,6 @@ def test_composed_form_passes_full_validation() -> None:
     """compose 出力 (= 派生フィールド込み) は default で通る。"""
     sp = _valid_screenplay()
     sp["featured_characters"] = ["f1"]
-    sp["speaker_to_ref"] = {"speaker_1": "f1"}
     screenplay_validator.validate_screenplay(sp)
 
 
@@ -586,15 +575,6 @@ def test_known_featured_character_passes(monkeypatch) -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-def test_speaker_to_ref_with_unknown_value_rejected(monkeypatch) -> None:
-    from analyze import character_meta as cmeta_mod
-    monkeypatch.setattr(cmeta_mod, "list_character_images", lambda: ["f1"])
-    sp = _valid_screenplay()
-    sp["speaker_to_ref"] = {"speaker_1": "ghost"}
-    with pytest.raises(ValueError, match="speaker_to_ref"):
-        screenplay_validator.validate_screenplay(sp)
-
-
 def test_character_selection_unknown_ref_rejected(monkeypatch) -> None:
     from analyze import character_meta as cmeta_mod
     monkeypatch.setattr(cmeta_mod, "list_character_images", lambda: ["f1"])
@@ -616,15 +596,6 @@ def test_character_refs_unknown_ref_rejected(monkeypatch) -> None:
     }
     with pytest.raises(ValueError, match="characters/"):
         screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_raw_anonymous_id_does_not_trigger_existence_check(monkeypatch) -> None:
-    """speaker_N 形式は speaker_to_ref で解決前提。物理存在検証はスキップ。"""
-    from analyze import character_meta as cmeta_mod
-    monkeypatch.setattr(cmeta_mod, "list_character_images", lambda: ["f1"])
-    sp = _valid_screenplay()
-    sp["scenes"][0]["lines"][0]["speaker"] = "speaker_99"
-    screenplay_validator.validate_screenplay(sp)
 
 
 def test_line_speaker_unknown_ref_rejected(monkeypatch) -> None:
@@ -924,28 +895,3 @@ def test_visual_intent_check_skipped_for_unknown_intent() -> None:
 # ───── speaker_profiles (= analyze casting 検出) ─────
 
 
-def test_speaker_profiles_valid_passes() -> None:
-    """gender / age_range / description を持つ speaker_profiles は通る。"""
-    sp = _valid_screenplay()
-    sp["speaker_profiles"] = {
-        "speaker_1": {"gender": "female", "age_range": "20s",
-                      "description": "明るく早口"},
-        "speaker_2": {"description": "落ち着いた低い声"},
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_profiles_empty_passes() -> None:
-    """speaker_profiles 不在 / 空は通る (= best-effort・optional)。"""
-    sp = _valid_screenplay()
-    screenplay_validator.validate_screenplay(sp)
-    sp["speaker_profiles"] = {}
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_speaker_profiles_wrong_type_rejected() -> None:
-    """speaker_profiles が object でなければ reject される。"""
-    sp = _valid_screenplay()
-    sp["speaker_profiles"] = "speaker_1: female"
-    with pytest.raises(ValueError, match="speaker_profiles"):
-        screenplay_validator.validate_screenplay(sp)
