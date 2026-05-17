@@ -1,8 +1,12 @@
 #!/usr/bin/env python3
 """投稿URLをAnalytics DBに登録する。
 
+ts に対応する screenplay / video が DB に無い場合は ingest_screenplay /
+ingest_video 相当を自動で先に走らせる (= FK 違反による手動 3 段がけを回避、
+計画書 §3.9 の手動復旧手順を 1 コマンドに集約)。
+
 使い方:
-    python3 scripts/register_post.py <video_id> youtube <URL_or_video_id>
+    python3 scripts/register_post.py <ts> youtube <URL_or_video_id>
     python3 scripts/register_post.py 20260425_123456 youtube https://youtube.com/watch?v=abc
     python3 scripts/register_post.py 20260425_123456 youtube abc123 --posted-at 2026-04-25T10:00:00
 """
@@ -51,6 +55,25 @@ def main() -> int:
     args = parser.parse_args()
 
     db.init_db()
+
+    # posts.video_id は videos.id に対する NOT NULL FK のため、video が未登録だと
+    # register_post で FK 違反になる。final_import.publish._ensure_video_in_analytics
+    # は videos / screenplays への INSERT も含めて idempotent に揃える経路なので、
+    # 同じ helper を経由することで手動復旧手順を 1 コマンドに集約する
+    # (= 計画書 §3.9)。
+    import config
+    from final_import import publish as _publish
+
+    ts_path = Path(config.TEMP_DIR) / args.video_id
+    try:
+        video = _publish.resolve_canonical_video(str(ts_path))
+        _publish._ensure_video_in_analytics(args.video_id, video)
+    except FileNotFoundError as e:
+        logger.warning(
+            "[register_post] video / metadata が見つからないため "
+            "_ensure_video_in_analytics を skip (= 既存 video 行があれば "
+            "register_post 自体は通る): %s", e,
+        )
 
     post_id = _extract_post_id(args.platform, args.url_or_id)
     url = args.url_or_id if args.url_or_id.startswith("http") else None
