@@ -2,6 +2,11 @@
 
 > **作成日**: 2026-05-15
 > **発端**: 「動画から台本化する際、誰がどんな感情で喋っているかは読み取れるはず。登場人物・話者・感情の選定も自動化し、間違っていたら人間が直せる UI にしたい」というユーザ要望。
+>
+> ⚠️ **2026-05-17 補足**: 本 doc が提案した「appearance 突合による自動 casting」は方針変更で
+> 撤廃された (= `docs/plannings/2026-05-17_decouple-casting-from-reference.md`)。
+> 現行は「catalog の base から alphabetical 順に割当てる単純割当 + Stage 1 UI で人間が自由
+> に選び直す」方式。`speaker_profiles` 検出と pre-fill 機構そのものは維持されている。
 
 ## WHY (= なぜやるか)
 

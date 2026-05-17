@@ -385,11 +385,12 @@ def build_screenplay(
         character_catalog: ``character_meta.build_character_catalog()`` の戻り値
             (= ``{"id", "appearance", "refs"}`` dict の list)。渡すと user
             content に "# 利用可能な character 集合" セクションが注入され、Claude
-            は検出した speaker_profiles を appearance と突合して
-            featured_characters / speaker_to_ref を **提案** する。後処理で
-            catalog の refs に無い ref は drop される (= best-effort 提案、
-            人間が Stage 1 UI で訂正する前提)。``None`` / 空 list なら casting
-            提案を要求しない (= speaker_profiles のみ出力、旧挙動互換)。
+            は catalog の base から順番に featured_characters / speaker_to_ref
+            を **提案** する (= 参考動画に寄せない、Stage 1 UI で人間が選び直す
+            前提。2026-05-17 方針変更)。後処理で catalog の refs に無い ref は
+            drop され、欠落 speaker は alphabetical 順で補完される。
+            ``None`` / 空 list なら casting 提案を要求しない (= speaker_profiles
+            のみ出力、旧挙動互換)。
 
     Returns:
         (screenplay_dict, usage_dict)
