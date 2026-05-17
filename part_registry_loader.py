@@ -90,7 +90,7 @@ def reset_cache() -> None:
     """テスト用: 全 consumer を強制再ロードする (= monkeypatch 後の同期点)。
 
     `monkeypatch.setattr("config.PART_REGISTRY_DIR", new_dir)` の後にこれを
-    呼べば、validator / clip_library / part_catalog / intent_resolver すべてが
+    呼べば、validator / clip_library / intent_catalog / intent_resolver すべてが
     新ディレクトリを読みに行く。
     """
 

@@ -36,7 +36,7 @@ let _inflight: Promise<IntentCatalogResponse> | null = null;
 async function fetchCatalog(): Promise<IntentCatalogResponse> {
   if (_cache) return _cache;
   if (_inflight) return _inflight;
-  // api.ts の http() ではなく直接 fetch を使う理由は usePartCatalog 時代と同じ:
+  // api.ts の http() ではなく直接 fetch を使う:
   // module-level の in-flight cache + 早期実行で auth flow と独立に動かす。
   // error 表現は ApiError と同じ shape (`${status}: ${text}`) で throw する。
   _inflight = fetch("/api/intent-catalog")
