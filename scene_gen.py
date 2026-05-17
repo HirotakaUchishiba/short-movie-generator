@@ -22,6 +22,15 @@ from cost_tracking import recorder as cost_recorder
 
 SCREENPLAY_TEXT_SEPARATOR = "  "  # 半角スペース×2: line間/scene間の区切り
 
+# per-line audio 切出時の最小 speech duration。0 だと ffmpeg -t 0 で空 file が
+# 出るので最小 50ms を保証する (= 後段の atempo / silenceremove も無音 file に
+# 対しては早期 return するため 50ms あれば安全)。
+MIN_SPEECH_DURATION_SEC = 0.05
+
+# ffmpeg silence source の audio layout。tts 合成時に background 無音を生成する
+# 際に複数箇所で参照されるため定数化。
+FFMPEG_SILENCE_AUDIO_LAYOUT = "anullsrc=r=44100:cl=stereo"
+
 logger = logging.getLogger(__name__)
 
 
@@ -624,7 +633,7 @@ def _build_scene_audio(tts_paths: list[tuple[str, float]], scene_duration: float
     if not tts_paths:
         cmd = [
             "ffmpeg", "-y",
-            "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo",
+            "-f", "lavfi", "-i", FFMPEG_SILENCE_AUDIO_LAYOUT,
             "-t", f"{scene_duration:.3f}",
             "-c:a", "aac", "-b:a", "192k",
             output_path,
@@ -634,7 +643,7 @@ def _build_scene_audio(tts_paths: list[tuple[str, float]], scene_duration: float
             raise RuntimeError(f"Silent audio generation failed: {r.stderr[-500:]}")
         return
 
-    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", "anullsrc=r=44100:cl=stereo"]
+    cmd = ["ffmpeg", "-y", "-f", "lavfi", "-i", FFMPEG_SILENCE_AUDIO_LAYOUT]
     for path, _ in tts_paths:
         cmd.extend(["-i", path])
 
@@ -1144,7 +1153,7 @@ def _snap_line_boundaries_to_silence(
     line_times: list[dict],
     silences: list[tuple[float, float]],
     snap_tolerance_sec: float = 0.2,
-    min_speech_sec: float = 0.05,
+    min_speech_sec: float = MIN_SPEECH_DURATION_SEC,
 ) -> list[dict]:
     """char_ts ベースの abs_start/abs_end を、最寄りの無音区間境界に snap する。
 
@@ -1213,7 +1222,7 @@ def _extract_audio_segment(input_path: str, start_sec: float, duration: float,
         "ffmpeg", "-y",
         "-i", input_path,
         "-ss", f"{start_sec:.3f}",
-        "-t", f"{max(duration, 0.05):.3f}",
+        "-t", f"{max(duration, MIN_SPEECH_DURATION_SEC):.3f}",
         "-c:a", codec, "-b:a", bitrate,
         output_path,
     ]
@@ -1307,7 +1316,7 @@ def _extract_line_audio_segment(
     if os.path.exists(out_path):
         os.remove(out_path)
     body_end = min(abs_end, voice_full_dur)
-    speech_dur = max(0.05, body_end - abs_start)
+    speech_dur = max(MIN_SPEECH_DURATION_SEC, body_end - abs_start)
     tail_limit = min(next_abs_start_in_voice, voice_full_dur)
     desired = _natural_tail_silence_sec()
     available = max(0.0, tail_limit - body_end)
