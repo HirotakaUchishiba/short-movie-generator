@@ -1,13 +1,14 @@
 import os
-from dotenv import load_dotenv
 
-load_dotenv()
-
-GOOGLE_API_KEY = os.getenv("GOOGLE_API_KEY")
-FAL_API_KEY = os.getenv("FAL_KEY")
-ELEVENLABS_API_KEY = os.getenv("ELEVENLABS_API_KEY")
-ANTHROPIC_API_KEY = os.getenv("ANTHROPIC_API_KEY")
-SYNCSO_API_KEY = os.getenv("SYNC_API_KEY") or os.getenv("SYNCSO_API_KEY")
+# API key 群は config.api_keys から re-export (= §3.1.4 関心分離の起点)。
+# load_dotenv() は api_keys 側で実行される。
+from config.api_keys import (  # noqa: F401
+    ANTHROPIC_API_KEY,
+    ELEVENLABS_API_KEY,
+    FAL_API_KEY,
+    GOOGLE_API_KEY,
+    SYNCSO_API_KEY,
+)
 
 VIDEO_WIDTH = 1080
 VIDEO_HEIGHT = 1920
@@ -697,7 +698,10 @@ SYNCSO_MAX_FILE_MB = 20
 MIN_SEGMENT_CHARS = 15
 MAX_MERGED_CHARS_PER_GROUP = 105
 
-BASE_DIR = os.path.dirname(__file__)
+# パッケージ化 (= config/__init__.py) 後は __file__ が config/ 配下を指すため、
+# project root に上がるよう dirname を 1 段追加する (= 旧 config.py 時代の挙動と
+# 一致させ、LOCATIONS_DIR 等が project root 直下の locations/ を指すように)。
+BASE_DIR = os.path.dirname(os.path.dirname(os.path.abspath(__file__)))
 OUTPUT_DIR = os.path.join(BASE_DIR, "output")
 TEMP_DIR = os.path.join(BASE_DIR, "temp")
 SCREENPLAYS_DIR = os.path.join(BASE_DIR, "screenplays")
