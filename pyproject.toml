@@ -61,7 +61,7 @@ ignore_errors = true
 [tool.pytest.ini_options]
 testpaths = ["tests"]
 python_files = ["test_*.py"]
-addopts = "-q"
+addopts = "-q --ignore=tests/_archive"
 markers = [
     "real_characters_dir: _stub_character_images autouse fixture を skip し、characters/ の物理存在を前提にした検証を回す (= docs/developments/testing.md §6)",
     "slow: 1 ケース 1 秒超のテスト。CI 高速ジョブから除外したい場合に使う (= pytest -m 'not slow')",
