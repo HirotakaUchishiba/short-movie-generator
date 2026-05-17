@@ -608,11 +608,42 @@ TTS_TEMPO_MULTIPLIER = 1.0      # 1.0 で無効。1.05 で5%早回し (微妙に
 
 # ElevenLabs Voice Library から「Language: Japanese」で絞り込み、
 # 試聴 → "Add to my voices" した上で voice_id を取得して登録する。
+# 各 entry の voice_id は characters/<base>/voice.json.voice_id から参照され、
+# Stage 2 TTS で per-character の声色として使われる (= 未設定キャラは
+# ELEVENLABS_VOICE_ID へフォールバック)。
 VOICE_LIBRARY: list[dict] = [
     {
         "voice_id": "0ptCJp0xgdabdcpVtCB5",
-        "name": "日本語ネイティブ女性",
+        "name": "日本語ネイティブ女性 (f1: 20代前半・活発)",
         "gender": "female",
+        "age": "young_adult",
+        "language": "ja",
+    },
+    {
+        "voice_id": "gARvXPexe5VF3cKZBian",
+        "name": "日本語ネイティブ女性 (f2: 20代後半・知的)",
+        "gender": "female",
+        "age": "young_adult",
+        "language": "ja",
+    },
+    {
+        "voice_id": "OSwaPSNdfituxkWcjlkR",
+        "name": "日本語ネイティブ女性 (f3: 30代前半・優しい)",
+        "gender": "female",
+        "age": "adult",
+        "language": "ja",
+    },
+    {
+        "voice_id": "tpdfLrb2z3dwaZQdMBjP",
+        "name": "日本語ネイティブ男性 (m1: 20代中盤・爽やか)",
+        "gender": "male",
+        "age": "young_adult",
+        "language": "ja",
+    },
+    {
+        "voice_id": "vzIXwvf41vKosKu00hYj",
+        "name": "日本語ネイティブ男性 (m2: 30代前半・知的)",
+        "gender": "male",
         "age": "adult",
         "language": "ja",
     },
