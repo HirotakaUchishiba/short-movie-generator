@@ -1534,6 +1534,39 @@ function SceneCharacterSelector({
  * デフォルト表示)。ユーザがカードをクリックすると ref で直接上書きされ、
  * raw の連結は切れる (= 個別 override)。
  */
+/**
+ * per-line `line.speaker` から表示用 resolved id を引く defensive resolver。
+ *
+ * 解決順:
+ *   1. `selected` が raw `speaker_N` 形式 → `speakerToRef[selected]` で resolve
+ *   2. `selected` が既に resolved id (= `f1__office` 等) → そのまま使う
+ *   3. `selected` が未設定で `speakerToRef` が 1 entry のみ → その値を
+ *      implicit active として表示 (= 単一 speaker 動画で line.speaker が
+ *      analyze 漏れで null のときも UI で active 表示する)
+ *   4. それ以外 → undefined (= active 無し)
+ *
+ * 設計理由 (= 2026-05-17 PR #205 + PR #206 follow-up):
+ * 旧 analyze (= PR #206 前) で作られた project は line.speaker が null の
+ * まま snapshot されており、PR #206 の backfill は新規 analyze にしか効か
+ * ない。UI 側でも defensive に implicit fallback を入れて既存 project も
+ * 救う (= snapshot 修正なしで動かす)。
+ */
+export function resolveLineSpeaker(
+  selected: string | undefined,
+  speakerToRef: Record<string, string>,
+): { resolved: string | undefined; implicit: boolean } {
+  if (selected) {
+    const isRaw = /^speaker_\d+$/i.test(selected);
+    const resolved = isRaw ? speakerToRef[selected] : selected;
+    return { resolved, implicit: false };
+  }
+  const refs = Object.values(speakerToRef);
+  if (refs.length === 1) {
+    return { resolved: refs[0], implicit: true };
+  }
+  return { resolved: undefined, implicit: false };
+}
+
 function SpeakerPicker({
   characters,
   selected,
@@ -1546,7 +1579,7 @@ function SpeakerPicker({
   onChange: (name: string | undefined) => void;
 }) {
   const isRaw = !!selected && /^speaker_\d+$/i.test(selected);
-  const resolved = isRaw ? speakerToRef[selected!] : selected;
+  const { resolved, implicit } = resolveLineSpeaker(selected, speakerToRef);
   const resolvedBase = resolved ? splitRef(resolved).base : "";
   const resolvedWardrobe = resolved ? splitRef(resolved).wardrobe : "";
   const baseGroups = useMemo(() => groupByBase(characters), [characters]);
@@ -1566,6 +1599,18 @@ function SpeakerPicker({
           >
             🎙 {selected}
             {resolved ? ` → ${resolved}` : " (未マッピング)"}
+          </span>
+        )}
+        {implicit && resolved && (
+          <span
+            className="text-[10px] text-slate-400 bg-slate-700/40 rounded px-1.5"
+            title={
+              `line.speaker 未設定。話者マッピングが 1 件 (${resolved}) しか` +
+              "無いため自動的にこのキャラを話者として採用しています。" +
+              "クリックで明示的に固定できます。"
+            }
+          >
+            自動: {resolved}
           </span>
         )}
         {selected && (

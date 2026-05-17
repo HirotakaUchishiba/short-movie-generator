@@ -3,6 +3,7 @@ import {
   collectRawSpeakers,
   computeDiagnostics,
   hasAnalyzeSpeakerProfiles,
+  resolveLineSpeaker,
 } from "./ScriptEditPanel";
 import type { AbstractScene, AbstractScreenplay } from "../../types";
 
@@ -192,5 +193,52 @@ describe("collectRawSpeakers: 3 つの source の和集合で抽出", () => {
     });
     const result = collectRawSpeakers(abstract);
     expect(result).toEqual([{ id: "speaker_1", lines: 1, scenes: 1 }]);
+  });
+});
+
+describe("resolveLineSpeaker: per-line picker の active 解決", () => {
+  it("selected が raw speaker_N → speakerToRef で resolve", () => {
+    const result = resolveLineSpeaker("speaker_1", {
+      speaker_1: "f1__office",
+    });
+    expect(result).toEqual({ resolved: "f1__office", implicit: false });
+  });
+
+  it("selected が既に resolved id → そのまま返す", () => {
+    const result = resolveLineSpeaker("m2__casual", {
+      speaker_1: "m2__casual",
+    });
+    expect(result).toEqual({ resolved: "m2__casual", implicit: false });
+  });
+
+  it("selected 未設定 + speakerToRef が 1 entry → implicit active (= bug fix の中核)", () => {
+    // 旧 analyze で line.speaker が null のまま snapshot された project が
+    // この経路に来る。speakerToRef の唯一の値を implicit active として表示。
+    const result = resolveLineSpeaker(undefined, {
+      speaker_1: "m2__casual",
+    });
+    expect(result).toEqual({ resolved: "m2__casual", implicit: true });
+  });
+
+  it("selected 未設定 + speakerToRef が 0 entry → undefined (= active なし)", () => {
+    const result = resolveLineSpeaker(undefined, {});
+    expect(result).toEqual({ resolved: undefined, implicit: false });
+  });
+
+  it("selected 未設定 + speakerToRef が 2+ entry → undefined (= ambiguous)", () => {
+    // 複数 speaker のうち誰なのか不明 → ユーザに選ばせる
+    const result = resolveLineSpeaker(undefined, {
+      speaker_1: "f1__office",
+      speaker_2: "m1__suit",
+    });
+    expect(result).toEqual({ resolved: undefined, implicit: false });
+  });
+
+  it("raw speaker_N が speakerToRef に無い → resolved undefined + implicit=false", () => {
+    // 未マッピング speaker (= UI で「未マッピング」バッジが出るケース)
+    const result = resolveLineSpeaker("speaker_3", {
+      speaker_1: "f1__office",
+    });
+    expect(result).toEqual({ resolved: undefined, implicit: false });
   });
 });
