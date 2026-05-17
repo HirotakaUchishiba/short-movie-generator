@@ -312,6 +312,25 @@ def _now_iso() -> str:
     return datetime.now().isoformat(timespec="seconds")
 
 
+def read_caption_from_snapshot(ts_path: str) -> str:
+    """project snapshot から ``caption`` 文字列だけを軽量に読み出す。
+
+    ``staged_pipeline.load_project_screenplay()`` と違って compose は走らず、
+    abstract のまま ``caption`` field のみ取得する。``final_import`` が
+    上位レイヤ (= staged_pipeline) を import するのを避けるための薄い helper
+    (= 計画書 §3.4 レイヤ違反修正)。snapshot 不在 / parse 失敗時は空文字。
+    """
+    snap = os.path.join(ts_path, "screenplay.json")
+    if not os.path.exists(snap):
+        return ""
+    try:
+        with open(snap) as f:
+            sp = json.load(f)
+        return (sp.get("caption") or "").strip()
+    except (OSError, ValueError):
+        return ""
+
+
 def _ffprobe_duration(path: Path) -> float | None:
     try:
         r = subprocess.run(

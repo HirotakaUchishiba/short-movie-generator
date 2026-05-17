@@ -19,7 +19,6 @@ import io_utils
 import preflight
 import progress_store
 import project_state
-import staged_pipeline
 
 from .core import resolve_canonical_video
 
@@ -610,11 +609,11 @@ def read_post_caption_for_ts(ts: str) -> tuple[str, str, list[str]]:
             with open(md_path, "r", encoding="utf-8") as f:
                 return parse_caption_md(f.read())
 
-    try:
-        sp = staged_pipeline.load_project_screenplay(ts_path)
-    except Exception:
-        sp = {}
-    caption = (sp.get("caption") or "").strip()
+    # staged_pipeline (= 上位レイヤ) を経由せず final_import 内の薄い helper で
+    # snapshot から caption だけ読む (= 計画書 §3.4 レイヤ違反修正)。
+    from final_import.core import read_caption_from_snapshot
+
+    caption = read_caption_from_snapshot(ts_path)
     return parse_caption_md(f"# {title_base}\n\n{caption}\n")
 
 
