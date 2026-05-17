@@ -30,20 +30,20 @@ def _write_yaml(path: Path, payload: str) -> None:
 
 class TestLoadRegistry:
     def test_missing_yaml_returns_empty(self, isolated_registry: Path) -> None:
-        assert loader.load_registry("subtitle_styles") == ()
+        assert loader.load_registry("visual_intents") == ()
 
     def test_parse_error_returns_empty(self, isolated_registry: Path) -> None:
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             "this is: not: yaml: parsable {{",
         )
-        assert loader.load_registry("subtitle_styles") == ()
+        assert loader.load_registry("visual_intents") == ()
 
     def test_valid_yaml_returns_dict_tuple(
         self, isolated_registry: Path
     ) -> None:
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             """
 parts:
   - id: minimal
@@ -54,7 +54,7 @@ parts:
     valid_contexts: [scene]
 """,
         )
-        result = loader.load_registry("subtitle_styles")
+        result = loader.load_registry("visual_intents")
         assert len(result) == 2
         assert result[0]["id"] == "minimal"
         assert result[1]["id"] == "bold"
@@ -63,7 +63,7 @@ parts:
         self, isolated_registry: Path
     ) -> None:
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             """
 parts:
   - id: minimal
@@ -71,7 +71,7 @@ parts:
   - id: 123  # 非 str
 """,
         )
-        result = loader.load_registry("subtitle_styles")
+        result = loader.load_registry("visual_intents")
         assert len(result) == 1
         assert result[0]["id"] == "minimal"
 
@@ -79,17 +79,17 @@ parts:
 class TestListIds:
     def test_returns_frozenset(self, isolated_registry: Path) -> None:
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             "parts:\n  - id: a\n  - id: b\n",
         )
-        ids = loader.list_ids("subtitle_styles")
+        ids = loader.list_ids("visual_intents")
         assert isinstance(ids, frozenset)
         assert ids == frozenset({"a", "b"})
 
     def test_missing_returns_empty_frozenset(
         self, isolated_registry: Path
     ) -> None:
-        assert loader.list_ids("subtitle_styles") == frozenset()
+        assert loader.list_ids("visual_intents") == frozenset()
 
 
 class TestCompatibleWithMap:
@@ -118,47 +118,22 @@ class TestResetCache:
         self, isolated_registry: Path
     ) -> None:
         # 最初は空
-        assert loader.list_ids("subtitle_styles") == frozenset()
+        assert loader.list_ids("visual_intents") == frozenset()
         # yaml を書き足す
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             "parts:\n  - id: minimal\n",
         )
         # cache が古い間は空
-        assert loader.list_ids("subtitle_styles") == frozenset()
+        assert loader.list_ids("visual_intents") == frozenset()
         # reset 後は反映される
         loader.reset_cache()
-        assert loader.list_ids("subtitle_styles") == frozenset({"minimal"})
-
-
-class TestKnownCategoriesDriftGuard:
-    """`KNOWN_CATEGORIES` SSOT が validator / part_catalog 双方の前提と
-    一致することを保証する (= drift 検出)。
-    """
-
-    def test_validator_part_field_categories_subset(self) -> None:
-        import screenplay_validator as sv
-
-        all_consumer_categories: set[str] = set()
-        all_consumer_categories.update(sv._SCENE_PART_FIELDS_SINGLE.values())
-        all_consumer_categories.update(sv._SCENE_PART_FIELDS_ARRAY.values())
-        all_consumer_categories.update(sv._GLOBAL_PART_FIELDS.values())
-        # validator が参照する全カテゴリは KNOWN_CATEGORIES に含まれる必要がある
-        # (= 逆は要らない: visual_intents は validator から直接参照されない)
-        missing = all_consumer_categories - set(loader.KNOWN_CATEGORIES)
-        assert missing == set(), f"validator が参照する未知カテゴリ: {missing}"
-
-    def test_part_catalog_endpoint_uses_loader_known_categories(self) -> None:
-        # part_catalog は loader.KNOWN_CATEGORIES を直接 import している
-        # (= 二重定義無し)。import path だけ検証。
-        from routes import part_catalog as pc
-
-        assert pc._registry.KNOWN_CATEGORIES is loader.KNOWN_CATEGORIES
+        assert loader.list_ids("visual_intents") == frozenset({"minimal"})
 
 
 class TestConsumerSharedCache:
-    """4 consumer (validator / clip_library / intent_resolver / part_catalog) が
-    同じ SSOT cache を読むことを保証する (= reset_cache 1 回で全員同期)。
+    """3 consumer (validator / clip_library / intent_resolver) が同じ SSOT cache
+    を読むことを保証する (= reset_cache 1 回で全員同期)。
     """
 
     def test_validator_uses_loader_cache(
@@ -168,13 +143,11 @@ class TestConsumerSharedCache:
 
         # validator の reset は SSOT cache を消す (= 旧 _PART_REGISTRY_CACHE は廃止)
         _write_yaml(
-            isolated_registry / "subtitle_styles.yaml",
+            isolated_registry / "visual_intents.yaml",
             "parts:\n  - id: alpha\n",
         )
         sv.reset_part_registry_cache()
-        assert sv._load_part_registry_ids("subtitle_styles") == frozenset(
-            {"alpha"}
-        )
+        assert loader.list_ids("visual_intents") == frozenset({"alpha"})
 
     def test_clip_library_uses_loader_cache(
         self, isolated_registry: Path

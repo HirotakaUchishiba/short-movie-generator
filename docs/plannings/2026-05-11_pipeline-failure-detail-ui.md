@@ -17,7 +17,7 @@
    'request_id': 'req_011CavqQUqWoWA18DYbfv4RK'}"
 ```
 
-つまり **バックエンドは情報を持っているのに UI が表示していない**。同様の問題は analyze 以外の全 stage に潜在する (= Stage 2 ElevenLabs / Stage 3 Imagen / Stage 4 fal.ai / Stage 5 Sync.so / Stage 6 ffmpeg/Remotion / Stage 7 import / Stage 8 YouTube・IG・TikTok)。
+つまり **バックエンドは情報を持っているのに UI が表示していない**。同様の問題は analyze 以外の全 stage に潜在する (= Stage 2 ElevenLabs / Stage 3 Imagen / Stage 4 fal.ai / Stage 5 Sync.so / Stage 6 ffmpeg / Stage 7 import / Stage 8 YouTube・IG・TikTok)。
 
 本 doc では **失敗箇所を全列挙** し、**「UI で何が原因かを把握できる」** ための実装方針を Phase 単位で記す。
 
@@ -60,7 +60,7 @@
 | 3.bg      | Google Imagen API       | quota / 429 / safety filter                         | `scene_gen.py` ThreadPool catch → `PartialBackgroundFailure` raise → run_next_stage:589 catch                    | analytics.db のみ                       | ❌      |
 | 4.kling   | fal.ai Kling            | クレジット切れ / job timeout / 429 / video too long | `fal_video_client._classify_error()` → ClientError raise → `PartialKlingFailure` 集約 → run_next_stage:589 catch | analytics.db のみ                       | ❌      |
 | 5.scene   | Sync.so lipsync         | 認証 / クレジット切れ / file >20MB / 不正音声       | `lipsync_client.py:56-98` で例外 raise → run_next_stage:589 catch                                                | analytics.db のみ                       | ❌      |
-| 6.overlay | ffmpeg / Remotion CLI   | binary 不存在 / 構文 / disk full                    | `compositor.py:104-107` RuntimeError raise → run_next_stage:589 catch                                            | analytics.db のみ                       | ❌      |
+| 6.overlay | ffmpeg                  | binary 不存在 / 構文 / disk full                    | `compositor.py:104-107` RuntimeError raise → run_next_stage:589 catch                                            | analytics.db のみ                       | ❌      |
 
 **共通の穴**: `staged_pipeline.run_next_stage` の `except Exception as e:` (= L589) は **`_record_stage_run(...status="failed", error=str(e))` で analytics.db に書くだけ** で、`progress_store` には書かない。`tmp-progress.json.stages.<stage>.error` field は存在しない (= UI が読みに行く SSOT)。
 

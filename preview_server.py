@@ -81,16 +81,14 @@ from routes.cost import cost_bp  # noqa: E402
 from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
-from routes.part_catalog import part_catalog_bp  # noqa: E402
+from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
-from routes.render_plan import render_plan_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
 app.register_blueprint(config_bp)
 app.register_blueprint(projects_bp)
-app.register_blueprint(render_plan_bp)
-app.register_blueprint(part_catalog_bp)
+app.register_blueprint(intent_catalog_bp)
 app.register_blueprint(clip_library_bp)
 app.register_blueprint(intent_suggestions_bp)
 app.register_blueprint(stages_bp)
@@ -809,7 +807,7 @@ def api_put_project_abstract(ts):
 
     Phase D-G16: 変更を `classify_abstract_diff` で分類し:
       - unchanged → save スキップ、approval も触らず 200 を返す
-      - safe_only (= scene_parts / global_parts / subtitle_y / overlay 影響のみ)
+      - safe_only (= subtitle_y_from_bottom 等 overlay にしか影響しない field)
                  → Stage 6 (overlay) 承認だけ revoke、Stage 2-5 は維持
       - breaking → 従来通り全 revoke
     CLAUDE.md「コストのかかる操作を安易に実行しない」原則に従い、再 TTS / 再

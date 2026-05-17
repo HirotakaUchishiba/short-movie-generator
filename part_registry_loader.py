@@ -1,14 +1,17 @@
 """``config/part_registry/<category>.yaml`` の単一ロード経路 (= SSOT cache)。
 
-screenplay_validator / clip_library / analyze.intent_resolver / routes.part_catalog
+screenplay_validator / clip_library / analyze.intent_resolver / routes.intent_catalog
 の 4 consumer が同じ yaml を独立に load + 独立に cache していた。Cache invalidation
-が散る + 各々で例外型の絞り方が違う + KNOWN_CATEGORIES が二重定義になる、という
-drift 元になっていたため、ここに集約する。
+が散る + 各々で例外型の絞り方が違う、という drift 元になっていたため、ここに
+集約する。
+
+現状の唯一の category は ``visual_intents`` (= clip_library の hard match key)。
+2026-05-17 の Remotion / 演出パーツ撤去 (= ``2026-05-17_drop-remotion-and-parts.md``)
+で他カテゴリ (subtitle_styles / stickers / ...) は全削除済み。loader API は
+generic な形を残しているが、実用上は ``"visual_intents"`` のみが渡される。
 
 利用側は `load_registry(category)` / `list_ids(category)` / `compatible_with_map()`
 を呼び、test では `reset_cache()` 1 行で 4 consumer すべてが同期的に再読込される。
-
-設計 doc: `docs/plannings/2026-05-10_compositional-architecture.md` §4
 """
 
 from __future__ import annotations
@@ -20,21 +23,6 @@ from pathlib import Path
 import config
 
 logger = logging.getLogger(__name__)
-
-
-# part_registry が認識するカテゴリ集合 (= SSOT)。
-# validator / part_catalog endpoint / 新カテゴリ追加時はここを更新する。
-KNOWN_CATEGORIES: tuple[str, ...] = (
-    "subtitle_styles",
-    "stickers",
-    "filter_presets",
-    "camera_moves",
-    "lower_thirds",
-    "title_cards",
-    "transitions",
-    "frame_layouts",
-    "visual_intents",
-)
 
 
 def _yaml_path(category: str) -> Path:
@@ -102,7 +90,7 @@ def reset_cache() -> None:
     """テスト用: 全 consumer を強制再ロードする (= monkeypatch 後の同期点)。
 
     `monkeypatch.setattr("config.PART_REGISTRY_DIR", new_dir)` の後にこれを
-    呼べば、validator / clip_library / part_catalog / intent_resolver すべてが
+    呼べば、validator / clip_library / intent_catalog / intent_resolver すべてが
     新ディレクトリを読みに行く。
     """
 

@@ -647,8 +647,8 @@ def test_character_existence_skipped_when_directory_empty(monkeypatch) -> None:
 
 
 
-# ───── Compositional Architecture: identity / annotation / scene_parts / global_parts ─────
-# 詳細: docs/plannings/2026-05-10_compositional-architecture.md §6.3
+# ───── Clip Library: identity / annotation ─────
+# 詳細: docs/plannings/2026-05-10_clip-library-architecture.md
 
 
 def test_identity_optional_for_legacy_screenplay() -> None:
@@ -715,30 +715,11 @@ def test_annotation_invalid_motion_intensity_fails() -> None:
         screenplay_validator.validate_screenplay(sp)
 
 
-def test_scene_parts_optional_object_passes() -> None:
-    """scene_parts は任意 object でいったん受ける (Phase 4 で part_registry 整合性追加)。"""
-    sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "subtitle_style": {"id": "karaoke_bold", "params": {}},
-        "stickers": [{"id": "exclaim_red", "at": 0.5}],
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
 def test_override_fields_pass() -> None:
     """_override_*  は novel intent 用 escape hatch なので validator は通る。"""
     sp = _valid_screenplay()
     sp["scenes"][0]["_override_animation_prompt"] = "subject teleports"
     sp["scenes"][0]["_override_background_prompt"] = None
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_global_parts_optional_passes() -> None:
-    sp = _valid_screenplay()
-    sp["global_parts"] = {
-        "filter_preset": {"id": "warm_cinematic", "params": {}},
-        "bgm": {"path": "assets/bgm/upbeat.mp3", "ducking": True},
-    }
     screenplay_validator.validate_screenplay(sp)
 
 
@@ -797,45 +778,7 @@ def test_abstract_flat_camera_distance_accepted() -> None:
     screenplay_validator.validate_screenplay(sp)
 
 
-# ───── _check_part_registry (= part_registry yaml 整合性チェック) ─────
-
-
-def test_known_subtitle_style_id_passes() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "subtitle_style": {"id": "minimal", "params": {}},
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_unknown_subtitle_style_id_fails() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "subtitle_style": {"id": "nonexistent_style", "params": {}},
-    }
-    with pytest.raises(ValueError, match="subtitle_styles.yaml に未定義"):
-        screenplay_validator.validate_screenplay(sp)
-
-
-def test_unknown_sticker_id_in_array_fails() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "stickers": [
-            {"id": "exclaim_red", "at": 0.5},  # OK
-            {"id": "ghost_sticker", "at": 1.0},  # NG
-        ],
-    }
-    with pytest.raises(ValueError, match="ghost_sticker"):
-        screenplay_validator.validate_screenplay(sp)
-
-
-def test_unknown_filter_preset_id_in_global_parts_fails() -> None:
-    sp = _valid_screenplay()
-    sp["global_parts"] = {
-        "filter_preset": {"id": "warp_drive", "params": {}},
-    }
-    with pytest.raises(ValueError, match="filter_presets.yaml に未定義"):
-        screenplay_validator.validate_screenplay(sp)
+# ───── _check_part_registry (= visual_intents.yaml 整合性チェック) ─────
 
 
 def test_unknown_visual_intent_id_in_annotation_fails() -> None:
@@ -848,38 +791,8 @@ def test_unknown_visual_intent_id_in_annotation_fails() -> None:
         screenplay_validator.validate_screenplay(sp)
 
 
-def test_known_camera_move_and_transitions_pass() -> None:
-    sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "camera_move": {"id": "subtle_zoom_in", "params": {}},
-        "transition_in": {"id": "dip_to_black", "params": {}},
-        "transition_out": {"id": "fade_quick", "params": {}},
-        "frame_layout": {"id": "letterbox_top_bottom", "params": {}},
-        "lower_third": {
-            "id": "name_banner",
-            "at": 0.5,
-            "duration": 2.0,
-            "params": {},
-        },
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
-def test_known_title_cards_pass() -> None:
-    sp = _valid_screenplay()
-    sp["global_parts"] = {
-        "intro_card": {"id": "simple_intro", "duration_sec": 1.5, "params": {}},
-        "outro_card": {
-            "id": "subscribe_outro",
-            "duration_sec": 2.0,
-            "params": {},
-        },
-    }
-    screenplay_validator.validate_screenplay(sp)
-
-
 def test_part_registry_check_skipped_when_yaml_missing(monkeypatch, tmp_path) -> None:
-    """yaml が無い category は警告だけで pass (= 半完成 deployment 保険)。"""
+    """visual_intents.yaml が無いときは reject せず pass (= 半完成 deployment 保険)。"""
 
     monkeypatch.setattr(
         "config.PART_REGISTRY_DIR", str(tmp_path / "nonexistent_dir"),
@@ -887,34 +800,13 @@ def test_part_registry_check_skipped_when_yaml_missing(monkeypatch, tmp_path) ->
     screenplay_validator.reset_part_registry_cache()
 
     sp = _valid_screenplay()
-    sp["scenes"][0]["scene_parts"] = {
-        "subtitle_style": {"id": "literally_anything", "params": {}},
+    sp["scenes"][0]["annotation"] = {
+        "visual_intent_id": "literally_anything",
     }
     # yaml が無いと ids 集合が空 → reject されない (= 警告のみ)
     screenplay_validator.validate_screenplay(sp)
     # 後続テストに影響しないよう cache を戻す
     screenplay_validator.reset_part_registry_cache()
-
-
-# ───── G-8: validator part field categories ⊆ KNOWN_CATEGORIES drift 監査 ─────
-
-
-def test_scene_and_global_part_fields_are_subset_of_known_categories() -> None:
-    """validator の `_SCENE_PART_FIELDS_*` / `_GLOBAL_PART_FIELDS` が参照する
-    カテゴリは すべて `part_registry_loader.KNOWN_CATEGORIES` に含まれていなければ
-    ならない (= 新カテゴリ追加時に validator 側 mapping を更新し忘れる drift を検知)。
-    """
-
-    import part_registry_loader as loader
-
-    consumed: set[str] = set()
-    consumed.update(screenplay_validator._SCENE_PART_FIELDS_SINGLE.values())
-    consumed.update(screenplay_validator._SCENE_PART_FIELDS_ARRAY.values())
-    consumed.update(screenplay_validator._GLOBAL_PART_FIELDS.values())
-    missing = consumed - set(loader.KNOWN_CATEGORIES)
-    assert missing == set(), (
-        f"validator が参照するが KNOWN_CATEGORIES に未登録のカテゴリ: {missing}"
-    )
 
 
 # ───── G-9: identity.required に camera_distance 追加 ─────

@@ -1,34 +1,13 @@
 import { useEffect, useRef, useState } from "react";
-import { Player, type PlayerRef } from "@remotion/player";
 import StageGate, { useShellCtx } from "../StageGate";
-import { api } from "../../api";
+import { api, overlayAssetUrl } from "../../api";
 import type { Screenplay, Line, SubtitleChunk } from "../../types";
 import { freshUid } from "../../uid";
-import { useRenderPlan } from "../../hooks/useRenderPlan";
 import {
   replaceChunk,
   replaceLine,
   replaceScene,
 } from "../../utils/screenplayPath";
-import { ScreenplayBase } from "../../../remotion/compositions/ScreenplayBase";
-import { ScreenplayInstagram } from "../../../remotion/compositions/ScreenplayInstagram";
-import { ScreenplayTikTok } from "../../../remotion/compositions/ScreenplayTikTok";
-import { ScreenplayYoutube } from "../../../remotion/compositions/ScreenplayYoutube";
-
-// Phase 5-A の 4 platform composition を Stage 6 Player から切替えるための map。
-const PLATFORM_COMPOSITIONS = {
-  base: ScreenplayBase,
-  youtube: ScreenplayYoutube,
-  instagram: ScreenplayInstagram,
-  tiktok: ScreenplayTikTok,
-} as const;
-type PlatformId = keyof typeof PLATFORM_COMPOSITIONS;
-const PLATFORM_LABELS: Record<PlatformId, string> = {
-  base: "base",
-  youtube: "YouTube Shorts",
-  instagram: "Instagram Reels",
-  tiktok: "TikTok",
-};
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
@@ -41,16 +20,9 @@ export default function StageOverlay() {
   const [pending, setPending] = useState<"save" | "render" | null>(null);
   const [error, setError] = useState<string | null>(null);
   const [expanded, setExpanded] = useState<Record<string, boolean>>({});
-  // Phase 3-C: ffmpeg-baked overlaid.mp4 の <video> ref から、Remotion <Player>
-  // ref に primary preview を完全移行。snap 機能は Player の getCurrentFrame()
-  // を使って同等の「現在再生位置を chunk start/end に反映」を維持する。
-  const playerRef = useRef<PlayerRef | null>(null);
-  // Phase 5-A の 3 platform composition を Player から切替えて視覚比較できる。
-  const [platform, setPlatform] = useState<PlatformId>("base");
-  // PrimaryPreviewPanel から render_plan の fps を bubble してもらう。
-  // ready 前は default 60 だが、ready 後は実 fps で snap が正確になる
-  // (= 30fps project で snap が 2 倍ズレるのを防ぐ)。
-  const [planFps, setPlanFps] = useState(60);
+  // primary preview の <video> ref。snap 機能は currentTime (秒) を使って
+  // 「現在再生位置を chunk start/end に反映」を維持する。
+  const videoRef = useRef<HTMLVideoElement | null>(null);
 
   // server snapshot が変わったら **未編集なら** local draft に取り込む。
   // ctx.reload() で sp は更新されるが旧コードは draft の lazy init で 1 回しか
@@ -78,22 +50,13 @@ export default function StageOverlay() {
     acc += s.duration;
   }
 
-  // Player の現在再生位置 (= frame) を秒に直し、scene 内相対秒として返す。
-  // sceneOffsets は依然 sp.scenes[].duration ベースなので、scene 実尺と sp.duration
-  // が乖離した project では snap がわずかにずれる可能性がある。Phase 3-D で
-  // render_plan.scenes[].offset_sec を直接参照する形に refactor 予定。
+  // <video> の現在再生位置 (= 秒) を scene 内相対秒として返す。sceneOffsets は
+  // sp.scenes[].duration ベースなので、scene 実尺と sp.duration が乖離した
+  // project では snap がわずかにずれる可能性がある (= 既存挙動と同等)。
   const sceneRelNow = (sIdx: number): number | null => {
-    const p = playerRef.current;
-    if (!p) return null;
-    let absSec: number;
-    try {
-      // PlayerRef.getCurrentFrame() は再生中の frame index。fps で割って秒に。
-      const frame = p.getCurrentFrame();
-      absSec = frame / planFps;
-    } catch {
-      return null;
-    }
-    const rel = absSec - sceneOffsets[sIdx];
+    const v = videoRef.current;
+    if (!v) return null;
+    const rel = v.currentTime - sceneOffsets[sIdx];
     if (rel < 0) return null;
     return Math.round(rel * 100) / 100;
   };
@@ -249,12 +212,9 @@ export default function StageOverlay() {
     );
   };
 
-  // Phase 3-C で Player を primary preview にした結果、字幕変更は Player 側で
-  // リアルタイム反映される。なので「保存」と「最終 mp4 を焼き直す (= 公開準備)」を
-  // 分離する。
-  // - onSave:    screenplay を PUT するだけ。Player の plan は再 fetch される
-  //              (= regen_count を bumpKey にしている)。AI 課金 0 / レンダリングなし
-  // - onRender:  保存 + ffmpeg/Remotion で最終 mp4 を生成。Stage 7 公開前に必要
+  // 「保存」と「最終 mp4 を焼き直す (= 公開準備)」を分離する。
+  // - onSave:    screenplay を PUT するだけ。AI 課金 0 / レンダリングなし
+  // - onRender:  保存 + ffmpeg で最終 mp4 を生成。Stage 7 公開前に必要
   const onSave = async () => {
     setPending("save");
     setError(null);
@@ -294,21 +254,18 @@ export default function StageOverlay() {
     >
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         <div>
-          {/* Phase 3-C: 既存 ffmpeg-baked <video> を撤廃し、Remotion <Player> を
-              primary preview に。chunk 編集が即時反映 + サーバ render との見た目一致。
-              プレビュー位置 ↔ snap 機能は Player ref 経由。 */}
+          {/* ffmpeg-baked overlaid.mp4 を <video> で再生する primary preview。
+              再焼き直し後は bumpKey が更新され、cache を避けて最新 mp4 を表示する。
+              videoRef.currentTime で snap 機能 (= chunk start/end への反映) を提供。 */}
           <PrimaryPreviewPanel
             ts={ctx.detail.timestamp}
             bumpKey={ctx.detail.progress.stages.overlay.regen_count}
-            playerRef={playerRef}
+            videoRef={videoRef}
             videoHeight={ctx.serverConfig.video_height}
             currentSubtitleY={
               draft.subtitle_y_from_bottom ??
               ctx.serverConfig.subtitle_y_from_bottom
             }
-            platform={platform}
-            onPlatformChange={setPlatform}
-            onPlanFps={setPlanFps}
           />
           <SubtitleYPositionEditor
             current={
@@ -352,7 +309,7 @@ export default function StageOverlay() {
                 className="btn-primary text-xs"
                 disabled={pending !== null}
                 onClick={onRender}
-                title="保存 + 最終 mp4 を再 render (= ffmpeg or Remotion)。Stage 7 公開前に実行する"
+                title="保存 + 最終 mp4 を再 render (= ffmpeg)。Stage 7 公開前に実行する"
               >
                 {pending === "render"
                   ? "焼き直し中..."
@@ -361,8 +318,9 @@ export default function StageOverlay() {
             </div>
           </div>
           <p className="text-[10px] text-slate-500 mb-2">
-            💾 保存だけなら Player の preview は即時反映 (= 焼き直し不要)。 🎬
-            焼き直しは Stage 7 公開 mp4 を更新する時のみ必要。
+            💾 保存だけなら字幕 chunk 編集はサーバに反映される (=
+            焼き直し不要)。 🎬 焼き直しは Stage 7 公開 mp4
+            を更新する時のみ必要。
           </p>
           {error && <div className="text-rose-400 text-xs mb-2">{error}</div>}
           <div className="max-h-[640px] overflow-auto space-y-3">
@@ -800,98 +758,36 @@ function SubtitleYPositionEditor({
   );
 }
 
-// Phase 3-C: 既存の ffmpeg-baked <video> を撤廃して Remotion <Player> を
-// primary preview にした。playerRef を親 (StageOverlay) で保持して chunk snap に使う。
-// SubtitleYPositionGuide は Player 領域上に重ねたままにし、Y 位置編集の視覚的
-// フィードバックは維持する。Stage 5 完了前 (= scene_<S>.mp4 無し) は loading /
-// not_ready / error メッセージで graceful degrade。
+// ffmpeg-baked overlaid.mp4 を <video> で再生する primary preview。videoRef を
+// 親 (StageOverlay) で保持し、currentTime ベースで chunk snap に使う。
+// SubtitleYPositionGuide は video 領域上に重ねて Y 位置編集の視覚的
+// フィードバックを提供する。
 function PrimaryPreviewPanel({
   ts,
   bumpKey,
-  playerRef,
+  videoRef,
   videoHeight,
   currentSubtitleY,
-  platform,
-  onPlatformChange,
-  onPlanFps,
 }: {
   ts: string;
   bumpKey: number;
-  playerRef: React.MutableRefObject<PlayerRef | null>;
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
   videoHeight: number;
   currentSubtitleY: number;
-  platform: PlatformId;
-  onPlatformChange: (next: PlatformId) => void;
-  // render_plan の fps を親に bubble (= sceneRelNow snap で正確な秒換算に使う)。
-  onPlanFps?: (fps: number) => void;
 }) {
-  const state = useRenderPlan(ts, bumpKey);
-  const Composition = PLATFORM_COMPOSITIONS[platform];
-
-  const planFps = state.kind === "ready" ? state.plan.video.fps : undefined;
-  useEffect(() => {
-    if (onPlanFps && planFps !== undefined) onPlanFps(planFps);
-  }, [planFps, onPlanFps]);
-
+  // bumpKey が変わった時 (= 再焼き直し直後) に強制再ロードして cache を回避する。
+  const src = overlayAssetUrl(ts, bumpKey);
   return (
     <div className="max-w-md mx-auto mb-3">
-      {/* Phase 5-A: platform variant tab。
-          ScreenplayBase / Youtube / Instagram / TikTok composition を Player に
-          差し替えるだけで platform 別の見た目 (= 強制 karaoke_bold / outro 既定 等)
-          を比較できる。AI 課金は発生しない (= 同じ render_plan を使い回す)。 */}
-      <div className="flex items-center gap-1 mb-2 text-[11px]">
-        <span className="text-slate-500 mr-1">プレビュー:</span>
-        {(Object.keys(PLATFORM_COMPOSITIONS) as PlatformId[]).map((p) => {
-          const active = p === platform;
-          return (
-            <button
-              key={p}
-              type="button"
-              className={
-                "px-2 py-0.5 rounded border text-[10px] " +
-                (active
-                  ? "bg-emerald-700/40 border-emerald-500 text-emerald-100"
-                  : "bg-slate-800/40 border-slate-700 text-slate-400 hover:text-slate-200")
-              }
-              onClick={() => onPlatformChange(p)}
-              title={`Composition: Screenplay${p === "base" ? "Base" : p[0].toUpperCase() + p.slice(1)}`}
-            >
-              {PLATFORM_LABELS[p]}
-            </button>
-          );
-        })}
-      </div>
       <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded relative">
-        {state.kind === "loading" && (
-          <div className="w-full h-full flex items-center justify-center text-[12px] text-slate-400">
-            render plan を取得中…
-          </div>
-        )}
-        {state.kind === "not_ready" && (
-          <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-amber-300">
-            {state.message}
-          </div>
-        )}
-        {state.kind === "error" && (
-          <div className="w-full h-full flex items-center justify-center text-center px-4 text-[12px] text-rose-400">
-            {state.message}
-          </div>
-        )}
-        {state.kind === "ready" && (
-          <Player
-            ref={playerRef}
-            // platform tab で Composition が切り替わる。
-            component={Composition}
-            inputProps={{ plan: state.plan }}
-            durationInFrames={Math.max(1, state.plan.video.duration_frames)}
-            fps={state.plan.video.fps}
-            compositionWidth={state.plan.video.width}
-            compositionHeight={state.plan.video.height}
-            controls
-            loop
-            style={{ width: "100%", height: "100%" }}
-          />
-        )}
+        <video
+          ref={videoRef}
+          key={bumpKey}
+          src={src}
+          controls
+          loop
+          className="w-full h-full object-contain"
+        />
         <SubtitleYPositionGuide
           videoHeight={videoHeight}
           currentY={currentSubtitleY}
