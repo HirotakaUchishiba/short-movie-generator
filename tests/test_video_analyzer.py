@@ -1127,3 +1127,123 @@ class TestBuildScreenplayFillsAllSpeakers:
         assert "f1__office" in feat
         s2_ref = result["speaker_to_ref"]["speaker_2"]
         assert s2_ref in feat
+
+
+# ───── speaker_profiles ↔ line.speaker 整合性 (= post-process backfill) ─────
+# 2026-05-17 PR #205 で発見した bug: Claude が speaker_profiles を出す一方で
+# 全 line.speaker を null にする inconsistent ケースがある。post-process が
+# 1 speaker の場合は backfill する。
+
+
+class TestSpeakerBackfillIntegrity:
+    """speaker_profiles と line.speaker の整合性を post-process で回復。"""
+
+    def test_backfills_single_speaker_when_line_speaker_missing(
+        self, tmp_path,
+    ) -> None:
+        """profiles=1 speaker かつ line.speaker 全 null → backfill される。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "male", "age_range": "30s"},
+            },
+            "scenes": [{"lines": [
+                {"text": "a", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                {"text": "b", "start": 1.0, "end": 2.0, "emotion": "中立"},
+            ]}, {"lines": [
+                {"text": "c", "start": 0.0, "end": 1.0, "emotion": "中立"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        # 全 3 lines に speaker_1 が backfill されている
+        speakers = [
+            line.get("speaker") for sc in result["scenes"]
+            for line in sc.get("lines", [])
+        ]
+        assert speakers == ["speaker_1", "speaker_1", "speaker_1"]
+
+    def test_does_not_overwrite_existing_line_speaker(
+        self, tmp_path,
+    ) -> None:
+        """既に line.speaker が一部設定されていれば backfill しない (= no-op)。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "male"},
+            },
+            "scenes": [{"lines": [
+                {"text": "a", "start": 0.0, "end": 1.0, "emotion": "中立",
+                 "speaker": "speaker_1"},
+                {"text": "b", "start": 1.0, "end": 2.0, "emotion": "中立"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        # 1 line に speaker 設定済みなので backfill しない (= 既存値維持、
+        # 残りは null のまま、Stage 1 で人間が直す)
+        speakers = [
+            line.get("speaker") for sc in result["scenes"]
+            for line in sc.get("lines", [])
+        ]
+        assert speakers == ["speaker_1", None]
+
+    def test_does_not_backfill_when_multiple_speakers(
+        self, tmp_path, caplog,
+    ) -> None:
+        """profiles=2+ speakers で line.speaker 全 null → ambiguous なので
+        backfill しない (= warn ログのみ)。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {
+                "speaker_1": {"gender": "male"},
+                "speaker_2": {"gender": "female"},
+            },
+            "scenes": [{"lines": [
+                {"text": "a", "start": 0.0, "end": 1.0, "emotion": "中立"},
+                {"text": "b", "start": 1.0, "end": 2.0, "emotion": "中立"},
+            ]}],
+        }
+        with caplog.at_level("WARNING"):
+            result, _u = _build_with_character_catalog(
+                tmp_path, body, _make_character_catalog())
+        speakers = [
+            line.get("speaker") for sc in result["scenes"]
+            for line in sc.get("lines", [])
+        ]
+        # 全 null のまま
+        assert speakers == [None, None]
+        # warn ログが出ている
+        assert any(
+            "speaker_drift" in rec.message
+            and "backfill 不可" in rec.message
+            for rec in caplog.records
+        )
+
+    def test_no_op_when_no_speaker_profiles(self, tmp_path) -> None:
+        """speaker_profiles が無いケースは何もしない (= 旧挙動互換)。"""
+        body = {
+            "caption": "x",
+            "scenes": [{"lines": [
+                {"text": "a", "start": 0.0, "end": 1.0, "emotion": "中立"},
+            ]}],
+        }
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        speakers = [
+            line.get("speaker") for sc in result["scenes"]
+            for line in sc.get("lines", [])
+        ]
+        assert speakers == [None]
+
+    def test_no_op_when_lines_empty(self, tmp_path) -> None:
+        """全 scene の lines が空でも crash しない。"""
+        body = {
+            "caption": "x",
+            "speaker_profiles": {"speaker_1": {"gender": "male"}},
+            "scenes": [{"lines": []}],
+        }
+        # 例外を投げないことだけ確認
+        result, _u = _build_with_character_catalog(
+            tmp_path, body, _make_character_catalog())
+        assert result["scenes"][0]["lines"] == []
