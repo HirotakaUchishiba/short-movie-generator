@@ -806,25 +806,50 @@ function SceneEditor({
 }
 
 /**
- * 抽象台本に出てくる匿名 speaker_N を全シーンから集めて返す。
- * 出現回数とシーン数も同時に算出し、UI のヒント表示に使う。
- * 既に ref に解決済み (= ユーザが個別 override した) speaker は除外する。
+ * 抽象台本に出てくる匿名 speaker_N を **3 つの source の和集合** で抽出する:
+ *   1. `abstract.speaker_profiles` のキー (= analyze が検出した話者)
+ *   2. `abstract.speaker_to_ref` のキー (= analyze が casting 提案した話者)
+ *   3. `line.speaker` (= 各セリフに振られた raw タグ)
+ *
+ * いずれか 1 つでも entry があれば speaker mapping UI を表示する。
+ *
+ * 設計理由 (= 2026-05-17 PR A 案):
+ * Claude の単一人物動画判定が揺らぐと line.speaker が None に落ちる一方
+ * speaker_profiles / speaker_to_ref は populate されるケースがあり、
+ * line.speaker だけを見るとマッピング UI 全体が render されない bug が
+ * 発生していた。defensive に和集合で抽出する。
+ *
+ * 出現回数とシーン数は line.speaker から集計するため、line タグが無い
+ * speaker は 0 lines / 0 scenes として返るが、UI 表示には支障無い。
  */
-function collectRawSpeakers(
+export function collectRawSpeakers(
   abstract: AbstractScreenplay,
 ): { id: string; lines: number; scenes: number }[] {
+  const allIds = new Set<string>();
+  const isRawSpeakerId = (s: string) => /^speaker_\d+$/i.test(s);
+
+  // Source 1: speaker_profiles のキー
+  for (const key of Object.keys(abstract.speaker_profiles ?? {})) {
+    if (isRawSpeakerId(key)) allIds.add(key);
+  }
+  // Source 2: speaker_to_ref のキー
+  for (const key of Object.keys(abstract.speaker_to_ref ?? {})) {
+    if (isRawSpeakerId(key)) allIds.add(key);
+  }
+  // Source 3: line.speaker (= 既存ロジック、出現回数集計にも使う)
   const lineCount = new Map<string, number>();
   const sceneSet = new Map<string, Set<number>>();
   for (let sIdx = 0; sIdx < abstract.scenes.length; sIdx++) {
     for (const line of abstract.scenes[sIdx].lines ?? []) {
       const sp = line.speaker;
-      if (!sp || !/^speaker_\d+$/i.test(sp)) continue;
+      if (!sp || !isRawSpeakerId(sp)) continue;
+      allIds.add(sp);
       lineCount.set(sp, (lineCount.get(sp) ?? 0) + 1);
       if (!sceneSet.has(sp)) sceneSet.set(sp, new Set());
       sceneSet.get(sp)!.add(sIdx);
     }
   }
-  return [...lineCount.keys()].sort().map((id) => ({
+  return [...allIds].sort().map((id) => ({
     id,
     lines: lineCount.get(id) ?? 0,
     scenes: sceneSet.get(id)?.size ?? 0,

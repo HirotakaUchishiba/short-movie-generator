@@ -1,5 +1,6 @@
 import { describe, expect, it } from "vitest";
 import {
+  collectRawSpeakers,
   computeDiagnostics,
   hasAnalyzeSpeakerProfiles,
 } from "./ScriptEditPanel";
@@ -78,5 +79,118 @@ describe("computeDiagnostics: location / camera_distance", () => {
     });
     const diag = computeDiagnostics(abstract, []);
     expect(diag.invalid_camera_distance).toEqual([]);
+  });
+});
+
+describe("collectRawSpeakers: 3 つの source の和集合で抽出", () => {
+  it("speaker_profiles だけが populate されている場合も拾う (= bug fix)", () => {
+    // analyze が speaker_profiles を出したが line.speaker / speaker_to_ref は
+    // 空のケース。旧実装ではここで rawSpeakers が空になり SpeakerMappingSection
+    // が render されなかった。
+    const abstract = _abstract({
+      speaker_profiles: {
+        speaker_1: { gender: "male", age_range: "30s" },
+      },
+      scenes: [_scene({ lines: [{ text: "a", emotion: "中立" }] as never })],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([{ id: "speaker_1", lines: 0, scenes: 0 }]);
+  });
+
+  it("speaker_to_ref だけが populate されている場合も拾う", () => {
+    const abstract = _abstract({
+      speaker_to_ref: { speaker_1: "f1__office" },
+      scenes: [_scene({ lines: [{ text: "a", emotion: "中立" }] as never })],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([{ id: "speaker_1", lines: 0, scenes: 0 }]);
+  });
+
+  it("line.speaker だけが populate されている場合も拾う (= 旧挙動互換)", () => {
+    const abstract = _abstract({
+      scenes: [
+        _scene({
+          lines: [
+            { text: "a", emotion: "中立", speaker: "speaker_1" },
+            { text: "b", emotion: "中立", speaker: "speaker_1" },
+          ] as never,
+        }),
+        _scene({
+          lines: [
+            { text: "c", emotion: "中立", speaker: "speaker_2" },
+          ] as never,
+        }),
+      ],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([
+      { id: "speaker_1", lines: 2, scenes: 1 },
+      { id: "speaker_2", lines: 1, scenes: 1 },
+    ]);
+  });
+
+  it("3 source の和集合 (= sorted、行数は line.speaker のみから集計)", () => {
+    const abstract = _abstract({
+      speaker_profiles: { speaker_3: { gender: "male" } },
+      speaker_to_ref: { speaker_2: "m1__casual" },
+      scenes: [
+        _scene({
+          lines: [
+            { text: "a", emotion: "中立", speaker: "speaker_1" },
+          ] as never,
+        }),
+      ],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([
+      { id: "speaker_1", lines: 1, scenes: 1 },
+      { id: "speaker_2", lines: 0, scenes: 0 }, // speaker_to_ref から
+      { id: "speaker_3", lines: 0, scenes: 0 }, // speaker_profiles から
+    ]);
+  });
+
+  it("3 source 全て空 → 空配列 (= 単一人物動画想定)", () => {
+    const abstract = _abstract({
+      scenes: [_scene({ lines: [{ text: "a", emotion: "中立" }] as never })],
+    });
+    expect(collectRawSpeakers(abstract)).toEqual([]);
+  });
+
+  it("非 speaker_N 形式 (= 既に resolved されたキー) は除外する", () => {
+    const abstract = _abstract({
+      speaker_profiles: {
+        speaker_1: { gender: "male" },
+        m1__casual: { gender: "male" }, // 不正な形式
+      },
+      speaker_to_ref: {
+        f1__office: "f1__office", // 不正な形式
+      },
+      scenes: [
+        _scene({
+          lines: [
+            { text: "a", emotion: "中立", speaker: "speaker_1" },
+            { text: "b", emotion: "中立", speaker: "f1__office" }, // resolved
+          ] as never,
+        }),
+      ],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([{ id: "speaker_1", lines: 1, scenes: 1 }]);
+  });
+
+  it("重複 speaker_N (= 複数 source に同時に出現) は 1 つに統合", () => {
+    const abstract = _abstract({
+      speaker_profiles: { speaker_1: { gender: "male" } },
+      speaker_to_ref: { speaker_1: "f1__office" },
+      scenes: [
+        _scene({
+          lines: [
+            { text: "a", emotion: "中立", speaker: "speaker_1" },
+          ] as never,
+        }),
+      ],
+    });
+    const result = collectRawSpeakers(abstract);
+    expect(result).toEqual([{ id: "speaker_1", lines: 1, scenes: 1 }]);
   });
 });
