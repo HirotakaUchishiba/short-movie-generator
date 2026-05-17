@@ -265,8 +265,17 @@ from routes.stages import (  # noqa: E402, F401
 
 @app.route("/api/projects/<ts>/screenplay", methods=["PUT"])
 def api_save_screenplay(ts):
+    """全 screenplay を上書き保存し、変更内容に応じて Stage 2-6 承認を解除する。
+
+    2026-05-17 schema 撤廃: line.speaker 変更も含む全 line/scene 編集は
+    `classify_abstract_diff` で分類され、breaking (= TTS / 動画に影響) なら
+    Stage 2 以降の承認が自動 reset される (= 古い voice の audio が次工程に
+    流れるのを防ぐ。段階的ゲート方式 §15)。
+    """
+
     _validate_ts(ts)
-    if not os.path.isdir(_ts_path(ts)):
+    ts_path = _ts_path(ts)
+    if not os.path.isdir(ts_path):
         return jsonify({"error": "プロジェクトが存在しません"}), 404
     data = request.get_json(force=True) or {}
     sp = data.get("screenplay")
@@ -278,10 +287,21 @@ def api_save_screenplay(ts):
         if errors:
             return jsonify({"error": "validator失敗", "details": errors}), 400
         with _screenplay_lock(ts):
-            staged_pipeline.save_project_screenplay(_ts_path(ts), sp)
+            try:
+                old_sp = staged_pipeline.load_project_abstract(ts_path)
+            except FileNotFoundError:
+                old_sp = {}
+            classification = _route_helpers.classify_abstract_diff(old_sp, sp)
+            if classification == "unchanged":
+                return jsonify({"ok": True, "classification": "unchanged"})
+            staged_pipeline.save_project_screenplay(ts_path, sp)
+            if classification == "breaking":
+                progress_store.revoke_all_approvals(ts_path)
+            elif classification == "safe_only":
+                progress_store.revoke_overlay_only(ts_path)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "classification": classification})
 
 
 # bg_cache 情報取得: 該当 scene の合成入力からキャッシュキーを派生し、
@@ -364,6 +384,9 @@ def api_patch_line(ts, scene_idx, line_idx):
             lines = scenes[scene_idx].get("lines") or []
             if line_idx >= len(lines):
                 return jsonify({"error": f"line_idx範囲外: {line_idx}"}), 400
+            # patch 前の snapshot を保持 (= classify diff 用)
+            from copy import deepcopy
+            old_sp = deepcopy(sp)
             line = lines[line_idx]
             for k, v in patch.items():
                 if v is None:
@@ -373,10 +396,20 @@ def api_patch_line(ts, scene_idx, line_idx):
             errors = validate_abstract(sp, strict=False)
             if errors:
                 return jsonify({"error": "validator失敗", "details": errors}), 400
+            classification = _route_helpers.classify_abstract_diff(old_sp, sp)
+            if classification == "unchanged":
+                return jsonify({"ok": True, "classification": "unchanged"})
             staged_pipeline.save_project_screenplay(ts_path, sp)
+            # line.speaker / text / emotion 等の patch は breaking 扱いになり、
+            # Stage 2 以降の承認が自動 reset される (= 古い voice / 動画 / 字幕
+            # が次工程に流れるのを防ぐ。2026-05-17 schema 撤廃)
+            if classification == "breaking":
+                progress_store.revoke_all_approvals(ts_path)
+            elif classification == "safe_only":
+                progress_store.revoke_overlay_only(ts_path)
     except Exception as e:
         return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True})
+    return jsonify({"ok": True, "classification": classification})
 
 
 # screenplay-level patch (subtitle_y_from_bottom 等)。

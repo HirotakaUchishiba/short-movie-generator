@@ -413,29 +413,21 @@ export interface AbstractScene {
   _uid?: string;
 }
 
-export interface SpeakerProfile {
-  gender?: string;
-  age_range?: string;
-  description?: string;
-}
-
 export interface AbstractScreenplay {
   caption: string;
   scenes: AbstractScene[];
   // この動画に登場させる人物の characters/<id>.png キーのリスト。
   // シーンの登場人物・話者の候補として使われる。
+  // 2026-05-17 schema 撤廃: speaker_to_ref / speaker_profiles は廃止。
+  // analyze が line.speaker に resolved id を直書きするようになった。
   featured_characters?: string[];
-  // analyze 時に Claude が割り振った匿名 speaker_N を実 character ref に
-  // マッピングする辞書。compose で line.speaker と scene の登場人物を解決する。
-  speaker_to_ref?: Record<string, string>;
-  // analyze が参考動画から検出した speaker ごとの profile (= 話者マッピング
-  // UI のヒント)。gender / age_range / description はすべて best-effort。
-  speaker_profiles?: Record<string, SpeakerProfile>;
   // future-proof で broadly に許容する。
   [k: string]: unknown;
 }
 
 export interface AbstractDiagnostics {
+  // 2026-05-17 schema 撤廃: 旧 raw `speaker_N` 形式の残骸検出に使われる
+  // (= migration 漏れの警告用)
   unmapped_speakers: string[];
   scenes_without_characters: number[];
   // location_ref が空のシーン idx (= analyze pre-fill 後、ユーザが意図的に
@@ -446,7 +438,6 @@ export interface AbstractDiagnostics {
   invalid_camera_distance: { scene_idx: number; value: string }[];
   unknown_character_refs: {
     featured: string[];
-    speaker_to_ref: { speaker: string; ref: string }[];
     character_selection: { scene_idx: number; ref: string }[];
     speaker: { scene_idx: number; line_idx: number; ref: string }[];
   };

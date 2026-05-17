@@ -39,32 +39,6 @@ SCHEMA: dict = {
                 "snapshot にも残しても無害なので schema は両方を許容する"
             ),
         },
-        "speaker_to_ref": {
-            "type": "object",
-            "additionalProperties": {"type": "string", "minLength": 1},
-            "description": (
-                "anonymous speaker (= speaker_1, speaker_2, ...) → 解決済み ref の"
-                "マッピング。multi-speaker 動画専用、compose で line.speaker と "
-                "line.voice_overrides の解決に使う"
-            ),
-        },
-        "speaker_profiles": {
-            "type": "object",
-            "additionalProperties": {
-                "type": "object",
-                "properties": {
-                    "gender": {"type": "string"},
-                    "age_range": {"type": "string"},
-                    "description": {"type": "string"},
-                },
-            },
-            "description": (
-                "anonymous speaker (= speaker_1, ...) → profile の dict。"
-                "analyze が参考動画から検出する gender / age_range / description。"
-                "Stage 1 の話者マッピング UI でヒントとして表示される。"
-                "すべて best-effort・optional"
-            ),
-        },
         "subtitle_y_from_bottom": {
             "type": "integer",
             "minimum": 0,
@@ -313,7 +287,7 @@ SCHEMA: dict = {
                                         "similarity_boost": {"type": "number"},
                                         "voice_id": {"type": "string"},
                                     },
-                                    "description": "compose / analyze pipeline が speaker_to_ref から書き込む voice メタの保管庫。one-shot TTS 経路では実際の生成には反映されない (= 互換目的の保持)",
+                                    "description": "compose が character.voice.json から merge する voice メタの保管庫",
                                 },
                                 "pronunciation_hints": {
                                     "type": "object",
@@ -470,13 +444,17 @@ def _check_character_refs(screenplay: dict) -> list[str]:
     """character ref が characters/ ディレクトリに物理存在するか検証する。
 
     対象:
-        featured_characters / speaker_to_ref の値 / scene.character_selection /
-        scene.identity.character_refs / line.speaker (speaker_N raw 匿名 ID は除外)
+        featured_characters / scene.character_selection /
+        scene.identity.character_refs / line.speaker (= resolved id 必須)
 
     characters/ が空 (= テスト環境) の場合は検証スキップする。
     Stage 3 (Imagen 背景合成) でファイル参照失敗するのを台本作成段階で弾くのが
     目的。
+
+    2026-05-17 schema 撤廃: 旧 raw 匿名 ID (= `speaker_N` 形式) は禁止。
+    紛れていれば validator が reject する (= migration 漏れの検知)。
     """
+    import re
     from analyze import character_meta as cmeta_mod
     errors: list[str] = []
     available = set(cmeta_mod.list_character_images())
@@ -484,6 +462,7 @@ def _check_character_refs(screenplay: dict) -> list[str]:
         return errors
 
     available_str = ", ".join(sorted(available))
+    raw_re = re.compile(r"^speaker_\d+$", re.IGNORECASE)
 
     def _missing(ref: str) -> bool:
         return isinstance(ref, str) and bool(ref) and ref not in available
@@ -494,14 +473,6 @@ def _check_character_refs(screenplay: dict) -> list[str]:
                 f"featured_characters: '{ref}' は characters/ に未定義 "
                 f"(定義済み: {available_str})",
             )
-
-    spk_to_ref = screenplay.get("speaker_to_ref") or {}
-    if isinstance(spk_to_ref, dict):
-        for k, v in spk_to_ref.items():
-            if _missing(v):
-                errors.append(
-                    f"speaker_to_ref/{k}: '{v}' は characters/ に未定義",
-                )
 
     for s_idx, scene in enumerate(screenplay.get("scenes") or []):
         sel = scene.get("character_selection")
@@ -524,10 +495,13 @@ def _check_character_refs(screenplay: dict) -> list[str]:
             sp = line.get("speaker")
             if not isinstance(sp, str) or not sp:
                 continue
-            # raw 匿名 ID (speaker_1, speaker_2, ...) は speaker_to_ref で
-            # 後段解決される前提なのでスキップ。マッピング不在は
-            # diagnose_abstract.unmapped_speakers で別途警告される
-            if sp.startswith("speaker_"):
+            # 旧 raw 匿名 ID (= 撤廃済) → migration 漏れとして reject
+            if raw_re.match(sp):
+                errors.append(
+                    f"scenes/{s_idx}/lines/{l_idx}/speaker: '{sp}' は旧 raw "
+                    "匿名 ID 形式 (= 2026-05-17 schema 撤廃)。"
+                    "scripts/migrate_speaker_schema.py で resolved id に変換してください",
+                )
                 continue
             if sp not in available:
                 errors.append(

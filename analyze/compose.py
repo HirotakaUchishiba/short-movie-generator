@@ -40,24 +40,23 @@ _ANIMATION_STYLE_MODIFIERS = {
 DEFAULT_ANIMATION_STYLE = "standard"
 
 
-def _resolve_speaker_to_ref(
+def _resolve_line_speaker(
     raw_speaker: str | None,
-    speaker_to_ref: dict[str, str],
     available_refs: list[str],
     fallback_ref: str | None,
 ) -> str | None:
-    """abstract の line.speaker (匿名 ID or ref) を ref に解決する。
+    """line.speaker を ref に解決する (= 2026-05-17 schema 撤廃版)。
+
+    `speaker_to_ref` mapping schema は撤廃 (= analyze が resolved id を
+    直接書く方式に変更)。本関数は line.speaker の検証 + fallback のみ。
 
     優先順位:
-      1. speaker_to_ref に明示マッピングあり → その値
-      2. raw_speaker 自体が available_refs に含まれる ref → そのまま
-      3. raw_speaker が空 (単一キャラ動画) → fallback_ref
-      4. 未解決 → None
+      1. raw_speaker が available_refs に含まれる ref → そのまま
+      2. raw_speaker が空 (= 単一キャラ動画) → fallback_ref
+      3. 未解決 (= 未知 ref) → None
     """
     if not raw_speaker:
         return fallback_ref
-    if raw_speaker in speaker_to_ref:
-        return speaker_to_ref[raw_speaker]
     if raw_speaker in available_refs:
         return raw_speaker
     return None
@@ -66,17 +65,20 @@ def _resolve_speaker_to_ref(
 def diagnose_abstract(abstract: dict) -> dict:
     """compose 出力の品質に影響する不整合を抽出する (UI 警告バナー用)。
 
+    2026-05-17 schema 撤廃: `speaker_to_ref` / `speaker_profiles` を廃止し
+    line.speaker に resolved id を直書きするモデルに変更。`unmapped_speakers`
+    キーは互換のため空配列で返すが、検出対象としては raw `speaker_N` 形式の
+    残骸 (= 旧 snapshot の遺物) を集める。
+
     Returns:
         {
-          "unmapped_speakers": [str, ...],          # speaker_N で speaker_to_ref に
-                                                     # 載っていないもの
+          "unmapped_speakers": [str, ...],          # 旧 raw speaker_N の残骸 (= 撤廃後は migration 漏れ検知用)
           "scenes_without_location": [int, ...],    # location_ref 未設定のシーン idx
           "scenes_without_characters": [int, ...],  # character_selection=[] かつ
                                                      # speaker からの推論も空のシーン
           "invalid_camera_distance": [{...}, ...],  # _CAMERA_LABELS にない値
           "unknown_character_refs": {               # characters/ に存在しない ref
               "featured": [str, ...],
-              "speaker_to_ref": [{speaker, ref}, ...],
               "character_selection": [{scene_idx, ref}, ...],
               "speaker": [{scene_idx, line_idx, ref}, ...],
           },
@@ -84,18 +86,16 @@ def diagnose_abstract(abstract: dict) -> dict:
     """
     from analyze import character_meta as cmeta_mod
 
-    speaker_to_ref = abstract.get("speaker_to_ref") or {}
     featured = [str(c) for c in (abstract.get("featured_characters") or []) if c]
     available_chars = set(cmeta_mod.list_character_images())
 
-    unmapped: set[str] = set()
+    raw_speaker_residue: set[str] = set()
     no_location: list[int] = []
     no_characters: list[int] = []
     invalid_camera: list[dict] = []
 
     unknown_refs: dict[str, list] = {
         "featured": [],
-        "speaker_to_ref": [],
         "character_selection": [],
         "speaker": [],
     }
@@ -109,13 +109,6 @@ def diagnose_abstract(abstract: dict) -> dict:
     for ref in featured:
         if _ref_unknown(ref):
             unknown_refs["featured"].append(ref)
-
-    if isinstance(speaker_to_ref, dict):
-        for sp_id, ref in speaker_to_ref.items():
-            if _ref_unknown(ref):
-                unknown_refs["speaker_to_ref"].append(
-                    {"speaker": sp_id, "ref": ref},
-                )
 
     for s_idx, src in enumerate(abstract.get("scenes") or []):
         if not src.get("location_ref"):
@@ -138,10 +131,10 @@ def diagnose_abstract(abstract: dict) -> dict:
             if not sp:
                 continue
             if isinstance(sp, str) and _RAW_SPEAKER_RE.match(sp):
-                if sp not in speaker_to_ref:
-                    unmapped.add(sp)
+                # 旧 raw 形式の残骸 (= migration 漏れ)
+                raw_speaker_residue.add(sp)
                 continue
-            # raw speaker_N+ で無い値は ref として扱われる前提
+            # raw 形式で無い値は ref として扱われる前提
             if _ref_unknown(sp):
                 unknown_refs["speaker"].append(
                     {"scene_idx": s_idx, "line_idx": l_idx, "ref": sp},
@@ -157,16 +150,12 @@ def diagnose_abstract(abstract: dict) -> dict:
             l.get("speaker") for l in src.get("lines") or []
             if l.get("speaker")
         }
-        resolved = set()
-        for sp in speakers:
-            ref = speaker_to_ref.get(sp) or (sp if sp in featured else None)
-            if ref:
-                resolved.add(ref)
+        resolved = {sp for sp in speakers if sp in featured}
         if not resolved and not featured:
             no_characters.append(s_idx)
 
     return {
-        "unmapped_speakers": sorted(unmapped),
+        "unmapped_speakers": sorted(raw_speaker_residue),
         "scenes_without_location": no_location,
         "scenes_without_characters": no_characters,
         "invalid_camera_distance": invalid_camera,
@@ -215,24 +204,21 @@ def compose_screenplay(abstract: dict) -> dict:
     fallback_ref = char_ids[0] if char_ids else None
     default_voice = voice_by_id.get(fallback_ref or "", {}) if fallback_ref else {}
 
-    raw_speaker_to_ref = abstract.get("speaker_to_ref") or {}
-    speaker_to_ref: dict[str, str] = {
-        str(k): str(v) for k, v in raw_speaker_to_ref.items()
-        if isinstance(k, str) and isinstance(v, str)
-    }
-
     # ── pass-through 起点: abstract の root を shallow copy ──
     # caption は str に正規化、scenes は新規 list (= 各 scene を src 起点で
     # 構築するため後で上書き)。それ以外の非派生 key (featured_characters /
-    # speaker_to_ref / subtitle_y_from_bottom / hook_id / arc_id 等) は
-    # そのまま残る。
+    # subtitle_y_from_bottom / hook_id / arc_id 等) はそのまま残る。
+    # speaker_to_ref / speaker_profiles は 2026-05-17 schema 撤廃で消える。
     sp: dict[str, Any] = dict(abstract)
     sp["caption"] = abstract.get("caption", "")
     sp["scenes"] = []
+    # 旧 schema の残骸を drop (= 古い snapshot との後方互換)
+    sp.pop("speaker_to_ref", None)
+    sp.pop("speaker_profiles", None)
 
     for i, src in enumerate(abstract.get("scenes") or []):
         scene_anim = src.get("animation_style") or DEFAULT_ANIMATION_STYLE
-        scene_chars = _resolve_scene_characters(src, char_ids, speaker_to_ref)
+        scene_chars = _resolve_scene_characters(src, char_ids)
         location_ref = src.get("location_ref") or ""
 
         # ── pass-through 起点: src scene を shallow copy ──
@@ -276,8 +262,8 @@ def compose_screenplay(abstract: dict) -> dict:
         for line in src.get("lines") or []:
             new_line = dict(line)
             raw_speaker = line.get("speaker")
-            resolved_ref = _resolve_speaker_to_ref(
-                raw_speaker, speaker_to_ref, char_ids, fallback_ref,
+            resolved_ref = _resolve_line_speaker(
+                raw_speaker, char_ids, fallback_ref,
             )
             # line 個別の voice_overrides は キャラの base voice よりも優先する
             # (= UI から line に直接書いた override は compose で潰さない)
@@ -375,7 +361,6 @@ def _derive_identity(
 def _resolve_scene_characters(
     src_scene: dict,
     available_ids: list[str],
-    speaker_to_ref: dict[str, str],
 ) -> list[str]:
     """シーンに登場するキャラ ID のリストを解決する。
 
@@ -384,7 +369,7 @@ def _resolve_scene_characters(
          ID list を available_ids と突合せて選ぶ (= ユーザの override)。
          - ``[]`` (空 list)         = 登場人物 0 人 (背景だけ生成)
          - ``[...]``                = 指定された ID のキャラだけ
-      2. lines[].speaker を speaker_to_ref で解決 → 出現する ref の subset。
+      2. lines[].speaker (= resolved id) から出現する ref の subset。
          multi-speaker 動画はここで自動的に「シーンに映るキャラ」が決まる。
       3. fallback: 全 available_ids (= 単一キャラ動画 / speaker タグ無しシーン)
     """
@@ -403,9 +388,8 @@ def _resolve_scene_characters(
     }
     resolved: set[str] = set()
     for sp in speakers:
-        ref = speaker_to_ref.get(sp) or (sp if sp in available_ids else None)
-        if ref:
-            resolved.add(ref)
+        if sp in available_ids:
+            resolved.add(sp)
     if resolved:
         return [cid for cid in available_ids if cid in resolved]
 
