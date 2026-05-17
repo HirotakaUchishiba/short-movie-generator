@@ -171,13 +171,6 @@ export const api = {
       created_at?: string;
       last_used_at?: string;
     }>(`/api/projects/${ts}/scenes/${sceneIdx}/bg-cache-info`),
-  // Phase 3-A: Composition Engine 用の render plan を取得。
-  // Stage 5 完了後にのみ 200 を返す (= scene_<S>.mp4 が必須)。
-  // RenderPlan 型は frontend/remotion/schemas/renderPlan.ts の Zod から派生。
-  renderPlan: (ts: string) =>
-    http<{ plan: import("../remotion/schemas/renderPlan").RenderPlan }>(
-      `/api/projects/${ts}/render-plan`,
-    ),
   saveScreenplay: (ts: string, screenplay: Screenplay) =>
     http<{ ok: true }>(`/api/projects/${ts}/screenplay`, {
       method: "PUT",
@@ -619,10 +612,12 @@ export function sceneAudioAssetUrl(
 ): string {
   return withVersion(`${API_BASE}/asset/${ts}/scene-audio/${scene}`, version);
 }
-// Phase 3-C で StageOverlay UI が <video src=overlaid.mp4> を撤廃して Player
-// primary preview に完全移行したため、overlayAssetUrl は呼び出し元無し。
-// /asset/<ts>/overlay endpoint 自体は preview_server に残っている (= サーバ
-// 内部経路 + 旧 ffmpeg backend で書く先) ため、必要になれば再エクスポート可。
+// StageOverlay の primary preview から <video src> として読まれる。
+// bumpKey を `?bust=` に渡して再焼き直し後の cache 回避に使う。
+export function overlayAssetUrl(ts: string, version?: number | string): string {
+  return withVersion(`${API_BASE}/asset/${ts}/overlay`, version);
+}
+
 export function finalVersionAssetUrl(
   ts: string,
   filename: string,
