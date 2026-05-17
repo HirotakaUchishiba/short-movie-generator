@@ -146,8 +146,26 @@ def init_db() -> None:
     logger.info("analytics DB initialized at %s", _db_path())
 
 
+_ALLOWED_TABLES = frozenset({
+    "schema_version", "screenplays", "videos", "posts", "post_metrics",
+    "post_retention_curves", "analyze_jobs", "analyze_phases",
+    "reference_videos", "generation_records", "qa_failures",
+    "experiment_assignments",
+})
+
+
 def _ensure_column(conn: sqlite3.Connection, table: str,
                    column: str, ddl: str) -> None:
+    """テーブルに column が無ければ ALTER TABLE で追加する。
+
+    SQL injection 防御として ``table`` / ``column`` 名は schema が定義する
+    namespace に閉じていることを assert する (= f-string で SQL を組むため、
+    外部入力経路が増えた場合の安全網)。
+    """
+    if table not in _ALLOWED_TABLES:
+        raise ValueError(f"unknown table for _ensure_column: {table}")
+    if not column or not column.replace("_", "").isalnum():
+        raise ValueError(f"invalid column name: {column!r}")
     cols = [r["name"] for r in conn.execute(f"PRAGMA table_info({table})")]
     if column not in cols:
         conn.execute(f"ALTER TABLE {table} ADD COLUMN {ddl}")
@@ -679,6 +697,9 @@ def update_generation_record(ts: str, **fields: Any) -> None:
         update_sets.append(f"{key} = excluded.{key}")
     if not update_sets:
         return
+    # insert_cols / update_sets は L671-676 の whitelist
+    # (_GEN_REC_JSON_FIELDS / _GEN_REC_PLAIN_FIELDS) で検証済みなので、
+    # f-string 構築は schema namespace に閉じている (= SQL injection 不可)。
     cols_sql = ", ".join(insert_cols)
     placeholders = ", ".join("?" for _ in insert_cols)
     sets_sql = ", ".join(update_sets)
@@ -864,6 +885,11 @@ _AXIS_VIEW = {
     "theme": "v_theme_performance",
 }
 
+# query_axis_performance で SELECT 句に f-string で埋め込まれる metric 名の
+# whitelist。schema.sql の VIEW 定義 (= v_*_performance) と完全一致する必要が
+# ある。新しい metric column を VIEW に足すときはここにも追記する。
+_ALLOWED_AXIS_METRICS = frozenset({"avg_views", "avg_completion", "avg_save"})
+
 
 def query_axis_performance(
     axis: str, *, metric: str = "avg_completion", limit: int = 200,
@@ -879,7 +905,7 @@ def query_axis_performance(
             active で reward を分離。Phase 3.5)。``None`` なら従来通り全 strategy
             混合の ``v_<axis>_performance`` を読む (= 後方互換)。
     """
-    if metric not in ("avg_views", "avg_completion", "avg_save"):
+    if metric not in _ALLOWED_AXIS_METRICS:
         raise ValueError(f"unknown metric: {metric}")
     if strategy_prefix is not None:
         return _query_strategy_axis_performance(
@@ -888,6 +914,8 @@ def query_axis_performance(
     view = _AXIS_VIEW.get(axis)
     if view is None:
         raise ValueError(f"unknown axis: {axis}")
+    # metric / view は上の whitelist で検証済み (= f-string は schema namespace
+    # に閉じる)。LIMIT のみ ? placeholder で渡す。
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT axis_value, {metric} AS metric, n "
@@ -913,6 +941,10 @@ def _query_strategy_axis_performance(
     """
     if axis not in _AXIS_VIEW:
         raise ValueError(f"unknown axis: {axis}")
+    if metric not in _ALLOWED_AXIS_METRICS:
+        raise ValueError(f"unknown metric: {metric}")
+    # metric は whitelist 検証済み。view 名は hardcoded で f-string 経路無し。
+    # axis / strategy_prefix / limit は ? placeholder で渡す。
     with get_connection() as conn:
         rows = conn.execute(
             f"SELECT selected_value AS axis_value, "

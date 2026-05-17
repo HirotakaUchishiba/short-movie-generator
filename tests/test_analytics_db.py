@@ -326,6 +326,37 @@ def test_update_generation_record_rejects_unknown_field(isolated_db) -> None:
         )
 
 
+def test_ensure_column_rejects_unknown_table(isolated_db) -> None:
+    """schema が知らない table 名は SQL injection 防御として reject。"""
+    with isolated_db.get_connection() as conn:
+        with pytest.raises(ValueError, match="unknown table"):
+            isolated_db._ensure_column(
+                conn, "evil_table", "x", "x TEXT",
+            )
+
+
+def test_ensure_column_rejects_malformed_column_name(isolated_db) -> None:
+    """column 名に英数 + _ 以外を含むと reject (= SQL 注入を弾く)。"""
+    with isolated_db.get_connection() as conn:
+        with pytest.raises(ValueError, match="invalid column name"):
+            isolated_db._ensure_column(
+                conn, "post_metrics", "x; DROP TABLE posts; --", "x TEXT",
+            )
+        with pytest.raises(ValueError, match="invalid column name"):
+            isolated_db._ensure_column(conn, "post_metrics", "", "x TEXT")
+
+
+def test_query_axis_performance_rejects_unknown_metric(isolated_db) -> None:
+    """metric whitelist に無い名は SQL injection 防御として reject。"""
+    with pytest.raises(ValueError, match="unknown metric"):
+        isolated_db.query_axis_performance("hook_type", metric="evil_col")
+
+
+def test_query_axis_performance_rejects_unknown_axis(isolated_db) -> None:
+    with pytest.raises(ValueError, match="unknown axis"):
+        isolated_db.query_axis_performance("evil_axis", metric="avg_views")
+
+
 def test_update_generation_record_concurrent_upsert(isolated_db) -> None:
     """並列に同 ts へ update_generation_record を投げても、UPSERT で衝突せずに
     最後の write が反映されることを契約として固定する (= INSERT-then-UPDATE
