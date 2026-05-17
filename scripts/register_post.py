@@ -7,21 +7,16 @@
     python3 scripts/register_post.py 20260425_123456 youtube abc123 --posted-at 2026-04-25T10:00:00
 """
 import argparse
-import logging
 import re
 import sys
 from pathlib import Path
 from urllib.parse import urlparse, parse_qs
 
-SCRIPT_DIR = Path(__file__).resolve().parent
-ROOT = SCRIPT_DIR.parent
-sys.path.insert(0, str(ROOT))
-
-import log_setup  # noqa: E402
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts._cli_base import get_logger  # noqa: E402
 from analytics import db  # noqa: E402
 
-log_setup.setup()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _extract_youtube_id(url_or_id: str) -> str:

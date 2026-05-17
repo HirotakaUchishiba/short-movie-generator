@@ -15,6 +15,11 @@ import argparse
 import sys
 from pathlib import Path
 
+sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
+from scripts._cli_base import get_logger  # noqa: E402
+
+logger = get_logger(__name__)
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -25,8 +30,6 @@ def main() -> int:
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
     import config
     import kling_cache
     import scene_gen
@@ -34,7 +37,7 @@ def main() -> int:
 
     temp_dir = Path(config.TEMP_DIR)
     if not temp_dir.exists():
-        print(f"temp_dir が存在しません: {temp_dir}")
+        logger.error("temp_dir が存在しません: %s", temp_dir)
         return 1
 
     if args.ts:
@@ -49,12 +52,12 @@ def main() -> int:
         sp_path = ts_dir / "screenplay.json"
         if not sp_path.exists():
             if args.verbose:
-                print(f"skip {ts_dir.name}: no screenplay.json")
+                logger.info("skip %s: no screenplay.json", ts_dir.name)
             continue
         try:
             sp = staged_pipeline.load_project_screenplay(str(ts_dir))
         except Exception as e:
-            print(f"failed to load {ts_dir.name}: {e}")
+            logger.error("failed to load %s: %s", ts_dir.name, e)
             failed += 1
             continue
         scenes = sp.get("scenes") or []
@@ -66,7 +69,10 @@ def main() -> int:
                 inputs = scene_gen._scene_kling_inputs(
                     i, scene, sp, str(ts_dir))
             except Exception as e:
-                print(f"  {ts_dir.name} scene {i}: input build failed ({e})")
+                logger.error(
+                    "  %s scene %d: input build failed (%s)",
+                    ts_dir.name, i, e,
+                )
                 failed += 1
                 continue
             if inputs is None:
@@ -74,28 +80,38 @@ def main() -> int:
             if kling_cache.lookup(inputs["cache_key"]):
                 skipped += 1
                 if args.verbose:
-                    print(
-                        f"  {ts_dir.name} scene {i}: already cached "
-                        f"({inputs['cache_key']})")
+                    logger.info(
+                        "  %s scene %d: already cached (%s)",
+                        ts_dir.name, i, inputs["cache_key"],
+                    )
                 continue
             meta = scene_gen._build_kling_cache_meta(scene, inputs)
             if args.dry_run:
-                print(f"  {ts_dir.name} scene {i}: would seed "
-                      f"{inputs['cache_key']} ({raw.stat().st_size} bytes)")
+                logger.info(
+                    "  %s scene %d: would seed %s (%d bytes)",
+                    ts_dir.name, i, inputs["cache_key"], raw.stat().st_size,
+                )
                 seeded += 1
                 continue
             try:
                 kling_cache.store(inputs["cache_key"], str(raw), meta)
                 seeded += 1
                 if args.verbose:
-                    print(f"  {ts_dir.name} scene {i}: seeded "
-                          f"{inputs['cache_key']}")
+                    logger.info(
+                        "  %s scene %d: seeded %s",
+                        ts_dir.name, i, inputs["cache_key"],
+                    )
             except Exception as e:
-                print(f"  {ts_dir.name} scene {i}: store failed ({e})")
+                logger.error(
+                    "  %s scene %d: store failed (%s)",
+                    ts_dir.name, i, e,
+                )
                 failed += 1
 
-    print(f"\nseeded: {seeded}, skipped (already cached): {skipped}, "
-          f"failed: {failed}")
+    logger.info(
+        "seeded: %d, skipped (already cached): %d, failed: %d",
+        seeded, skipped, failed,
+    )
     return 0
 
 
