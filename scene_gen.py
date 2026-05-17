@@ -1445,9 +1445,14 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
 
 
 def _clear_tts_artifacts(ts_path: str) -> None:
-    """TTS生成物を全削除 (再生成前のクリーンアップ)。"""
+    """TTS生成物を全削除 (再生成前のクリーンアップ)。
+
+    tts_full.<base>.{mp3,json,text_meta.json} (= per-voice intermediate)
+    も `tts_full.*` glob で網羅される。
+    """
     patterns = [
         "tts_full.mp3", "tts_full.json", "tts_full.text_meta.json",
+        "tts_full.*",  # per-voice intermediate (= tts_full.<base>.mp3 等)
         "tts_*.mp3", "tts_*.json",
         "audio_*.m4a",
         "merged_preview.m4a",
@@ -1458,6 +1463,228 @@ def _clear_tts_artifacts(ts_path: str) -> None:
                 os.remove(f)
             except OSError as e:
                 logger.warning("[tts-cleanup] %s 削除失敗: %s", f, e)
+
+
+def _build_audios_from_per_voice(
+    screenplay: dict,
+    ts_path: str,
+    per_voice_results: dict,
+    full_text: str,
+    line_specs: list[dict],
+) -> None:
+    """per-voice tts_full.<base>.mp3 群から per-line / per-scene / merged を構築。
+
+    `_build_audios_from_full` の per-voice 版。各 line は line.speaker に
+    対応する voice の音声から切り出される。出力契約 (= per-line
+    tts_<S>_<L>.mp3 + per-scene audio_<S>.m4a + merged preview) は
+    one-shot path と完全に同一なので下流 (Stage 4-6) は無変更で動く。
+
+    Args:
+      screenplay: composed screenplay
+      ts_path: project temp dir
+      per_voice_results: {base: PerVoiceResult} (= per_character_tts module)
+      full_text: ElevenLabs に送ったテキスト (= line_specs.char_start の基準)
+      line_specs: {scene_idx, line_idx, char_start, char_end}
+    """
+
+    import per_character_tts as pct
+    from analyze import character_meta as cmeta_mod
+
+    if not per_voice_results:
+        return
+
+    # 各 line に speaker base を割当 (= speaker 未設定は primary)。
+    # per_voice_results に無い base は primary fallback (= analyze 漏れ等の defensive)。
+    primary = pct.primary_speaker(screenplay)
+    if primary is None or primary not in per_voice_results:
+        # 何も speak されていない or primary も voice 未生成 → 早期 return
+        return
+
+    def _line_base(line: dict) -> str:
+        spk = line.get("speaker")
+        if isinstance(spk, str) and spk:
+            base, _ = cmeta_mod.split_resolved_id(spk)
+            if base and base in per_voice_results:
+                return base
+        return primary
+
+    # ── per-voice の line_times を一度に計算 (= 各 voice の pos_to_time + snap)
+    # 各 voice について「全 line」の time を計算する。実際に使うのはその voice の
+    # line だけだが、silence-snap は隣接 line を考慮するため全 line を渡す必要がある。
+    threshold_db = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
+    snap_by_voice: dict[str, list[dict]] = {}
+    for base, result in per_voice_results.items():
+        if not os.path.exists(result.mp3_path):
+            continue
+        if not artifact_integrity.is_valid_audio(result.mp3_path):
+            logger.warning(
+                "[per-voice tts:%s] mp3 破損 — 当該 voice をスキップ", base,
+            )
+            continue
+        with open(result.char_ts_path) as f:
+            char_ts = json.load(f)
+        pos_to_time = _build_position_to_time_map(full_text, char_ts)
+        line_times: list[dict] = []
+        for spec in line_specs:
+            abs_start, abs_end = _find_line_time_range(
+                pos_to_time, spec["char_start"], spec["char_end"],
+            )
+            if abs_start is None or abs_end is None:
+                continue
+            line_times.append({
+                "scene_idx": spec["scene_idx"],
+                "line_idx": spec["line_idx"],
+                "abs_start": abs_start,
+                "abs_end": abs_end,
+            })
+        silences = _detect_all_silences(
+            result.mp3_path, threshold_db, min_silence_sec=0.03,
+        )
+        snap_by_voice[base] = _snap_line_boundaries_to_silence(
+            line_times, silences,
+        )
+
+    if not snap_by_voice:
+        return
+
+    trim_sil = bool(getattr(config, "TTS_TRIM_LONG_SILENCES", False))
+    max_sil_sec = float(getattr(config, "TTS_MAX_SILENCE_MS", 250)) / 1000.0
+    sil_thr = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
+    _native, atempo = _split_global_speed()
+
+    # ── per-line file 構築 (= 各 line を「その speaker の voice」から切出)
+    line_actual_silences: dict[tuple[int, int], float] = {}
+    by_scene: dict[int, list[dict]] = {}
+
+    # screenplay 順に line を走査して per-line ファイルを作る
+    for s_idx, scene in enumerate(screenplay["scenes"]):
+        for l_idx, line in enumerate(scene.get("lines") or []):
+            base = _line_base(line)
+            voice_snap = snap_by_voice.get(base)
+            if not voice_snap:
+                continue
+            # snap_by_voice[base] から (s_idx, l_idx) に一致する entry を取る
+            lt = next(
+                (t for t in voice_snap
+                 if t["scene_idx"] == s_idx and t["line_idx"] == l_idx),
+                None,
+            )
+            if lt is None:
+                continue
+
+            voice_mp3 = per_voice_results[base].mp3_path
+            voice_full_dur = _get_duration(voice_mp3)
+            body_end = min(lt["abs_end"], voice_full_dur)
+            speech_dur = max(0.05, body_end - lt["abs_start"])
+
+            # 同 voice 内の次 line の abs_start を tail upper bound に
+            # (= 次 line が他 voice なら voice_full_dur を upper bound)
+            same_voice_lines = [
+                t for t in voice_snap
+                if (t["scene_idx"], t["line_idx"]) > (s_idx, l_idx)
+            ]
+            if same_voice_lines:
+                next_abs_start = min(
+                    t["abs_start"] for t in same_voice_lines
+                )
+            else:
+                next_abs_start = float("inf")
+            tail_limit = min(next_abs_start, voice_full_dur)
+            desired = _natural_tail_silence_sec()
+            available = max(0.0, tail_limit - body_end)
+            natural_extract = max(0.0, min(desired, available))
+
+            out_path = os.path.join(
+                ts_path, f"tts_{s_idx:03d}_{l_idx:03d}.mp3",
+            )
+            if os.path.exists(out_path):
+                os.remove(out_path)
+            body_path = out_path + ".body.mp3"
+            _extract_audio_segment(
+                voice_mp3, lt["abs_start"], speech_dur, body_path,
+                codec="libmp3lame", bitrate="192k",
+            )
+            if trim_sil:
+                _apply_silenceremove_inplace(body_path, max_sil_sec, sil_thr)
+
+            pieces = [body_path]
+            if natural_extract > 0:
+                tail_path = out_path + ".tail.mp3"
+                _extract_audio_segment(
+                    voice_mp3, body_end, natural_extract,
+                    tail_path, codec="libmp3lame", bitrate="192k",
+                )
+                pieces.append(tail_path)
+            _concat_audios_to_mp3(pieces, out_path)
+            for p in pieces:
+                if p != out_path and os.path.exists(p):
+                    os.remove(p)
+
+            if abs(atempo - 1.0) > 0.001:
+                _apply_atempo_inplace(out_path, atempo)
+
+            line_actual_silences[(s_idx, l_idx)] = (
+                natural_extract / max(atempo, 1e-6)
+            )
+            by_scene.setdefault(s_idx, []).append({
+                "scene_idx": s_idx,
+                "line_idx": l_idx,
+            })
+
+    # ── per-scene audio_<S>.m4a (= per-line concat、既存 one-shot と同じ計算)
+    for s_idx, scene in enumerate(screenplay["scenes"]):
+        scene_lts = by_scene.get(s_idx, [])
+        out_path = os.path.join(ts_path, f"audio_{s_idx:03d}.m4a")
+        if os.path.exists(out_path):
+            os.remove(out_path)
+        if not scene_lts:
+            scene["duration"] = 0.0
+            continue
+        line_paths: list[str] = []
+        cumulative = 0.0
+        for lt in scene_lts:
+            line = scene["lines"][lt["line_idx"]]
+            line_path = os.path.join(
+                ts_path, f"tts_{s_idx:03d}_{lt['line_idx']:03d}.mp3",
+            )
+            file_dur = _get_duration(line_path)
+            silence_in_file = line_actual_silences.get(
+                (s_idx, lt["line_idx"]), 0.0,
+            )
+            speech_dur = max(0.0, file_dur - silence_in_file)
+            line["start"] = round(cumulative, 3)
+            line["end"] = round(cumulative + speech_dur, 3)
+            cumulative += file_dur
+            line_paths.append(line_path)
+        scene["duration"] = cumulative + config.SCENE_TTS_TAIL_BUFFER
+        _concat_audios_to_aac(line_paths, out_path)
+
+    # ── merged preview (= 全 scene audio_<S>.m4a を 1 本に concat)
+    merged_path = os.path.join(ts_path, "merged_preview.m4a")
+    if os.path.exists(merged_path):
+        os.remove(merged_path)
+    scene_paths = [
+        os.path.join(ts_path, f"audio_{s_idx:03d}.m4a")
+        for s_idx in range(len(screenplay["scenes"]))
+        if os.path.exists(os.path.join(ts_path, f"audio_{s_idx:03d}.m4a"))
+    ]
+    if scene_paths:
+        _concat_audios_to_aac(scene_paths, merged_path)
+
+    # ── merged tts_full.mp3 (= 後方互換、preview と同等) を per-line から構築
+    # 単独話者 path では tts_full.mp3 が API 出力そのものだが、per-voice
+    # path では「最終 merge 結果」として per-line を concat する。
+    line_paths_all: list[str] = []
+    for s_idx, scene in enumerate(screenplay["scenes"]):
+        for l_idx, _line in enumerate(scene.get("lines") or []):
+            p = os.path.join(ts_path, f"tts_{s_idx:03d}_{l_idx:03d}.mp3")
+            if os.path.exists(p):
+                line_paths_all.append(p)
+    if line_paths_all:
+        merged_full = os.path.join(ts_path, "tts_full.mp3")
+        if os.path.exists(merged_full):
+            os.remove(merged_full)
+        _concat_audios_to_mp3(line_paths_all, merged_full)
 
 
 def _split_global_speed(target: float | None = None) -> tuple[float, float]:

@@ -234,15 +234,15 @@ def mock_eleven(
 
     def fake_api(*, text: str, voice_id: str, output_path: str, **kwargs):
         Path(output_path).write_bytes(b"ID3\x03" + b"\x00" * 200)
-        # ElevenLabs は <output_path 拡張子なし>.json に timestamps を書く
+        # ElevenLabs は <output_path 拡張子なし>.json に bare list を書く
+        # (= 実 elevenlabs_client.py の format)
         json_path = output_path.rsplit(".", 1)[0] + ".json"
-        Path(json_path).write_text(json.dumps({
-            "characters": [{"char": c, "start": float(i),
-                            "end": float(i) + 0.5}
-                           for i, c in enumerate(text)],
-            "voice_used": voice_id,
-        }))
-        return {}
+        char_list = [
+            {"char": c, "start": float(i), "end": float(i) + 0.5}
+            for i, c in enumerate(text)
+        ]
+        Path(json_path).write_text(json.dumps(char_list))
+        return char_list
 
     monkeypatch.setattr(
         "elevenlabs_client.generate_speech_with_timestamps", fake_api,
@@ -332,11 +332,17 @@ class TestGeneratePerVoiceFullAudios:
         assert result["m1"].voice_id == "char_v_m1"
         # ファイル名が衝突しない
         assert result["f1"].mp3_path != result["m1"].mp3_path
-        # 中身に voice_id が記録されている (= mock の fake_api で)
+        # text_meta.json に voice_id が記録されている (= module の責務)
+        f1_meta = json.loads(Path(
+            pct.per_voice_paths(ts_path, "f1")["text_meta"]).read_text())
+        m1_meta = json.loads(Path(
+            pct.per_voice_paths(ts_path, "m1")["text_meta"]).read_text())
+        assert f1_meta["voice_id"] == "char_v_f1"
+        assert m1_meta["voice_id"] == "char_v_m1"
+        # 各 char_ts は bare list (= 実 elevenlabs format)
         ts_f1 = json.loads(Path(result["f1"].char_ts_path).read_text())
-        ts_m1 = json.loads(Path(result["m1"].char_ts_path).read_text())
-        assert ts_f1["voice_used"] == "char_v_f1"
-        assert ts_m1["voice_used"] == "char_v_m1"
+        assert isinstance(ts_f1, list)
+        assert all("char" in c and "start" in c and "end" in c for c in ts_f1)
 
     def test_cache_hit_skips_api(
         self, mock_eleven: MagicMock, ts_path: str,
@@ -438,6 +444,12 @@ class TestGeneratePerVoiceFullAudios:
                 speakers=["f1", "m1"], full_text="abc", ts_path=ts_path,
                 speed=1.0, project_ts="20260517_120000",
             )
+
+    def test_one_voice_failure_skipped_above(
+        self,
+    ) -> None:
+        """skip marker (= self-doc)。fail-fast は上記でカバー済み。"""
+        pass
 
     def test_cost_recorded_per_voice(
         self, mock_eleven: MagicMock, ts_path: str,
