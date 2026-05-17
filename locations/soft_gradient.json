@@ -4,5 +4,6 @@
   "lighting": "柔らかい正面ライト、影は最小限",
   "color_palette": "ライトグレー〜オフホワイトのグラデーション",
   "props": "なし",
-  "camera_distance": "medium-close"
+  "camera_distance": "medium-close",
+  "recommended_wardrobes": ["casual"]
 }
