@@ -92,18 +92,18 @@ flowchart LR
 
 ## 3. 技術スタック (Stage × 外部 API)
 
-| Stage           | 役割                   | 主要 API / ライブラリ                                  | 認証 env                                         |
-| --------------- | ---------------------- | ------------------------------------------------------ | ------------------------------------------------ |
-| Stage 1 (台本)  | 検証 + メタ書き出し    | `screenplay_validator` (純ローカル)                    | —                                                |
-| Stage 2 (TTS)   | 1-shot 全体合成        | ElevenLabs eleven_v3 (`with-timestamps`)               | `ELEVENLABS_API_KEY`                             |
-| Stage 3 (BG)    | scene 別背景画像       | Google Imagen `gemini-3-pro-image-preview`             | `GOOGLE_API_KEY`                                 |
-| Stage 4 (動画)  | I2V アニメーション     | fal.ai Kling V3 Standard                               | `FAL_KEY`                                        |
-| Stage 5 (scene) | 音声重ね + lipsync     | FFmpeg + Sync.so `lipsync-2`                           | `SYNC_API_KEY`                                   |
-| Stage 6 (字幕)  | ASS 焼き込み + caption | FFmpeg + libass + Claude Haiku (caption 生成)          | `ANTHROPIC_API_KEY`                              |
-| Stage 7 (取込)  | raw を canonical 化    | (純ローカル、外部 API なし)                            | —                                                |
-| Stage 8 (公開)  | YouTube / IG / TikTok  | YouTube Data API v3 / Graph API (stub) / Display API   | `YOUTUBE_OAUTH_*` / `INSTAGRAM_*` / `TIKTOK_*`   |
-| analyze         | 参考動画逆算           | Claude Opus 4.7 + OpenAI Whisper (or `faster-whisper`) | `ANTHROPIC_API_KEY` 必須 / `OPENAI_API_KEY` 任意 |
-| auto-tag        | hook_type 等の付与     | Claude Haiku                                           | `ANTHROPIC_API_KEY`                              |
+| Stage           | 役割                                | 主要 API / ライブラリ                                                                                                      | 認証 env                                                                                  |
+| --------------- | ----------------------------------- | -------------------------------------------------------------------------------------------------------------------------- | ----------------------------------------------------------------------------------------- |
+| Stage 1 (台本)  | 検証 + メタ書き出し                 | `screenplay_validator` (純ローカル)                                                                                        | —                                                                                         |
+| Stage 2 (TTS)   | 話者数で経路分岐                    | ElevenLabs eleven_v3 (`with-timestamps`) — 単一話者は 1-shot、2+ は per-character N 並列 + 切出 concat (= 2026-05-17 #202) | `ELEVENLABS_API_KEY`                                                                      |
+| Stage 3 (BG)    | scene 別背景画像                    | Google Imagen `gemini-3-pro-image-preview`                                                                                 | `GOOGLE_API_KEY`                                                                          |
+| Stage 4 (動画)  | I2V アニメーション                  | fal.ai Kling V3 Standard                                                                                                   | `FAL_KEY`                                                                                 |
+| Stage 5 (scene) | 音声重ね + lipsync                  | FFmpeg + Sync.so `lipsync-2`                                                                                               | `SYNC_API_KEY`                                                                            |
+| Stage 6 (字幕)  | ASS 焼き込み + caption              | FFmpeg + libass + Claude Haiku (caption 生成)                                                                              | `ANTHROPIC_API_KEY`                                                                       |
+| Stage 7 (取込)  | raw を canonical 化                 | (純ローカル、外部 API なし)                                                                                                | —                                                                                         |
+| Stage 8 (公開)  | YouTube / IG / TikTok               | YouTube Data API v3 / Graph API (stub) / Display API                                                                       | `YOUTUBE_OAUTH_*` / `INSTAGRAM_*` / `TIKTOK_*`                                            |
+| analyze         | 参考動画逆算 + 翻案権配慮の言い換え | Claude Opus 4.7 + OpenAI Whisper (or `faster-whisper`) + Gemini 2.5 Pro (= `gemini_dialogue_rewriter`, 2026-05-17 #204)    | `ANTHROPIC_API_KEY` 必須 / `GOOGLE_API_KEY` 必須 (Gemini rewrite) / `OPENAI_API_KEY` 任意 |
+| auto-tag        | hook_type 等の付与                  | Claude Haiku                                                                                                               | `ANTHROPIC_API_KEY`                                                                       |
 
 詳細な単価とコスト構造は `docs/architecture-decisions.md` を参照。
 
@@ -306,4 +306,4 @@ VITE_PREVIEW_TOKEN=<= preview_server で設定したのと同じ値>
 
 ---
 
-最終更新: 2026-05-09
+最終更新: 2026-05-17
