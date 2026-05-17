@@ -62,3 +62,8 @@ ignore_errors = true
 testpaths = ["tests"]
 python_files = ["test_*.py"]
 addopts = "-q"
+markers = [
+    "real_characters_dir: _stub_character_images autouse fixture を skip し、characters/ の物理存在を前提にした検証を回す (= docs/developments/testing.md §6)",
+    "slow: 1 ケース 1 秒超のテスト。CI 高速ジョブから除外したい場合に使う (= pytest -m 'not slow')",
+    "external_api: 環境変数で本物の API key を渡したときだけ走らせる E2E テスト (= 基本 skip)",
+]

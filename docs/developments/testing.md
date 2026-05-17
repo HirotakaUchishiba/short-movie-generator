@@ -99,7 +99,18 @@ def test_fal_video_client_429_最大リトライ後に_FalClientError():
 
 ## 4. ファクトリ (= ドメインオブジェクトの生成ヘルパー)
 
-新規テストでは **`tests/factories/` のヘルパーを使い、screenplay 構造を直接書かない**。既存テストでも該当のヘルパーが使える形にリファクタが推奨される (= 必須ではない)。
+**新規テストでは `tests/factories/` のヘルパーを使い、screenplay 構造を直接書かない (= 必須)**。`.github/pull_request_template.md` の test plan checklist と連動して PR レビューで強制される (= `docs/plannings/2026-05-17_comprehensive-refactoring-plan.md` §3.8)。既存テストでも該当のヘルパーが使える形にリファクタが推奨される (= 既存は触る機会があるときに寄せる、強制移行はしない)。
+
+提供されるヘルパー:
+
+| ヘルパー                  | 対象                     | 既定値                                                                                               |
+| ------------------------- | ------------------------ | ---------------------------------------------------------------------------------------------------- |
+| `make_line()`             | 1 セリフ                 | `text="やばい"`, `emotion="焦り"`, `start/end=0.0/1.0`                                               |
+| `make_scene()`            | 1 Kling クリップ         | `lines=[make_line()]`, `location_ref="home_office"`, `character_refs=["f1__office"]`, `lipsync=True` |
+| `make_screenplay()`       | 1 動画分の台本           | `caption="テスト用キャプション\n#test"`, `scenes=[make_scene()]`                                     |
+| `make_project_metadata()` | project の metadata.json | (詳細は `tests/factories/project.py`)                                                                |
+
+各ヘルパーは `**overrides` で任意のフィールドを上書きできる。ドメインモデルが変わったときの修正点を**この 1 ファイルに集約**する。
 
 ```python
 # tests/factories/screenplay.py
@@ -127,11 +138,32 @@ def make_screenplay(scenes=None, caption="テスト用キャプション", **ove
 
 ### 5.1 既に autouse で動いているもの (`tests/conftest.py`)
 
-| fixture                  | 効果                                                                                                              |
-| ------------------------ | ----------------------------------------------------------------------------------------------------------------- |
-| `_isolate_cost_records`  | `COST_RECORDS_PATH` を `tmp_path` へ。本番 `data/cost_records.jsonl` を汚さない                                   |
-| `_isolate_job_store`     | `JOB_STORE_DIR` を `tmp_path` へ。本番 `data/jobs.json` を汚さない                                                |
-| `_stub_character_images` | `analyze.character_meta.list_character_images` を空リストに stub。`@pytest.mark.real_characters_dir` で個別解除可 |
+| fixture                       | 効果                                                                                                              |
+| ----------------------------- | ----------------------------------------------------------------------------------------------------------------- |
+| `_isolate_cost_records`       | `COST_RECORDS_PATH` を `tmp_path` へ。本番 `data/cost_records.jsonl` を汚さない                                   |
+| `_isolate_job_store`          | `JOB_STORE_DIR` を `tmp_path` へ。本番 `data/jobs.json` を汚さない                                                |
+| `_isolate_intent_suggestions` | `INTENT_SUGGESTIONS_PATH` / `_ARCHIVE_DIR` を `tmp_path` へ。本番 `data/intent_suggestions.json` を汚さない       |
+| `_stub_character_images`      | `analyze.character_meta.list_character_images` を空リストに stub。`@pytest.mark.real_characters_dir` で個別解除可 |
+
+`_stub_character_images` の解除例:
+
+```python
+import pytest
+
+pytestmark = pytest.mark.real_characters_dir   # ファイル全体で解除
+
+def test_character_meta_実在キャラを取得():
+    from analyze import character_meta
+    refs = character_meta.list_character_images()
+    assert any(r["id"] == "f1" for r in refs)
+```
+
+または個別関数で:
+
+```python
+@pytest.mark.real_characters_dir
+def test_xxx(): ...
+```
 
 新規 autouse は安易に増やさない (= 隠れた依存になる)。本番パス汚染リスクが新たに見つかった場合のみ追加する。
 
@@ -175,7 +207,7 @@ requests を直接叩く client は `requests_mock` (= 既に依存にあれば)
 | `slow`                | 1 ケース 1 秒超のテスト。CI 高速ジョブから除外したい場合に使う (= `pytest -m "not slow"`) |
 | `external_api`        | 環境変数で本物の API key を渡したときだけ走らせる E2E テスト (基本 skip)                  |
 
-`pytest.ini` / `pyproject.toml` は現状無い。カスタムマーカーが増えた時点で `pyproject.toml` の `[tool.pytest.ini_options]` に登録する。
+マーカーは `pyproject.toml` の `[tool.pytest.ini_options].markers` に登録済 (= `PytestUnknownMarkWarning` を抑制)。新規 marker を追加するときは本表 + `pyproject.toml` の両方を更新する。
 
 ---
 
