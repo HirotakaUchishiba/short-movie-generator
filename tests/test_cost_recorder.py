@@ -17,7 +17,15 @@ def isolated(tmp_path, monkeypatch):
         "providers": {
             "anthropic": {"claude-opus-4-7": {"input_per_mtok": 15.0, "output_per_mtok": 75.0}},
             "elevenlabs": {"eleven_v3": {"credit_multiplier": 2.0, "usd_per_credit": 0.000198}},
-            "google": {"imagen-3.0": {"usd_per_image": 0.04}},
+            "google": {
+                "imagen-3.0": {"usd_per_image": 0.04},
+                "gemini-2.5-pro": {
+                    "input_per_mtok": 1.25, "output_per_mtok": 5.0,
+                },
+                "gemini-2.5-flash": {
+                    "input_per_mtok": 0.3, "output_per_mtok": 2.5,
+                },
+            },
             "fal": {"kling-v3-pro": {"usd_per_sec": 0.084, "billing_buckets": [5, 10]}},
             "sync": {"lipsync-2": {"usd_per_sec": 0.05}},
         },
@@ -45,6 +53,40 @@ def test_record_analyze_persists_and_returns(isolated) -> None:
     persisted = list(records.iter_all())
     assert len(persisted) == 1
     assert persisted[0].record_id == rec.record_id
+
+
+def test_record_dialogue_rewrite_persists(isolated) -> None:
+    """analyze dialogue rewrite phase の cost が gemini-2.5-pro 単価で
+    `analyze_rewrite` stage として記録される。"""
+    rec = recorder.record_dialogue_rewrite(
+        project_ts="20260517_120000",
+        model="gemini-2.5-pro",
+        input_tokens=3000,
+        output_tokens=3000,
+        metadata={"status": "success"},
+    )
+    assert rec.stage == "analyze_rewrite"
+    assert rec.provider == "google"
+    assert rec.units["input_tokens"] == 3000
+    assert rec.units["output_tokens"] == 3000
+    # 3000 × 1.25/M + 3000 × 5/M = 0.01875
+    assert rec.cost_usd == pytest.approx(0.01875)
+    assert rec.metadata["status"] == "success"
+    persisted = list(records.iter_all())
+    assert len(persisted) == 1
+    assert persisted[0].record_id == rec.record_id
+
+
+def test_record_dialogue_rewrite_flash_model(isolated) -> None:
+    """gemini-2.5-flash で同じ tokens の cost が安くなる。"""
+    rec = recorder.record_dialogue_rewrite(
+        project_ts="20260517_120000",
+        model="gemini-2.5-flash",
+        input_tokens=3000,
+        output_tokens=3000,
+    )
+    # 3000 × 0.3/M + 3000 × 2.5/M = 0.0009 + 0.0075 = 0.0084
+    assert rec.cost_usd == pytest.approx(0.0084)
 
 
 def test_record_tts_uses_elevenlabs_pricing(isolated) -> None:

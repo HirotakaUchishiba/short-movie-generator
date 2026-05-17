@@ -9,12 +9,15 @@
 
 ## 0. 目的
 
-参考動画から台本 JSON を生成する際、Claude Vision の出力を「**元動画クローン**」ではなく「**構成・セリフ・感情・ロケ選定だけ抽出した抽象台本**」に変える。analyze pipeline は構成・セリフ・感情に加えて `location_ref` / `camera_distance` を `locations/` カタログから自動選定し、複数人物動画では `speaker_profiles` の検出 + `featured_characters` / `speaker_to_ref` の casting 提案も行う (= 自由記述ビジュアルプロンプトは産出しない。casting 提案はユーザが Stage 1 UI で訂正可能)。これにより:
+参考動画から台本 JSON を生成する際、Claude Vision の出力を「**元動画クローン**」ではなく「**構成・セリフ・感情・ロケ選定だけ抽出した抽象台本**」に変える。analyze pipeline は構成・セリフ・感情に加えて `location_ref` / `camera_distance` を `locations/` カタログから自動選定し、複数人物動画では `speaker_profiles` の検出 + `featured_characters` / `speaker_to_ref` の casting 提案も行う (= 自由記述ビジュアルプロンプトは産出しない。casting 提案はユーザが Stage 1 UI で訂正可能)。
+
+さらに **Claude inference の直後に Gemini 2.5 Pro による rewrite phase** が走り、`line.text` + `caption` だけを **同じ意味・同じ感情で独自の言い回し** に書き換える (= 翻案権配慮、`docs/plannings/2026-05-17_gemini-dialogue-rewrite.md`)。これにより:
 
 - 元動画の構図・体勢・casting に縛られず、自分のキャラ・世界観で動画を量産できる
 - 登場人物を切り替えるだけで「同じ訴求の動画を別キャラで作る」が容易
 - 元動画依存の bug (例: 「胸から下のクローズアップ」が全シーン引きずる) が構造的に解消
 - `identity` (= clip_library の cache 鍵) が手動入力に依存せず、analyze 出力だけで常に揃う
+- **元動画の発話をそのまま字起こしする問題** が構造的に解消される (= Gemini rewrite が言い回しを置換、構造とメタは保持)
 
 ---
 

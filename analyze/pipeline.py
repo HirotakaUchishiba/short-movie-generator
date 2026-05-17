@@ -490,6 +490,43 @@ def run(
         _emit(on_progress, "phase_complete", {"phase": "claude"})
         _check_cancel(cancel_token)
 
+        # ─── Phase: rewrite (= Gemini で line.text + caption を言い換え) ─
+        # 設計 doc: docs/plannings/2026-05-17_gemini-dialogue-rewrite.md
+        # 失敗しても analyze 全体は止めない (= original screenplay を save する)。
+        # status / fallback / token usage は phase_complete event + 専用
+        # rewrite_usage event で audit 可能にする (= cost 記録は呼出元 runner
+        # が rewrite_usage event を受けて DB に書く。claude_usage と同パターン)。
+        _emit(on_progress, "phase_start", {"phase": "rewrite"})
+        try:
+            import gemini_dialogue_rewriter as _rewriter
+            rewrite_result = _rewriter.rewrite_screenplay(screenplay)
+        except Exception as e:  # noqa: BLE001 — defensive (rewriter は本来内部 catch する)
+            logger.warning("[rewrite] 想定外例外: %s → original 採用", e)
+            rewrite_result = None
+        if rewrite_result is not None:
+            screenplay = rewrite_result.screenplay
+            if (rewrite_result.input_tokens
+                    or rewrite_result.output_tokens):
+                _emit(on_progress, "rewrite_usage", {
+                    "model": _rewriter.MODEL_ID,
+                    "input_tokens": rewrite_result.input_tokens,
+                    "output_tokens": rewrite_result.output_tokens,
+                    "status": rewrite_result.status,
+                })
+            _emit(on_progress, "phase_complete", {
+                "phase": "rewrite",
+                "status": rewrite_result.status,
+                "reason": rewrite_result.reason,
+                "per_line_fallback_count": (
+                    rewrite_result.per_line_fallback_count
+                ),
+                "input_tokens": rewrite_result.input_tokens,
+                "output_tokens": rewrite_result.output_tokens,
+            })
+        else:
+            _emit_skip(on_progress, "rewrite", "unexpected_error")
+        _check_cancel(cancel_token)
+
         # ─── Phase: save ─────────────────────────────
         _emit(on_progress, "phase_start", {"phase": "save"})
         new_hints = furigana_store.collect_from_screenplay(screenplay)

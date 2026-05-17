@@ -90,3 +90,32 @@ def test_kling_billed_duration_empty_buckets_uses_ceil() -> None:
 def test_usd_to_jpy() -> None:
     assert pricing.usd_to_jpy(1.0, 150.0) == 150.0
     assert pricing.usd_to_jpy(2.5, 145.0) == pytest.approx(362.5)
+
+
+def test_gemini_text_cost_input_only() -> None:
+    cost = pricing.compute_gemini_text_cost(
+        input_tokens=1_000_000,
+        output_tokens=0,
+        unit_prices={"input_per_mtok": 1.25, "output_per_mtok": 5.0},
+    )
+    assert cost == pytest.approx(1.25)
+
+
+def test_gemini_text_cost_output_only() -> None:
+    cost = pricing.compute_gemini_text_cost(
+        input_tokens=0,
+        output_tokens=1_000_000,
+        unit_prices={"input_per_mtok": 1.25, "output_per_mtok": 5.0},
+    )
+    assert cost == pytest.approx(5.0)
+
+
+def test_gemini_text_cost_combined_realistic() -> None:
+    """analyze dialogue rewrite の典型コスト (~3K input + 3K output)。"""
+    cost = pricing.compute_gemini_text_cost(
+        input_tokens=3000,
+        output_tokens=3000,
+        unit_prices={"input_per_mtok": 1.25, "output_per_mtok": 5.0},
+    )
+    # 3000 × 1.25/M + 3000 × 5/M = 0.00375 + 0.015 = 0.01875
+    assert cost == pytest.approx(0.01875)

@@ -17,7 +17,9 @@ _DEFAULT_PATH = Path(__file__).resolve().parent.parent / "data" / "cost_records.
 
 _WRITE_LOCK = threading.Lock()
 
-VALID_STAGES = frozenset({"analyze", "tts", "bg", "kling", "lipsync"})
+VALID_STAGES = frozenset({
+    "analyze", "analyze_rewrite", "tts", "bg", "kling", "lipsync",
+})
 
 
 def _path() -> Path:
