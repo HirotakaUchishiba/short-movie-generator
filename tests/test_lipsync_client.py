@@ -190,3 +190,105 @@ def test_apply_syncso_sync_4xx_creates_clear_error(tmp_path, monkeypatch) -> Non
         lipsync_client._apply_syncso_sync(
             str(video), str(audio), str(tmp_path / "o.mp4"))
     assert "401" in str(exc.value)
+
+
+def test_apply_syncso_sync_create_malformed_json_raises_clear_error(
+    tmp_path, monkeypatch,
+) -> None:
+    """generate 作成で 200 OK だが JSON parse 失敗 → LipsyncClientError。"""
+    _stub_syncso_env(monkeypatch)
+
+    def fake_post(url, **_):
+        r = MagicMock(); r.status_code = 201
+        r.json.side_effect = ValueError("Expecting value")
+        return r
+
+    monkeypatch.setattr(lipsync_client.requests, "post", fake_post)
+
+    video = tmp_path / "v.mp4"; audio = tmp_path / "a.m4a"
+    video.write_bytes(b"V"); audio.write_bytes(b"A")
+
+    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
+        lipsync_client._apply_syncso_sync(
+            str(video), str(audio), str(tmp_path / "o.mp4"))
+    assert "JSON parse" in str(exc.value)
+    assert "generate 作成" in str(exc.value)
+
+
+def test_apply_syncso_sync_create_non_dict_response_raises(
+    tmp_path, monkeypatch,
+) -> None:
+    """generate 作成で list が返る → LipsyncClientError。"""
+    _stub_syncso_env(monkeypatch)
+
+    def fake_post(url, **_):
+        r = MagicMock(); r.status_code = 201
+        r.json.return_value = ["not", "a", "dict"]
+        return r
+
+    monkeypatch.setattr(lipsync_client.requests, "post", fake_post)
+
+    video = tmp_path / "v.mp4"; audio = tmp_path / "a.m4a"
+    video.write_bytes(b"V"); audio.write_bytes(b"A")
+
+    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
+        lipsync_client._apply_syncso_sync(
+            str(video), str(audio), str(tmp_path / "o.mp4"))
+    assert "dict ではない" in str(exc.value)
+
+
+def test_apply_syncso_sync_poll_malformed_json_raises_clear_error(
+    tmp_path, monkeypatch,
+) -> None:
+    """polling で JSON parse 失敗 → LipsyncClientError。"""
+    _stub_syncso_env(monkeypatch)
+
+    def fake_post(url, **_):
+        r = MagicMock(); r.status_code = 201
+        r.json.return_value = {"id": "g3", "status": "PENDING"}
+        return r
+
+    def fake_get(url, **_):
+        r = MagicMock(); r.status_code = 200
+        r.json.side_effect = ValueError("Expecting value")
+        return r
+
+    monkeypatch.setattr(lipsync_client.requests, "post", fake_post)
+    monkeypatch.setattr(lipsync_client.requests, "get", fake_get)
+
+    video = tmp_path / "v.mp4"; audio = tmp_path / "a.m4a"
+    video.write_bytes(b"V"); audio.write_bytes(b"A")
+
+    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
+        lipsync_client._apply_syncso_sync(
+            str(video), str(audio), str(tmp_path / "o.mp4"))
+    assert "JSON parse" in str(exc.value)
+    assert "generate 取得" in str(exc.value)
+
+
+def test_apply_syncso_sync_poll_non_dict_response_raises(
+    tmp_path, monkeypatch,
+) -> None:
+    """polling で null が返る (= dict ではない) → LipsyncClientError。"""
+    _stub_syncso_env(monkeypatch)
+
+    def fake_post(url, **_):
+        r = MagicMock(); r.status_code = 201
+        r.json.return_value = {"id": "g4", "status": "PENDING"}
+        return r
+
+    def fake_get(url, **_):
+        r = MagicMock(); r.status_code = 200
+        r.json.return_value = None
+        return r
+
+    monkeypatch.setattr(lipsync_client.requests, "post", fake_post)
+    monkeypatch.setattr(lipsync_client.requests, "get", fake_get)
+
+    video = tmp_path / "v.mp4"; audio = tmp_path / "a.m4a"
+    video.write_bytes(b"V"); audio.write_bytes(b"A")
+
+    with pytest.raises(lipsync_client.LipsyncClientError) as exc:
+        lipsync_client._apply_syncso_sync(
+            str(video), str(audio), str(tmp_path / "o.mp4"))
+    assert "dict ではない" in str(exc.value)

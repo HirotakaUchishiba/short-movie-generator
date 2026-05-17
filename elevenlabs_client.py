@@ -20,6 +20,25 @@ class ElevenLabsClientError(Exception):
     pass
 
 
+def _parse_eleven_response(resp: requests.Response, *, context: str) -> dict:
+    """ElevenLabs 応答を dict として安全に parse する。
+
+    JSON parse 失敗や dict でない応答を ElevenLabsClientError に正規化する。
+    """
+    try:
+        data = resp.json()
+    except ValueError as e:
+        raise ElevenLabsClientError(
+            f"ElevenLabs {context} JSON parse 失敗 (status={resp.status_code})"
+        ) from e
+    if not isinstance(data, dict):
+        raise ElevenLabsClientError(
+            f"ElevenLabs {context} 応答が dict ではない "
+            f"(status={resp.status_code}, type={type(data).__name__})"
+        )
+    return data
+
+
 def _classify_status(status: int | None, body_lower: str) -> str:
     """HTTP status とレスポンス本文から retry / fail を分類する。
 
@@ -192,13 +211,19 @@ def generate_speech_with_timestamps(text: str, voice_id: str, output_path: str,
         headers={**_headers(), "Content-Type": "application/json"},
         json_body=payload,
     )
-    data = resp.json()
+    data = _parse_eleven_response(resp, context="text-to-speech/with-timestamps")
 
-    audio_bytes = base64.b64decode(data["audio_base64"])
+    audio_b64 = data.get("audio_base64")
+    if not audio_b64:
+        raise ElevenLabsClientError(
+            f"ElevenLabs 応答に audio_base64 が含まれていません "
+            f"(keys={sorted(data.keys())})"
+        )
+    audio_bytes = base64.b64decode(audio_b64)
     with open(output_path, "wb") as f:
         f.write(audio_bytes)
 
-    alignment = data.get("alignment", {})
+    alignment = data.get("alignment") or {}
     raw_chars = alignment.get("characters", [])
     starts = alignment.get("character_start_times_seconds", [])
     ends = alignment.get("character_end_times_seconds", [])

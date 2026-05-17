@@ -172,3 +172,49 @@ def test_post_with_retry_max_retries_exhausted(monkeypatch):
     with pytest.raises(elevenlabs_client.ElevenLabsClientError):
         elevenlabs_client._post_with_retry("u", {}, {})
     assert len(calls) == elevenlabs_client.MAX_RETRIES
+
+
+def test_parse_eleven_response_malformed_json_raises_client_error():
+    r = MagicMock(spec=requests.Response)
+    r.status_code = 200
+    r.json.side_effect = ValueError("Expecting value")
+    with pytest.raises(elevenlabs_client.ElevenLabsClientError) as exc:
+        elevenlabs_client._parse_eleven_response(r, context="tts")
+    assert "JSON parse" in str(exc.value)
+
+
+def test_parse_eleven_response_non_dict_raises_client_error():
+    r = MagicMock(spec=requests.Response)
+    r.status_code = 200
+    r.json.return_value = ["not", "a", "dict"]
+    with pytest.raises(elevenlabs_client.ElevenLabsClientError) as exc:
+        elevenlabs_client._parse_eleven_response(r, context="tts")
+    assert "dict ではない" in str(exc.value)
+
+
+def test_parse_eleven_response_dict_passes_through():
+    r = MagicMock(spec=requests.Response)
+    r.status_code = 200
+    r.json.return_value = {"audio_base64": "aGVsbG8=", "alignment": {}}
+    body = elevenlabs_client._parse_eleven_response(r, context="tts")
+    assert body["audio_base64"] == "aGVsbG8="
+
+
+def test_generate_speech_missing_audio_base64_raises(monkeypatch, tmp_path):
+    """応答に audio_base64 が無い → ElevenLabsClientError。"""
+    def fake_post(url, headers=None, json=None, timeout=None):
+        r = MagicMock(spec=requests.Response)
+        r.ok = True
+        r.status_code = 200
+        r.json.return_value = {"alignment": {}}  # audio_base64 欠落
+        return r
+
+    monkeypatch.setattr(elevenlabs_client.requests, "post", fake_post)
+    monkeypatch.setattr(elevenlabs_client.config, "ELEVENLABS_API_KEY", "k")
+
+    out = tmp_path / "out.mp3"
+    with pytest.raises(elevenlabs_client.ElevenLabsClientError) as exc:
+        elevenlabs_client.generate_speech_with_timestamps(
+            "hello", "voice-id", str(out),
+        )
+    assert "audio_base64" in str(exc.value)

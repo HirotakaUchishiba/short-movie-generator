@@ -14,6 +14,26 @@ class LipsyncClientError(Exception):
     pass
 
 
+def _parse_syncso_response(r: requests.Response, *, context: str) -> dict:
+    """Sync.so 応答を dict として安全に parse する。
+
+    JSON parse 失敗や dict でない応答を LipsyncClientError に正規化し、
+    caller (= stage runner) の error 分類が機能するようにする。
+    """
+    try:
+        body = r.json()
+    except ValueError as e:
+        raise LipsyncClientError(
+            f"Sync.so {context} JSON parse 失敗 (status={r.status_code})"
+        ) from e
+    if not isinstance(body, dict):
+        raise LipsyncClientError(
+            f"Sync.so {context} 応答が dict ではない "
+            f"(status={r.status_code}, type={type(body).__name__})"
+        )
+    return body
+
+
 def _syncso_headers() -> dict:
     if not config.SYNCSO_API_KEY:
         raise LipsyncClientError(
@@ -56,7 +76,7 @@ def _syncso_create_task(video_path: str, audio_path: str) -> str:
         raise LipsyncClientError(
             f"Sync.so generate 作成失敗 ({r.status_code}): {r.text[:300]}"
         )
-    body = r.json()
+    body = _parse_syncso_response(r, context="generate 作成")
     task_id = body.get("id")
     if not task_id:
         raise LipsyncClientError(
@@ -81,7 +101,7 @@ def _syncso_poll_until_done(task_id: str) -> str:
             raise LipsyncClientError(
                 f"Sync.so generate 取得失敗 ({r.status_code}): {r.text[:200]}"
             )
-        body = r.json() or {}
+        body = _parse_syncso_response(r, context="generate 取得")
         status = body.get("status")
 
         if status == "COMPLETED":
