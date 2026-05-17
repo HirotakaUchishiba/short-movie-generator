@@ -135,6 +135,49 @@ def test_appearance_omitted_when_empty(isolated_characters):
     assert "appearance" not in json.loads(p.read_text())
 
 
+def test_voice_id_round_trip(isolated_characters):
+    """voice_id は voice.json に保存/読込される。"""
+    meta = isolated_characters.CharacterMeta(
+        id="f1",
+        voice_id="0ptCJp0xgdabdcpVtCB5",
+        voice_overrides={"stability": 0.4},
+    )
+    isolated_characters.save_character_meta(meta)
+    loaded = isolated_characters.load_character_meta("f1")
+    assert loaded.voice_id == "0ptCJp0xgdabdcpVtCB5"
+    assert loaded.voice_overrides == {"stability": 0.4}
+
+
+def test_voice_id_omitted_when_empty(isolated_characters):
+    """voice_id が None/空文字なら to_dict / voice.json に含まれない (= 旧 file 互換)。"""
+    import json
+    meta = isolated_characters.CharacterMeta(id="f1")
+    assert "voice_id" not in meta.to_dict()
+    isolated_characters.save_character_meta(meta)
+    p = isolated_characters.CHARACTERS_DIR / "f1" / "voice.json"
+    assert "voice_id" not in json.loads(p.read_text())
+
+
+def test_voice_id_legacy_file_loads_with_none(isolated_characters):
+    """voice_id field 不在の旧 voice.json は voice_id=None で読まれる (= forward compat)。"""
+    import json
+    base = isolated_characters.CHARACTERS_DIR / "f1"
+    base.mkdir(parents=True)
+    (base / "voice.json").write_text(json.dumps({
+        "id": "f1", "voice_overrides": {"stability": 0.4},
+    }))
+    loaded = isolated_characters.load_character_meta("f1")
+    assert loaded.voice_id is None
+    assert loaded.voice_overrides == {"stability": 0.4}
+
+
+def test_voice_id_validation_rejects_non_string(isolated_characters):
+    """voice_id が str 以外 (= int/dict) なら validate がエラーを返す。"""
+    meta = isolated_characters.CharacterMeta(id="f1", voice_id=123)
+    errors = meta.validate()
+    assert any("voice_id" in e for e in errors)
+
+
 def test_build_character_catalog_groups_by_base(isolated_characters):
     """build_character_catalog は画像を持つ resolved id を base 単位にまとめ、
     base の appearance を添える。"""

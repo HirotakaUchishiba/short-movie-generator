@@ -35,6 +35,10 @@ BASE_WARDROBE_SEP = "__"
 @dataclass
 class CharacterMeta:
     id: str  # base id (= voice 単位)
+    # voice_id: ElevenLabs voice library の id。未設定なら
+    # config.ELEVENLABS_VOICE_ID にフォールバックする。Stage 2 TTS が
+    # per-character voice で発話するときの主鍵。
+    voice_id: str | None = None
     voice_overrides: dict[str, Any] = field(default_factory=dict)
     # appearance: analyze の speaker_profiles とマッチさせる外見ヒント
     # (gender / age_range / description)。すべて optional。無くても casting
@@ -51,10 +55,17 @@ class CharacterMeta:
             errors.append(
                 f"id must be the BASE id (no '{BASE_WARDROBE_SEP}' wardrobe suffix)",
             )
+        if self.voice_id is not None and not isinstance(self.voice_id, str):
+            errors.append("voice_id must be a string when present")
         return errors
 
     def to_dict(self) -> dict:
-        d: dict = {"id": self.id, "voice_overrides": dict(self.voice_overrides)}
+        d: dict = {"id": self.id}
+        # voice_id は optional。空なら voice.json に書かない (= 旧 file の
+        # 互換性を守る)。
+        if self.voice_id:
+            d["voice_id"] = self.voice_id
+        d["voice_overrides"] = dict(self.voice_overrides)
         # appearance は optional。空なら voice.json に書かない (= 既存ファイルを
         # 不要な空 dict で汚さない)。
         if self.appearance:
@@ -63,8 +74,11 @@ class CharacterMeta:
 
     @classmethod
     def from_dict(cls, d: dict) -> "CharacterMeta":
+        raw_vid = d.get("voice_id")
+        voice_id = raw_vid if isinstance(raw_vid, str) and raw_vid else None
         return cls(
             id=d.get("id", ""),
+            voice_id=voice_id,
             voice_overrides=dict(d.get("voice_overrides") or {}),
             appearance=dict(d.get("appearance") or {}),
         )

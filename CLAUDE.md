@@ -273,7 +273,7 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 | `emotion`             | 感情ラベル。`config.EMOTION_AUDIO_TAGS` のキーが eleven_v3 inline tag (`[surprised]` 等) として line.text 先頭に自動挿入される + Kling motion addon が適用される |
 | `audio_tags`          | eleven_v3 inline tag を line 単位で手動指定 (例: `["whispers"]`, `["shouts"]`)。emotion 由来のタグと併用される                                                   |
 | `delivery`            | 話し方の自然言語記述。`config.DELIVERY_TAG_ENABLED=True`なら eleven_v3 inline tag として `[delivery] text` 形式でTTSへ送信                                       |
-| `emotion_intensity`   | `soft` / `normal` / `strong`。analyzer / UI 編集メタとして保持されるが TTS パラメータには反映されない (= one-shot TTS 制約)                                      |
+| `emotion_intensity`   | `soft` / `normal` / `strong`。analyzer / UI 編集メタとして保持されるが TTS パラメータには反映されない (= screenplay-wide 1 セット制約)                           |
 | `acoustic`            | analyze pipeline 由来の pitch/rms/wpm。表示・LLM 補助入力用 (TTS には反映されない)                                                                               |
 | `pronunciation_hints` | TTS送信前のテキスト置換（例 `{"IT": "アイティー"}`）                                                                                                             |
 
@@ -321,15 +321,49 @@ python3 scripts/analyze_video.py path/to/reference.mov --fps 1.5  # フレーム
 
 per-line で voice 表現を細かく制御したい場合は `audio_tags[]` (例: `["whispers"]`, `["shouts"]`, `["crying"]`) を直接指定する。`config.AVAILABLE_AUDIO_TAGS` に候補一覧がある。
 
-## TTS の制約 (one-shot 経路)
+## TTS の経路 (= single-voice / per-character の dispatcher)
 
-Stage 2 は **screenplay 全体を 1 ElevenLabs API call** で生成する (= `generate_screenplay_tts_one_shot`)。連続音声で char-level timestamps を取得することで line 境界を silence-detect で snap し、自然な抑揚と pacing を実現している。
+Stage 2 は `generate_screenplay_tts_one_shot()` が unique speaker 数で 2 経路に分岐する (= 2026-05-17 `docs/plannings/2026-05-17_per-character-tts.md`):
 
-このため:
+| speaker 数 | 経路                                           | 挙動                                                                                                                                       |
+| ---------- | ---------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------ |
+| **0 or 1** | single-voice (= 既存 one-shot)                 | screenplay 全体を 1 ElevenLabs API call で生成。char-level timestamps + silence-detect snap で line 境界決定                               |
+| **2+**     | per-character (= 並列フル生成 → 切出 → マージ) | speaker ごとに同じ screenplay 全文を別 voice_id で並列生成。各 line は該当 speaker の voice 音声から切出して merged tts_full.mp3 に concat |
 
-- `voice_id` / `stability` / `similarity_boost` / `style` / `speed` は **screenplay-wide で 1 セット** (= `config.ELEVENLABS_*` グローバル + `TTS_GLOBAL_SPEED`)。per-line 切替不可
-- per-line の表現切替は **inline tag だけ** で行う (= `audio_tags[]`, `emotion`, `delivery`)
-- analyze pipeline が記録する `acoustic.wpm` / `pitch_trend` / `rms_peak` は表示・LLM 補助用で TTS パラメータには反映されない
+### voice_id 解決 (= 2 段 fallback)
+
+```
+characters/<base>/voice.json.voice_id   ← キャラ既定 (= PR #201 で 5 キャラ割当済)
+   ↓ 未設定 / 読込失敗
+config.ELEVENLABS_VOICE_ID              ← グローバル既定
+```
+
+`voice_overrides` (= stability / similarity_boost / style) も同じ階層で character → config の順に merge される。
+
+### per-line 表現の切替
+
+`voice_id` を line 単位で切り替える機能は未対応 (= 同 base のキャラは常に同 voice)。per-line で voice 表現を細かく制御したい場合は **inline tag だけ** で行う:
+
+- `audio_tags[]` (例: `["whispers"]`, `["shouts"]`, `["crying"]`)
+- `emotion` (= `config.EMOTION_AUDIO_TAGS` 由来の自動 tag)
+- `delivery` (= `config.DELIVERY_TAG_ENABLED=True` のとき `[delivery] text` 形式で送信)
+
+`config.AVAILABLE_AUDIO_TAGS` に候補一覧がある。
+
+### prosody continuity
+
+per-character 経路でも、各 voice は **screenplay 全文を読んだ上で** 自分のセリフ部分を切り出されるため、「相手が喋ったあと自分が引き取る」抑揚が自然になる。block 分割方式と違い、各 voice 内では prosody が分断されない。
+
+### 課金
+
+- single-voice (= 1 speaker) : 1 call × 全文字数 (= 現状と同じ)
+- per-character (= N speakers) : **N call × 全文字数** (= n 倍。短尺 30 秒 / 2 voice なら ~\$0.08)
+
+各 voice の TTS は独立に cache される (= `tts_full.<base>.text_meta.json`)。1 キャラの voice_id 変更で他キャラは再呼出しされない。
+
+### analyze pipeline からのヒント
+
+`speaker_profiles` (= gender / age_range / description) / `acoustic.wpm` / `pitch_trend` / `rms_peak` は表示・LLM 補助用で TTS パラメータには反映されない。casting 提案 (= `speaker_to_ref`) と character の `voice.json.voice_id` を通じて間接的に voice 選定に影響する。
 
 ## オーバーレイ
 
