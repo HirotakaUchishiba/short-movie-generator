@@ -5,6 +5,7 @@ import time
 import requests
 import config
 import io_utils
+from common.api_client import APIClientError
 from cost_tracking import pricebook as _pricebook
 
 logger = logging.getLogger(__name__)
@@ -16,8 +17,9 @@ MAX_RETRIES = 5
 BACKOFF_SECONDS = [10, 20, 40, 80, 120]
 
 
-class ElevenLabsClientError(Exception):
-    pass
+class ElevenLabsClientError(APIClientError):
+    """ElevenLabs 固有のエラー。`APIClientError` を継承し caller が
+    provider 非依存に拾える形に統一 (= 計画書 §3.2)。"""
 
 
 def _parse_eleven_response(resp: requests.Response, *, context: str) -> dict:
