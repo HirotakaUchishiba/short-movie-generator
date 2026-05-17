@@ -601,38 +601,29 @@ def _record_stage_failure(ts_path: str, stage: str, error: Exception) -> None:
         )
 
 
-def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
-    """全 lines を flat 順に保ったまま、scene 境界だけを再定義する。
+def _flatten_lines_with_origin(sp: dict) -> tuple[list[dict], list[dict]]:
+    """sp を flat な line 配列 + 各 line の元 scene 参照に分解する。
 
-    `line_boundaries` は「scene 開始 line index (flat)」の昇順 list で、必ず
-    `0` から始まる。例えば line が 12 個ある時:
-        [0, 3, 7]  → scene0=lines[0..3), scene1=lines[3..7), scene2=lines[7..12)
-
-    line のテキスト・順序は変えない (= TTS 音声は再 API 呼び出し不要)。
-    既存の per-line / per-scene file (tts_<S>_<L>.mp3, audio_<S>.m4a, bg/kling/scene)
-    は scene index を含むので全削除し、`tts_full.mp3` から新しい index で再構築する。
-    bg 以降の progress / approval は reset される (= 後段は再生成必要)。
-
-    Returns: {"scenes": int, "lines": int, "subtitles_reset_lines": int}
-        subtitles_reset_lines: subtitles[].start/end が auto に戻された line 数
+    元 scene 参照は再分割後の new_scene に location_ref / camera_distance を
+    引き継ぐために必要 (= compose._derive_identity が location_ref 必須なので
+    捨てると後段の再 compose が fail-fast する)。
     """
-    sp = load_project_screenplay(ts_path)
     flat_lines: list[dict] = []
-    # 各 flat line が属していた元 scene を覚えておく (= 再分割後の new_scene に
-    # location_ref / camera_distance を引き継ぐため)。compose の _derive_identity
-    # は location_ref 必須なので、ここで捨てると後段の再 compose が fail-fast する。
     flat_line_origin: list[dict] = []
     for s in sp.get("scenes") or []:
         for line in s.get("lines") or []:
             flat_lines.append(dict(line))
             flat_line_origin.append(s)
-    n_lines = len(flat_lines)
-    if n_lines == 0:
-        raise ValueError("snapshot に line が 1 つもありません")
+    return flat_lines, flat_line_origin
 
-    # scene 再分割で line が別 scene に移動すると元 scene 基準だった
-    # subtitles[].start/end (= シーン内相対秒) は意味が壊れる。完全な migration は
-    # scene duration が変わる以上不可能なので、保守的に「auto に戻す」(= text のみ保持)。
+
+def _reset_subtitle_timings_inplace(flat_lines: list[dict]) -> int:
+    """subtitles[].start/end を auto に戻す (= scene 境界変更で意味が壊れるため)。
+
+    完全な migration は scene duration が変わる以上不可能なので、保守的に
+    「auto に戻す」(= text のみ保持) ことで字幕の文字列だけは維持する。
+    戻り値は reset した line 数。
+    """
     subtitles_reset_lines = 0
     subtitles_reset_chunks = 0
     for ln in flat_lines:
@@ -646,7 +637,9 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
                 new_subs.append(sub)
                 continue
             if "start" in sub or "end" in sub:
-                stripped = {k: v for k, v in sub.items() if k not in ("start", "end")}
+                stripped = {
+                    k: v for k, v in sub.items() if k not in ("start", "end")
+                }
                 new_subs.append(stripped)
                 subtitles_reset_chunks += 1
                 is_line_reset = True
@@ -662,7 +655,13 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
             subtitles_reset_lines,
             subtitles_reset_chunks,
         )
+    return subtitles_reset_lines
 
+
+def _validate_line_boundaries(
+    line_boundaries: list[int], n_lines: int,
+) -> None:
+    """line_boundaries の事前条件 (= 0 始まり / 重複なし昇順 / 範囲内) を検証する。"""
     if not line_boundaries:
         raise ValueError("line_boundaries が空です")
     if line_boundaries[0] != 0:
@@ -674,7 +673,18 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
             f"line_boundaries が範囲外 (有効: 0..{n_lines - 1})",
         )
 
-    # regroup
+
+def _regroup_into_new_scenes(
+    flat_lines: list[dict],
+    flat_line_origin: list[dict],
+    line_boundaries: list[int],
+    n_lines: int,
+) -> list[dict]:
+    """flat_lines を line_boundaries に従って新 scene 配列に regroup する。
+
+    各 scene 内で line.start/end を 0 起点に正規化し、location_ref /
+    camera_distance を元 scene から引き継ぐ。
+    """
     boundaries_with_end = list(line_boundaries) + [n_lines]
     new_scenes: list[dict] = []
     for i in range(len(line_boundaries)):
@@ -682,39 +692,37 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
         scene_lines = flat_lines[start_idx:boundaries_with_end[i + 1]]
         if not scene_lines:
             continue
-        # scene 内相対秒に正規化 (= 各 scene の先頭 line を 0 起点)
         offset = float(scene_lines[0].get("start", 0) or 0)
         for ln in scene_lines:
             if "start" in ln:
                 ln["start"] = max(0.0, float(ln["start"]) - offset)
             if "end" in ln:
                 ln["end"] = max(0.0, float(ln["end"]) - offset)
-        # duration は計算しない。直後の _build_audios_from_full が
-        # 実 TTS 累積長から書き戻す (= Stage 2 が SSOT)
         new_scene: dict = {"lines": scene_lines}
-        # location_ref / camera_distance は先頭 line が属していた元 scene から
-        # 引き継ぐ。compose の identity 派生に必須なので捨てない。compose 済み
-        # scene では flat field が pop され identity に畳まれているので、そこから
-        # 読む。background / animation prompt は scene-index 由来のままだと
-        # 分割/合体時に整合しないので敢えて引き継がず、再 compose で埋め直させる。
+        # compose 済み scene では flat field が pop され identity に畳まれて
+        # いるので両方から fallback で読む。background / animation prompt は
+        # 分割/合体時に整合しないので敢えて引き継がず、再 compose で埋め直す。
         origin = flat_line_origin[start_idx]
         origin_identity = origin.get("identity") or {}
-        location_ref = origin.get("location_ref") or origin_identity.get("location_ref")
+        location_ref = (
+            origin.get("location_ref") or origin_identity.get("location_ref")
+        )
         camera_distance = (
-            origin.get("camera_distance") or origin_identity.get("camera_distance")
+            origin.get("camera_distance")
+            or origin_identity.get("camera_distance")
         )
         if location_ref:
             new_scene["location_ref"] = location_ref
         if camera_distance:
             new_scene["camera_distance"] = camera_distance
         new_scenes.append(new_scene)
+    return new_scenes
 
-    new_sp = dict(sp)
-    new_sp["scenes"] = new_scenes
-    # snapshot は abstract のまま保存 (= save が _strip_tts_derived で除去)
-    save_project_screenplay(ts_path, new_sp)
 
-    # tts_meta.json も新 group に対応した timing で書き直す (= SSOT 一貫性)
+def _persist_tts_meta_from_scenes(
+    ts_path: str, new_scenes: list[dict],
+) -> None:
+    """新 scene 構造から tts_meta.json を書き出す (= SSOT 一貫性のため)。"""
     new_meta_scenes: list[dict] = []
     for scene in new_scenes:
         scene_meta: dict = {}
@@ -732,8 +740,11 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
         new_meta_scenes.append(scene_meta)
     save_tts_meta(ts_path, {"scenes": new_meta_scenes})
 
-    # 古い scene-indexed file を全 cleanup (新 index で再構築するため)
+
+def _cleanup_stale_scene_artifacts(ts_path: str) -> None:
+    """古い scene-indexed file を全削除 (= 新 index で再構築するため)。"""
     import glob
+
     patterns = [
         "tts_*_*.mp3",
         "audio_*.m4a", "audio_*.wav",
@@ -748,7 +759,50 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
             except OSError:
                 logger.warning("delete 失敗: %s", p)
 
-    # tts_full.mp3 が残っていれば per-line / per-scene を再分割
+
+def _reset_progress_after_boundary(ts_path: str) -> None:
+    """progress を bg 以降クリア、tts は generated 維持 + approved だけ解除。"""
+    progress_store.reset_stage(ts_path, "bg")
+    pg = progress_store.load(ts_path)
+    if pg["stages"]["tts"]["generated_at"]:
+        pg["stages"]["tts"]["approved_at"] = None
+        progress_store.save(ts_path, pg)
+
+
+def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
+    """全 lines を flat 順に保ったまま、scene 境界だけを再定義する。
+
+    `line_boundaries` は「scene 開始 line index (flat)」の昇順 list で、必ず
+    `0` から始まる。例えば line が 12 個ある時:
+        [0, 3, 7]  → scene0=lines[0..3), scene1=lines[3..7), scene2=lines[7..12)
+
+    line のテキスト・順序は変えない (= TTS 音声は再 API 呼び出し不要)。
+    既存の per-line / per-scene file (tts_<S>_<L>.mp3, audio_<S>.m4a, bg/kling/scene)
+    は scene index を含むので全削除し、`tts_full.mp3` から新しい index で再構築する。
+    bg 以降の progress / approval は reset される (= 後段は再生成必要)。
+
+    Returns: {"scenes": int, "lines": int, "subtitles_reset_lines": int}
+        subtitles_reset_lines: subtitles[].start/end が auto に戻された line 数
+    """
+    sp = load_project_screenplay(ts_path)
+    flat_lines, flat_line_origin = _flatten_lines_with_origin(sp)
+    n_lines = len(flat_lines)
+    if n_lines == 0:
+        raise ValueError("snapshot に line が 1 つもありません")
+
+    subtitles_reset_lines = _reset_subtitle_timings_inplace(flat_lines)
+    _validate_line_boundaries(line_boundaries, n_lines)
+
+    new_scenes = _regroup_into_new_scenes(
+        flat_lines, flat_line_origin, line_boundaries, n_lines,
+    )
+    new_sp = dict(sp)
+    new_sp["scenes"] = new_scenes
+    save_project_screenplay(ts_path, new_sp)
+    _persist_tts_meta_from_scenes(ts_path, new_scenes)
+
+    _cleanup_stale_scene_artifacts(ts_path)
+
     full_mp3 = os.path.join(ts_path, "tts_full.mp3")
     if os.path.exists(full_mp3):
         scene_gen.rebuild_audios_from_full_after_boundary_change(
@@ -764,13 +818,13 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
             "Stage 2 を再実行してください",
         )
 
-    # progress reset: bg 以降を完全クリア。tts は audio が新 scene 構造で
-    # 揃うので generated は維持し approved だけ解除 (再確認させる)。
-    progress_store.reset_stage(ts_path, "bg")
-    pg = progress_store.load(ts_path)
-    if pg["stages"]["tts"]["generated_at"]:
-        pg["stages"]["tts"]["approved_at"] = None
-        progress_store.save(ts_path, pg)
+    _reset_progress_after_boundary(ts_path)
+
+    return {
+        "scenes": len(new_scenes),
+        "lines": n_lines,
+        "subtitles_reset_lines": subtitles_reset_lines,
+    }
 
     return {
         "scenes": len(new_scenes),
