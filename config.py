@@ -749,17 +749,6 @@ INTENT_SUGGESTIONS_ARCHIVE_DIR = os.environ.get(
     os.path.join(BASE_DIR, "data", "intent_suggestions_archive"),
 )
 
-# Layer 3 (Composition Engine) backend dispatch.
-# "ffmpeg" (= 既存 compositor.py、既定) または "remotion" (= 新設、Phase 2+ で
-# compositor_remotion.py を wire する)。
-OVERLAY_BACKEND = os.environ.get("OVERLAY_BACKEND", "ffmpeg")
-# Remotion render 時の並列度 (= --concurrency)。
-REMOTION_CONCURRENCY = int(os.environ.get("REMOTION_CONCURRENCY", "4"))
-# Remotion render 全体の timeout (秒)。長尺 / 高解像度時は伸ばす。
-REMOTION_RENDER_TIMEOUT_SEC = int(
-    os.environ.get("REMOTION_RENDER_TIMEOUT_SEC", "1800")
-)
-
 LOG_LEVEL = os.getenv("LOG_LEVEL", "INFO")
 LOG_FILE = os.getenv("LOG_FILE")
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(20 * 1024 * 1024)))

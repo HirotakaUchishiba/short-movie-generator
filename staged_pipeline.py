@@ -437,22 +437,9 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     is_overlay_success = False
     try:
-        backend = str(getattr(config, "OVERLAY_BACKEND", "ffmpeg")).lower()
-        if backend == "remotion":
-            # Layer 3 (Composition Engine) backend.
-            # Remotion は scene_<S>.mp4 を直接受け、内部で全 scene を Sequence で
-            # 並べる (= ffmpeg merge は不要)。subtitle 解決は build_render_plan が
-            # 既存 _resolve_subtitle_timings を流用して行う。
-            from compositor_remotion import compose_video_remotion
-            logger.info("[overlay] backend=remotion")
-            compose_video_remotion(
-                scene_videos, screenplay, ts_path, overlaid,
-            )
-        else:
-            logger.info("[overlay] backend=ffmpeg")
-            merged_path = _merge_scenes(scene_videos, scene_durations, ts_path)
-            _apply_overlays(merged_path, screenplay, ts_path, overlaid,
-                              scene_videos=scene_videos)
+        merged_path = _merge_scenes(scene_videos, scene_durations, ts_path)
+        _apply_overlays(merged_path, screenplay, ts_path, overlaid,
+                          scene_videos=scene_videos)
 
         os.makedirs(config.OUTPUT_DIR, exist_ok=True)
         shutil.copyfile(overlaid, output_path)
