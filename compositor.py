@@ -457,6 +457,67 @@ def _needs_overlay(screenplay: dict) -> bool:
     return False
 
 
+def _compute_line_chunks_and_timings(
+    *,
+    line: dict,
+    next_line: dict | None,
+    offset: float,
+    duration: float,
+    scene_real: float | None,
+    chunk_enabled: bool,
+    chunk_max_chars: int,
+    line_max_chars: int,
+) -> tuple[list[str], list[tuple[float, float]]]:
+    """1 line を字幕 chunks + 各 chunk の (start, end) timing に変換する。
+
+    manual_subs (= ``line.subtitles[]``) があれば ratio で timeline に lift し
+    ``_resolve_subtitle_timings`` で隣接 chunk 間の境界を確定する。無ければ
+    ``chunk_enabled`` / 文字数しきい値に応じて ``_split_into_chunks`` /
+    ``_wrap_subtitle_text`` で chunk 化する。
+    空 text / 全 sub が空 text なら ``([], [])`` を返す。
+    """
+    manual_subs = line.get("subtitles") or []
+    if manual_subs:
+        ratio = (scene_real / duration) if (scene_real and duration > 0) else 1.0
+        rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
+        line_start_abs = offset + rel_start
+        line_end_abs = offset + rel_end
+
+        resolver_items: list[dict] = []
+        for sub in manual_subs:
+            sub_text = (sub.get("text") or "").strip()
+            if not sub_text:
+                continue
+            item: dict = {"text": sub_text}
+            if sub.get("start") is not None:
+                item["start"] = offset + float(sub["start"]) * ratio
+            if sub.get("end") is not None:
+                item["end"] = offset + float(sub["end"]) * ratio
+            resolver_items.append(item)
+
+        if not resolver_items:
+            return [], []
+
+        resolved = _resolve_subtitle_timings(
+            resolver_items, line_start_abs, line_end_abs)
+        return [it["text"] for it in resolver_items], resolved
+
+    rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
+    abs_start = offset + rel_start
+    abs_end = offset + rel_end
+    text = line["text"].strip()
+    if not text:
+        return [], []
+
+    if chunk_enabled:
+        chunks = _split_into_chunks(text, chunk_max_chars)
+        timings = _allocate_chunk_timings(chunks, abs_start, abs_end)
+    else:
+        chunks = [_wrap_subtitle_text(text, line_max_chars)]
+        timings = [(abs_start, abs_end)]
+    return chunks, timings
+
+
 def _build_overlay_filter(screenplay: dict, temp_dir: str,
                             scene_videos: list[str] | None = None) -> str:
     """字幕オーバーレイ filter_complex を組み立てる。
@@ -512,50 +573,14 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
             if line.get("hidden"):
                 continue
 
-            manual_subs = line.get("subtitles") or []
-            if manual_subs:
-                ratio = (scene_real / duration) if (scene_real and duration > 0) else 1.0
-                # ratio で line 範囲をリスケール (line.start/end と同じ単位系で扱う)
-                rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
-                line_start_abs = offset + rel_start
-                line_end_abs = offset + rel_end
-
-                # ユーザー指定の start/end を ratio で同じ timeline に乗せる
-                resolver_items: list[dict] = []
-                for sub in manual_subs:
-                    sub_text = (sub.get("text") or "").strip()
-                    if not sub_text:
-                        continue
-                    item: dict = {"text": sub_text}
-                    if sub.get("start") is not None:
-                        item["start"] = offset + float(sub["start"]) * ratio
-                    if sub.get("end") is not None:
-                        item["end"] = offset + float(sub["end"]) * ratio
-                    resolver_items.append(item)
-
-                if not resolver_items:
-                    continue
-
-                resolved = _resolve_subtitle_timings(
-                    resolver_items, line_start_abs, line_end_abs)
-                chunks = [it["text"] for it in resolver_items]
-                timings = resolved
-            else:
-                rel_start, rel_end = _line_window(line, next_line, duration, scene_real)
-                abs_start = offset + rel_start
-                abs_end = offset + rel_end
-                text = line["text"].strip()
-                if not text:
-                    continue
-
-                if chunk_enabled:
-                    # TikTok 風: 短いテロップが次々切替わる
-                    chunks = _split_into_chunks(text, chunk_max_chars)
-                    timings = _allocate_chunk_timings(chunks, abs_start, abs_end)
-                else:
-                    # 従来: 1 line = 1 字幕。長文は line 内で改行
-                    chunks = [_wrap_subtitle_text(text, line_max_chars)]
-                    timings = [(abs_start, abs_end)]
+            chunks, timings = _compute_line_chunks_and_timings(
+                line=line, next_line=next_line,
+                offset=offset, duration=duration, scene_real=scene_real,
+                chunk_enabled=chunk_enabled, chunk_max_chars=chunk_max_chars,
+                line_max_chars=line_max_chars,
+            )
+            if not chunks:
+                continue
 
             for c_idx, (chunk_text, (c_start, c_end)) in enumerate(zip(chunks, timings)):
                 tf = _write_textfile(
