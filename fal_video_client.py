@@ -18,6 +18,10 @@ MODEL_ID = "fal-ai/kling-video/v3/standard/image-to-video"
 MAX_RETRIES = 5
 BACKOFF_SECONDS = [10, 20, 40, 80, 120]
 
+# Kling V3 が返す動画 URL からの download timeout。短尺 (= 数 MB) でも CDN の
+# 立ち上げ + retry を考慮して 5 分を確保する。
+DOWNLOAD_TIMEOUT_SEC = 300
+
 
 class FalClientError(APIClientError):
     """fal.ai Kling 固有のエラー。`APIClientError` を継承 (= §3.2)。"""
@@ -94,7 +98,7 @@ def generate_video(image_path: str, prompt: str, output_path: str,
             )
 
             video_url = result["video"]["url"]
-            resp = requests.get(video_url, timeout=300)
+            resp = requests.get(video_url, timeout=DOWNLOAD_TIMEOUT_SEC)
             resp.raise_for_status()
             io_utils.atomic_write_bytes(output_path, resp.content)
             return
