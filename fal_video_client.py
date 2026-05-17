@@ -8,6 +8,7 @@ from PIL import Image
 
 import config
 import io_utils
+from common.api_client import APIClientError
 from fal_runner import FalJobTimeoutError, run_with_timeout
 
 logger = logging.getLogger(__name__)
@@ -18,8 +19,8 @@ MAX_RETRIES = 5
 BACKOFF_SECONDS = [10, 20, 40, 80, 120]
 
 
-class FalClientError(Exception):
-    pass
+class FalClientError(APIClientError):
+    """fal.ai Kling 固有のエラー。`APIClientError` を継承 (= §3.2)。"""
 
 
 def _ensure_key() -> None:

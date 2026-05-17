@@ -6,12 +6,13 @@ import requests
 
 import config
 import io_utils
+from common.api_client import APIClientError
 
 logger = logging.getLogger(__name__)
 
 
-class LipsyncClientError(Exception):
-    pass
+class LipsyncClientError(APIClientError):
+    """Sync.so lipsync 固有のエラー。`APIClientError` を継承 (= §3.2)。"""
 
 
 def _parse_syncso_response(r: requests.Response, *, context: str) -> dict:
