@@ -89,16 +89,6 @@ SCHEMA: dict = {
                 "存在チェックは _check_atomic_refs で実施"
             ),
         },
-        "global_parts": {
-            "type": "object",
-            "additionalProperties": True,
-            "description": (
-                "Compositional Architecture: screenplay-wide で適用される "
-                "Layer 2 パーツ (= filter_preset / bgm / intro_card / outro_card 等)。"
-                "詳細は docs/plannings/2026-05-10_compositional-architecture.md §6.1。"
-                "id 一致は _check_part_registry で動的に検証される"
-            ),
-        },
         "scenes": {
             "type": "array",
             "minItems": 1,
@@ -248,15 +238,6 @@ SCHEMA: dict = {
                             },
                             "generation_seed": {"type": "integer"},
                         },
-                    },
-                    "scene_parts": {
-                        "type": "object",
-                        "additionalProperties": True,
-                        "description": (
-                            "Layer 2/3 (compositional parts)。subtitle_style / "
-                            "stickers / lower_third / camera_move / transitions / sfx 等。"
-                            "id 一致は _check_part_registry で動的に検証される"
-                        ),
                     },
                     "_override_background_prompt": {
                         "type": ["string", "null"],
@@ -556,45 +537,17 @@ def _check_character_refs(screenplay: dict) -> list[str]:
     return errors
 
 
-# ───────────── Phase 4 後の宿題: part_registry 整合性チェック ─────────────
+# ───────────── part_registry (visual_intents) 整合性チェック ─────────────
 #
-# screenplay の scene_parts / global_parts に書かれた id が、対応する
-# config/part_registry/<category>.yaml に存在することを検証する。
-# これが無いと render 時に PartRenderer が throw する遅い fail になる
-# (= UI から見ると「保存できたのに焼き直しが落ちる」状態)。
+# scenes[].annotation.visual_intent_id が `config/part_registry/visual_intents.yaml`
+# に存在し、かつ id ごとの valid_start_emotions 制約を満たすことを検証する。
+# 不正 id は **fast fail** で reject (= clip_library lookup の遅い throw を防ぐ)。
+# yaml が無い場合 (= 半完成 deployment) は警告ログのみで pass。
 #
-# yaml load は lru_cache でキャッシュ。テストや snapshot を pollute しないよう
-# 環境変数 PART_REGISTRY_DIR で上書き可能 (= config.py に定義済み)。
+# yaml load + cache は part_registry_loader (= SSOT) に集約。テストからは
+# reset_part_registry_cache() を呼ぶと SSOT cache がクリアされる。
 
-# scene_parts の **単一参照** フィールド → category マップ
-_SCENE_PART_FIELDS_SINGLE: dict[str, str] = {
-    "subtitle_style": "subtitle_styles",
-    "lower_third": "lower_thirds",
-    "camera_move": "camera_moves",
-    "frame_layout": "frame_layouts",
-    "transition_in": "transitions",
-    "transition_out": "transitions",
-}
-# scene_parts の **配列参照** フィールド → category マップ
-_SCENE_PART_FIELDS_ARRAY: dict[str, str] = {
-    "stickers": "stickers",
-}
-# global_parts の単一参照フィールド → category マップ
-_GLOBAL_PART_FIELDS: dict[str, str] = {
-    "filter_preset": "filter_presets",
-    "intro_card": "title_cards",
-    "outro_card": "title_cards",
-}
-
-
-# yaml load + cache は part_registry_loader (= SSOT) に集約。
-# 旧 _PART_REGISTRY_CACHE / _load_part_registry_ids_uncached は削除済み。
-# テストからは reset_part_registry_cache() を呼ぶと SSOT cache がクリアされる。
 import part_registry_loader as _registry
-
-
-def _load_part_registry_ids(category: str) -> frozenset[str]:
-    return _registry.list_ids(category)
 
 
 def reset_part_registry_cache() -> None:
@@ -604,96 +557,40 @@ def reset_part_registry_cache() -> None:
 
 
 def _check_part_registry(screenplay: dict) -> list[str]:
-    """scene_parts / global_parts の id が対応 yaml に存在することを検証。
+    """scenes[].annotation.visual_intent_id の整合性を検証。
 
-    存在しない id は **fast fail** で reject する (= render 時の throw を防ぐ)。
-    yaml が無い category は警告ログだけで pass (= 半完成 deployment でも回る)。
+    1. id が visual_intents.yaml に存在するか
+    2. id ごとの valid_start_emotions に scene の start_emotion が含まれるか
     """
 
     errors: list[str] = []
-
-    # scene_parts (= 各 scene)
-    for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
-        sp = scene.get("scene_parts") or {}
-        if not isinstance(sp, dict):
-            continue
-        for field, category in _SCENE_PART_FIELDS_SINGLE.items():
-            ref = sp.get(field)
-            if not isinstance(ref, dict):
-                continue
-            ref_id = ref.get("id")
-            if not isinstance(ref_id, str):
-                continue
-            ids = _load_part_registry_ids(category)
-            if ids and ref_id not in ids:
-                errors.append(
-                    f"scenes/{s_idx}/scene_parts/{field}/id: "
-                    f"'{ref_id}' は config/part_registry/{category}.yaml に未定義"
-                )
-        for field, category in _SCENE_PART_FIELDS_ARRAY.items():
-            arr = sp.get(field)
-            if not isinstance(arr, list):
-                continue
-            ids = _load_part_registry_ids(category)
-            if not ids:
-                continue
-            for i, item in enumerate(arr):
-                if not isinstance(item, dict):
-                    continue
-                item_id = item.get("id")
-                if isinstance(item_id, str) and item_id not in ids:
-                    errors.append(
-                        f"scenes/{s_idx}/scene_parts/{field}/{i}/id: "
-                        f"'{item_id}' は config/part_registry/{category}.yaml に未定義"
-                    )
-
-    # global_parts (= screenplay 全体)
-    gp = screenplay.get("global_parts") or {}
-    if isinstance(gp, dict):
-        for field, category in _GLOBAL_PART_FIELDS.items():
-            ref = gp.get(field)
-            if not isinstance(ref, dict):
-                continue
-            ref_id = ref.get("id")
-            if not isinstance(ref_id, str):
-                continue
-            ids = _load_part_registry_ids(category)
-            if ids and ref_id not in ids:
-                errors.append(
-                    f"global_parts/{field}/id: "
-                    f"'{ref_id}' は config/part_registry/{category}.yaml に未定義"
-                )
-
-    # scenes[].annotation.visual_intent_id も同様にチェック
-    intent_ids = _load_part_registry_ids("visual_intents")
+    intent_ids = _registry.list_ids("visual_intents")
     intent_valid_emotions = _load_visual_intent_valid_emotions()
+
     for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
         ann = scene.get("annotation") or {}
-        ann_vi: str | None = None
-        if isinstance(ann, dict):
-            vi = ann.get("visual_intent_id")
-            if isinstance(vi, str):
-                ann_vi = vi
-                if intent_ids and vi not in intent_ids:
-                    errors.append(
-                        f"scenes/{s_idx}/annotation/visual_intent_id: "
-                        f"'{vi}' は config/part_registry/visual_intents.yaml に未定義"
-                    )
-
-        # G-10: visual_intent_id の valid_start_emotions 制約チェック。
-        # id 不正は上で reject 済みなので、ここでは valid id 前提で
-        # start_emotion だけ見る。
-        if isinstance(ann_vi, str) and ann_vi in intent_valid_emotions:
-            valid_emos = intent_valid_emotions[ann_vi]
-            if valid_emos:
-                start_emo = _resolve_scene_start_emotion(scene)
-                if start_emo is not None and start_emo not in valid_emos:
-                    field_path = f"scenes/{s_idx}/annotation/visual_intent_id"
-                    allowed = ", ".join(sorted(valid_emos))
-                    errors.append(
-                        f"{field_path}: '{ann_vi}' の valid_start_emotions "
-                        f"({allowed}) に start_emotion='{start_emo}' は含まれない"
-                    )
+        if not isinstance(ann, dict):
+            continue
+        vi = ann.get("visual_intent_id")
+        if not isinstance(vi, str):
+            continue
+        if intent_ids and vi not in intent_ids:
+            errors.append(
+                f"scenes/{s_idx}/annotation/visual_intent_id: "
+                f"'{vi}' は config/part_registry/visual_intents.yaml に未定義"
+            )
+            continue
+        # valid_start_emotions 制約 (= id 不正は上で reject 済み)
+        valid_emos = intent_valid_emotions.get(vi)
+        if valid_emos:
+            start_emo = _resolve_scene_start_emotion(scene)
+            if start_emo is not None and start_emo not in valid_emos:
+                allowed = ", ".join(sorted(valid_emos))
+                errors.append(
+                    f"scenes/{s_idx}/annotation/visual_intent_id: "
+                    f"'{vi}' の valid_start_emotions "
+                    f"({allowed}) に start_emotion='{start_emo}' は含まれない"
+                )
 
     return errors
 

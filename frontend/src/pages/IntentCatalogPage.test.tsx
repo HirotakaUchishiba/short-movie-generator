@@ -56,7 +56,12 @@ const baseSuggestion = {
 };
 
 const emptyClipsResponse = { enabled: true, entries: [] };
-const emptyPartCatalogResponse = { categories: {} };
+const emptyIntentCatalogResponse = {
+  category: "visual_intents",
+  status: "ok",
+  found: true,
+  entries: [],
+};
 
 describe("IntentCatalogPage > IntentSuggestionsSection", () => {
   beforeEach(() => {
@@ -81,7 +86,7 @@ describe("IntentCatalogPage > IntentSuggestionsSection", () => {
         json: { entries: [], counts: {} },
       },
       "/api/clips": { ok: true, json: emptyClipsResponse },
-      "/api/parts/catalog": { ok: true, json: emptyPartCatalogResponse },
+      "/api/intent-catalog": { ok: true, json: emptyIntentCatalogResponse },
     });
     render(
       <MemoryRouter>
@@ -111,7 +116,7 @@ describe("IntentCatalogPage > IntentSuggestionsSection", () => {
         },
       },
       "/api/clips": { ok: true, json: emptyClipsResponse },
-      "/api/parts/catalog": { ok: true, json: emptyPartCatalogResponse },
+      "/api/intent-catalog": { ok: true, json: emptyIntentCatalogResponse },
     });
     render(
       <MemoryRouter>
@@ -171,7 +176,7 @@ describe("IntentCatalogPage > IntentSuggestionsSection", () => {
         };
       },
       "/api/clips": { ok: true, json: emptyClipsResponse },
-      "/api/parts/catalog": { ok: true, json: emptyPartCatalogResponse },
+      "/api/intent-catalog": { ok: true, json: emptyIntentCatalogResponse },
     });
 
     render(
@@ -234,11 +239,11 @@ describe("IntentCatalogPage > IntentSuggestionsSection", () => {
           text: async () => "",
         } as Response;
       }
-      if (url.startsWith("/api/parts/catalog")) {
+      if (url.startsWith("/api/intent-catalog")) {
         return {
           ok: true,
           status: 200,
-          json: async () => emptyPartCatalogResponse,
+          json: async () => emptyIntentCatalogResponse,
           text: async () => "",
         } as Response;
       }
@@ -278,7 +283,7 @@ describe("IntentCatalogPage > IntentSuggestionsSection", () => {
         },
       },
       "/api/clips": { ok: true, json: emptyClipsResponse },
-      "/api/parts/catalog": { ok: true, json: emptyPartCatalogResponse },
+      "/api/intent-catalog": { ok: true, json: emptyIntentCatalogResponse },
     });
     render(
       <MemoryRouter>
