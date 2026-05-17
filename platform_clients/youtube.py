@@ -37,9 +37,17 @@ DEFAULT_UPLOAD_CHUNK_SIZE = 8 * 1024 * 1024
 DEFAULT_CATEGORY_ID = "22"  # People & Blogs
 
 REFRESH_TOKEN_GUIDANCE = (
-    "YOUTUBE_REFRESH_TOKEN が無効です (取り消し / 期限切れの可能性)。"
-    "OAuth flow で再取得してください "
-    "(https://developers.google.com/youtube/v3/quickstart/python)"
+    "YOUTUBE_REFRESH_TOKEN が無効です "
+    "(= 取り消し / 期限切れ / client_id 不一致のいずれか)。\n"
+    "再認可手順:\n"
+    "  1. Google Cloud Console で OAuth client_id を確認 "
+    "(https://console.cloud.google.com/apis/credentials)\n"
+    "  2. https://developers.google.com/oauthplayground/ で "
+    "    'YouTube Data API v3 v3' → 'youtube.upload' scope を選択\n"
+    "  3. 'Use your own OAuth credentials' に client_id / secret を入力\n"
+    "  4. Authorize APIs → Exchange authorization code for tokens\n"
+    "  5. refresh_token を YOUTUBE_REFRESH_TOKEN env として再設定\n"
+    "詳細: https://developers.google.com/youtube/v3/quickstart/python"
 )
 
 
