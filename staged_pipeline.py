@@ -751,7 +751,9 @@ def apply_scene_boundaries(ts_path: str, line_boundaries: list[int]) -> dict:
     # tts_full.mp3 が残っていれば per-line / per-scene を再分割
     full_mp3 = os.path.join(ts_path, "tts_full.mp3")
     if os.path.exists(full_mp3):
-        scene_gen._build_audios_from_full(new_sp, ts_path)
+        scene_gen.rebuild_audios_from_full_after_boundary_change(
+            new_sp, ts_path,
+        )
         logger.info(
             "[scene-boundaries] tts_full.mp3 から %d scene を再分割しました",
             len(new_scenes),
