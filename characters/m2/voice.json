@@ -4,5 +4,10 @@
     "stability": 0.5,
     "style": 0.25,
     "similarity_boost": 0.7
+  },
+  "appearance": {
+    "gender": "male",
+    "age_range": "30s",
+    "description": "知的で物静かな30代前半の男性、黒髪サイドパート、メガネ、学者風の落ち着いた印象"
   }
 }

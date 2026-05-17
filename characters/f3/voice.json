@@ -4,5 +4,10 @@
     "stability": 0.4,
     "style": 0.4,
     "similarity_boost": 0.7
+  },
+  "appearance": {
+    "gender": "female",
+    "age_range": "30s",
+    "description": "優しく親しみのある30代前半の女性、ボブ髪型、そばかすのある柔らかい印象"
   }
 }

@@ -4,5 +4,10 @@
     "stability": 0.45,
     "style": 0.3,
     "similarity_boost": 0.7
+  },
+  "appearance": {
+    "gender": "male",
+    "age_range": "20s",
+    "description": "爽やかな20代中盤の男性、黒髪短髪、若々しくスポーティな印象"
   }
 }

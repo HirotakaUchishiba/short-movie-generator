@@ -4,5 +4,10 @@
     "stability": 0.5,
     "style": 0.25,
     "similarity_boost": 0.7
+  },
+  "appearance": {
+    "gender": "female",
+    "age_range": "20s",
+    "description": "落ち着いた20代後半の女性、黒髪ロング、知的で物静かな印象"
   }
 }
