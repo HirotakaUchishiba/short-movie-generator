@@ -126,6 +126,8 @@ class _PhaseTracker:
                 self.current_phase = None
         elif event == "claude_usage":
             self._record_claude_cost(data)
+        elif event == "rewrite_usage":
+            self._record_rewrite_cost(data)
 
     def fail_current_phase(self, error: Exception | str) -> str | None:
         """``current_phase`` を failed に遷移させ phase 名を返す (= 既に
@@ -238,6 +240,33 @@ class _PhaseTracker:
         except Exception:
             logger.exception(
                 "cost recording failed (analyze): %s", self.job_id,
+            )
+
+    def _record_rewrite_cost(self, data: dict) -> None:
+        """Gemini dialogue rewrite phase の cost を記録する。
+
+        pipeline.py が `rewrite_usage` event で送ってくる
+        `{model, input_tokens, output_tokens, status}` を読んで
+        cost_recorder.record_dialogue_rewrite() に渡す。失敗しても
+        analyze 全体は止めない (= 例外は log のみ)。
+        """
+
+        input_tokens = data.get("input_tokens")
+        output_tokens = data.get("output_tokens")
+        model = data.get("model")
+        if input_tokens is None or output_tokens is None or not model:
+            return
+        try:
+            cost_recorder.record_dialogue_rewrite(
+                project_ts=self.job_id,
+                model=str(model),
+                input_tokens=int(input_tokens),
+                output_tokens=int(output_tokens),
+                metadata={"status": data.get("status")},
+            )
+        except Exception:
+            logger.exception(
+                "cost recording failed (dialogue_rewrite): %s", self.job_id,
             )
 
 

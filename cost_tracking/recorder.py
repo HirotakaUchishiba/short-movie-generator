@@ -80,6 +80,44 @@ def record_tts(
     return rec
 
 
+def record_dialogue_rewrite(
+    *,
+    project_ts: str | None,
+    model: str,
+    input_tokens: int,
+    output_tokens: int,
+    operation: str = "rewrite",
+    metadata: dict[str, Any] | None = None,
+) -> records.CostRecord:
+    """analyze pipeline の Gemini dialogue rewrite phase コスト記録。
+
+    stage="analyze_rewrite" として記録 (= analyze 本体の Claude inference
+    とは区別。dashboard 集計で個別の cost 内訳が見られるように)。
+    """
+    unit_prices = pricebook.get_unit_prices("google", model)
+    cost_usd = pricing.compute_gemini_text_cost(
+        input_tokens=input_tokens,
+        output_tokens=output_tokens,
+        unit_prices=unit_prices,
+    )
+    rec = records.make_record(
+        project_ts=project_ts,
+        stage="analyze_rewrite",
+        operation=operation,
+        provider="google",
+        model=model,
+        units={
+            "input_tokens": float(input_tokens),
+            "output_tokens": float(output_tokens),
+        },
+        unit_prices=unit_prices,
+        cost_usd=cost_usd,
+        metadata=metadata,
+    )
+    records.append(rec)
+    return rec
+
+
 def record_imagen(
     *,
     project_ts: str | None,

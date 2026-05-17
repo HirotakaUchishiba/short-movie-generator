@@ -38,6 +38,21 @@ def compute_imagen_cost(
     return images * unit_prices["usd_per_image"]
 
 
+def compute_gemini_text_cost(
+    *,
+    input_tokens: float,
+    output_tokens: float,
+    unit_prices: dict[str, float],
+) -> float:
+    """Gemini text: ``(input × in_per_mtok + output × out_per_mtok) / 1e6``。
+
+    Anthropic と同じ MTok 単価ベース (= input/output 別レート)。
+    """
+    in_rate = unit_prices["input_per_mtok"]
+    out_rate = unit_prices["output_per_mtok"]
+    return (input_tokens * in_rate + output_tokens * out_rate) / 1_000_000
+
+
 def compute_kling_cost(
     *,
     duration_sec: float,
