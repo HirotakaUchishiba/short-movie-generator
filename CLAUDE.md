@@ -311,8 +311,9 @@ python3 scripts/analyze_video.py path/to/reference.mov --fps 1.5  # フレーム
 - librosa で各phraseの pitch/rms/wpm を抽出
 - 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・匿名 speaker_N のみ、ビジュアル要素は scene 個別フィールド + speaker_to_ref で後段に注入)。詳細は `docs/abstract-screenplay-design.md`
 - **casting は参考動画に寄せない** (= 2026-05-17 方針、`docs/plannings/2026-05-17_decouple-casting-from-reference.md`): analyze は `speaker_to_ref` を catalog の base から alphabetical 順に割当てるだけで、Stage 1 UI で人間が自由に選び直す前提。`speaker_profiles` (= gender / age) は UI ヒント表示用として残るが appearance 突合判定には使われない
-- 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)
-- 必要な環境変数: `ANTHROPIC_API_KEY` 必須。`OPENAI_API_KEY` は任意（無ければローカル whisper）
+- **rewrite phase (= Gemini)**: Claude の inference 直後に `gemini_dialogue_rewriter` が走り、`line.text` + `caption` だけを **同じ意味・同じ感情・独自の言い回し** に書き換える (= 翻案権配慮、2026-05-17 `docs/plannings/2026-05-17_gemini-dialogue-rewrite.md`)。失敗時は graceful に Claude original 維持 (= analyze 全体は止めない)。`ANALYZE_DIALOGUE_REWRITE_ENABLED=0` で kill-switch 可能。文字数比率 ±20% 超 / ASCII `,`/`.` 含 / payload 欠落の line は per-line で original に降格
+- 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)。rewrite phase は `stage="analyze_rewrite"` で個別記録される (= ~$0.02/動画)
+- 必要な環境変数: `ANTHROPIC_API_KEY` 必須、`GOOGLE_API_KEY` 必須 (= Imagen + Gemini rewrite)。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
 ## 感情 → inline tag / Kling motion 自動適用
 
