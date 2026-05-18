@@ -1007,6 +1007,11 @@ def _extract_line_audio_segment(
     使われる。body + trailing silence の構造で両者を concat した後、必要なら
     atempo を適用する。出力契約は両 path で完全に一致する。
 
+    内部 callsite で `_extract_audio_segment` / `_apply_silenceremove_inplace`
+    等の **scene_gen 内 shim** を経由しているため、test が同 shim を
+    monkeypatch すれば dummy mp3 入力でも動く (= stages 側に移管すると
+    内部呼出が patch を bypass する問題が出るため scene_gen に残す)。
+
     Returns:
         atempo 適用後の natural silence 実長 (= subtitle 計算用)。
     """
@@ -1021,7 +1026,7 @@ def _extract_line_audio_segment(
 
     body_path = out_path + ".body.mp3"
     _extract_audio_segment(voice_mp3, abs_start, speech_dur, body_path,
-                            codec="libmp3lame", bitrate="192k")
+                           codec="libmp3lame", bitrate="192k")
     if trim_sil:
         _apply_silenceremove_inplace(body_path, max_sil_sec, sil_thr)
 
@@ -1029,7 +1034,7 @@ def _extract_line_audio_segment(
     if natural_extract > 0:
         tail_path = out_path + ".tail.mp3"
         _extract_audio_segment(voice_mp3, body_end, natural_extract, tail_path,
-                                codec="libmp3lame", bitrate="192k")
+                               codec="libmp3lame", bitrate="192k")
         pieces.append(tail_path)
     _concat_audios_to_mp3(pieces, out_path)
     for p in pieces:
