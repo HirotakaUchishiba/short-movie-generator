@@ -15,6 +15,14 @@ import argparse
 import sys
 from pathlib import Path
 
+_ROOT = Path(__file__).resolve().parent.parent
+if str(_ROOT) not in sys.path:
+    sys.path.insert(0, str(_ROOT))
+
+from scripts._cli_base import get_logger  # noqa: E402
+
+logger = get_logger("build_bg_cache")
+
 
 def main() -> int:
     parser = argparse.ArgumentParser(description=__doc__)
@@ -25,8 +33,10 @@ def main() -> int:
     parser.add_argument("--verbose", "-v", action="store_true")
     args = parser.parse_args()
 
-    repo_root = Path(__file__).resolve().parent.parent
-    sys.path.insert(0, str(repo_root))
+    if args.verbose:
+        import logging
+        logging.getLogger().setLevel(logging.DEBUG)
+
     import bg_cache
     import config
     import scene_gen
@@ -34,7 +44,7 @@ def main() -> int:
 
     temp_dir = Path(config.TEMP_DIR)
     if not temp_dir.exists():
-        print(f"temp_dir が存在しません: {temp_dir}")
+        logger.error("temp_dir が存在しません: %s", temp_dir)
         return 1
 
     if args.ts:
@@ -48,13 +58,12 @@ def main() -> int:
     for ts_dir in ts_dirs:
         sp_path = ts_dir / "screenplay.json"
         if not sp_path.exists():
-            if args.verbose:
-                print(f"skip {ts_dir.name}: no screenplay.json")
+            logger.debug("skip %s: no screenplay.json", ts_dir.name)
             continue
         try:
             sp = staged_pipeline.load_project_screenplay(str(ts_dir))
         except Exception as e:
-            print(f"failed to load {ts_dir.name}: {e}")
+            logger.error("failed to load %s: %s", ts_dir.name, e)
             failed += 1
             continue
         scenes = sp.get("scenes") or []
@@ -66,36 +75,41 @@ def main() -> int:
                 inputs = scene_gen._scene_bg_inputs(
                     i, scene, sp, str(ts_dir))
             except Exception as e:
-                print(f"  {ts_dir.name} scene {i}: input build failed ({e})")
+                logger.error("  %s scene %d: input build failed (%s)",
+                             ts_dir.name, i, e)
                 failed += 1
                 continue
             if inputs is None:
                 continue
             if bg_cache.lookup(inputs["cache_key"]):
                 skipped += 1
-                if args.verbose:
-                    print(
-                        f"  {ts_dir.name} scene {i}: already cached "
-                        f"({inputs['cache_key']})")
+                logger.debug(
+                    "  %s scene %d: already cached (%s)",
+                    ts_dir.name, i, inputs["cache_key"],
+                )
                 continue
             meta = scene_gen._build_bg_cache_meta(scene, i, inputs)
             if args.dry_run:
-                print(f"  {ts_dir.name} scene {i}: would seed "
-                      f"{inputs['cache_key']} ({png.stat().st_size} bytes)")
+                logger.info(
+                    "  %s scene %d: would seed %s (%d bytes)",
+                    ts_dir.name, i, inputs["cache_key"], png.stat().st_size,
+                )
                 seeded += 1
                 continue
             try:
                 bg_cache.store(inputs["cache_key"], str(png), meta)
                 seeded += 1
-                if args.verbose:
-                    print(f"  {ts_dir.name} scene {i}: seeded "
-                          f"{inputs['cache_key']}")
+                logger.debug(
+                    "  %s scene %d: seeded %s",
+                    ts_dir.name, i, inputs["cache_key"],
+                )
             except Exception as e:
-                print(f"  {ts_dir.name} scene {i}: store failed ({e})")
+                logger.error("  %s scene %d: store failed (%s)",
+                             ts_dir.name, i, e)
                 failed += 1
 
-    print(f"\nseeded: {seeded}, skipped (already cached): {skipped}, "
-          f"failed: {failed}")
+    logger.info("seeded: %d, skipped (already cached): %d, failed: %d",
+                seeded, skipped, failed)
     return 0
 
 

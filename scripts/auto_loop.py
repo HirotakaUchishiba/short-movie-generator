@@ -515,6 +515,8 @@ def main() -> int:
         logger.exception("auto_loop unexpected error: %s", e)
         return 1
 
+    # cron / shell 連携で `auto_loop.py | xargs -I{} ...` できるよう、生成 TS を
+    # stdout に書き出す (= logger ではなく print)。
     print(f"ts: {ts}")
     return 0
 

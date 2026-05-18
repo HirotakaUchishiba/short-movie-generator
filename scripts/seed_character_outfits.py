@@ -28,8 +28,9 @@ if ROOT not in sys.path:
 import config
 import imagen_client
 from analyze import style as analyze_style
+from scripts._cli_base import get_logger
 
-logger = logging.getLogger("seed_character_outfits")
+logger = get_logger("seed_character_outfits")
 
 
 # 衣装タグごとの seed prompt テキスト。
@@ -102,28 +103,26 @@ def main() -> int:
     )
     args = p.parse_args()
 
-    logging.basicConfig(
-        level=logging.DEBUG if args.verbose else logging.INFO,
-        format="%(asctime)s %(levelname)s %(name)s: %(message)s",
-    )
+    if args.verbose:
+        logging.getLogger().setLevel(logging.DEBUG)
 
     pairs = _collect_pairs(args.style)
     if not pairs:
         logger.error("対象なし (style=%s)", args.style)
         return 1
 
-    print(f"対象: {len(pairs)} ペア")
+    logger.info("対象: %d ペア", len(pairs))
     for base, w in pairs:
         out = _outfit_path(base, w)
         exists = os.path.exists(out)
         text = SEED_WARDROBE_TEXTS.get(w, "(未登録の衣装テキスト)")
         marker = "skip" if exists and not args.force else "GEN"
-        print(f"  [{marker}] {base} × {w}")
-        print(f"         → {out}")
-        print(f"         text: {text}")
+        logger.info("  [%s] %s × %s", marker, base, w)
+        logger.info("         → %s", out)
+        logger.info("         text: %s", text)
 
     if args.dry_run:
-        print("\n--dry-run: 何も生成しません")
+        logger.info("--dry-run: 何も生成しません")
         return 0
 
     generated = 0
@@ -162,10 +161,10 @@ def main() -> int:
             logger.error("生成失敗 (%s × %s): %s", base, w, e)
             failed.append((base, w, str(e)))
 
-    print(f"\n完了: 生成={generated} / skip={skipped} / 失敗={len(failed)}")
+    logger.info("完了: 生成=%d / skip=%d / 失敗=%d", generated, skipped, len(failed))
     if failed:
         for base, w, msg in failed:
-            print(f"  FAIL: {base} × {w}: {msg}")
+            logger.error("  FAIL: %s × %s: %s", base, w, msg)
         return 2
     return 0
 
