@@ -30,6 +30,10 @@ sys.path.insert(0, str(ROOT))
 import config  # noqa: E402
 from PIL import Image  # noqa: E402
 
+from scripts._cli_base import get_logger  # noqa: E402
+
+logger = get_logger("generate_assets")
+
 # ─── 5 人 × 3 衣装 のキャラ定義 ──────────────────────────────
 
 # キャラ ID → identity 記述 (= 全衣装で共通の顔・体・髪)
@@ -192,11 +196,11 @@ def crop_to_aspect_9_16(img: Image.Image, top_ratio: float, bottom_ratio: float)
 def _gen(prompt: str, out_path: Path, refs: list[str] | None = None) -> None:
     import imagen_client
     out_path.parent.mkdir(parents=True, exist_ok=True)
-    print(f"  📸 generating: {out_path.relative_to(ROOT)}")
+    logger.info("  📸 generating: %s", out_path.relative_to(ROOT))
     t0 = time.time()
     imagen_client.generate_image(prompt, str(out_path), aspect_ratio="9:16",
                                  reference_images=refs)
-    print(f"     ✓ done ({time.time() - t0:.1f}s)")
+    logger.info("     ✓ done (%.1fs)", time.time() - t0)
 
 
 def cmd_characters(apply: bool, force: bool) -> None:
@@ -204,15 +208,16 @@ def cmd_characters(apply: bool, force: bool) -> None:
     if apply:
         # 既存 PNG (= 旧キャラ画像) を全削除
         for png in chars_dir.rglob("*.png"):
-            print(f"  🗑 remove {png.relative_to(ROOT)}")
+            logger.info("  🗑 remove %s", png.relative_to(ROOT))
             png.unlink()
         # 旧 base.png のためのキャラディレクトリ (空になったもの) も削除
         for child in chars_dir.iterdir():
             if child.is_dir() and not any(child.iterdir()):
                 child.rmdir()
-                print(f"  🗑 remove dir {child.relative_to(ROOT)}")
+                logger.info("  🗑 remove dir %s", child.relative_to(ROOT))
 
-    print(f"\n== キャラ生成 ({len(CHARACTER_IDENTITIES)} 人 × {len(WARDROBES)} 衣装) ==")
+    logger.info("== キャラ生成 (%d 人 × %d 衣装) ==",
+                len(CHARACTER_IDENTITIES), len(WARDROBES))
     for char_id in CHARACTER_IDENTITIES:
         char_dir = chars_dir / char_id
         # voice.json を保存
@@ -225,20 +230,20 @@ def cmd_characters(apply: bool, force: bool) -> None:
                     f, ensure_ascii=False, indent=2,
                 )
                 f.write("\n")
-            print(f"  ✓ wrote {voice_path.relative_to(ROOT)}")
+            logger.info("  ✓ wrote %s", voice_path.relative_to(ROOT))
 
         # 衣装画像
         prev_path: Path | None = None
         for w_idx, wardrobe in enumerate(WARDROBES):
             out = char_dir / f"{wardrobe}.png"
             prompt = build_character_prompt(char_id, wardrobe)
-            print(f"\n--- {char_id} / {wardrobe} ---")
-            print(prompt)
+            logger.info("--- %s / %s ---", char_id, wardrobe)
+            logger.info("%s", prompt)
             if not apply:
                 prev_path = out  # dry-run でも参照鎖を仮想的に表示
                 continue
             if out.exists() and not force:
-                print(f"  skip (既存): {out.relative_to(ROOT)}")
+                logger.info("  skip (既存): %s", out.relative_to(ROOT))
                 prev_path = out
                 continue
             refs = [str(prev_path)] if (prev_path and prev_path.exists() and w_idx > 0) else None
@@ -251,22 +256,23 @@ def cmd_characters(apply: bool, force: bool) -> None:
             base = char_dir / "base.png"
             if first.exists() and (not base.exists() or force):
                 shutil.copyfile(first, base)
-                print(f"  ✓ base.png ← {first.name} (fallback for bare ID)")
+                logger.info("  ✓ base.png ← %s (fallback for bare ID)",
+                            first.name)
 
 
 def cmd_locations(apply: bool, force: bool) -> None:
     from analyze import location as loc_mod
-    print("\n== ロケプレビュー生成 ==")
+    logger.info("== ロケプレビュー生成 ==")
     for loc_id in loc_mod.list_locations():
         loc = loc_mod.load_location(loc_id)
         out = loc_mod.preview_path(loc_id)
         prompt = build_location_prompt(loc)
-        print(f"\n--- {loc_id} ---")
-        print(prompt)
+        logger.info("--- %s ---", loc_id)
+        logger.info("%s", prompt)
         if not apply:
             continue
         if out.exists() and not force:
-            print(f"  skip (既存): {out.relative_to(ROOT)}")
+            logger.info("  skip (既存): %s", out.relative_to(ROOT))
             continue
         _gen(prompt, out)
 
@@ -274,36 +280,37 @@ def cmd_locations(apply: bool, force: bool) -> None:
 def cmd_camera(apply: bool, force: bool) -> None:
     out_dir = ROOT / "frontend" / "public" / "camera-distance"
     base_path = out_dir / "_base.png"
-    print("\n== カメラ距離プレビュー生成 ==")
-    print("\n--- _base (元写真) ---")
-    print(CAMERA_BASE_PROMPT)
+    logger.info("== カメラ距離プレビュー生成 ==")
+    logger.info("--- _base (元写真) ---")
+    logger.info("%s", CAMERA_BASE_PROMPT)
     if apply and (not base_path.exists() or force):
         out_dir.mkdir(parents=True, exist_ok=True)
         _gen(CAMERA_BASE_PROMPT, base_path)
     elif apply:
-        print(f"  skip (既存): {base_path.relative_to(ROOT)}")
+        logger.info("  skip (既存): %s", base_path.relative_to(ROOT))
 
     if not apply:
         for cid in CAMERA_CROPS:
-            print(f"  → {cid}.png  (crop)")
+            logger.info("  → %s.png  (crop)", cid)
         return
 
     img = Image.open(base_path)
     for cid, (top, bottom) in CAMERA_CROPS.items():
         out = out_dir / f"{cid}.png"
         if out.exists() and not force:
-            print(f"  skip (既存): {out.relative_to(ROOT)}")
+            logger.info("  skip (既存): %s", out.relative_to(ROOT))
             continue
         cropped = crop_to_aspect_9_16(img, top, bottom)
         cropped.save(out)
-        print(f"  ✓ {out.relative_to(ROOT)}  ({top:.2f}〜{bottom:.2f})")
+        logger.info("  ✓ %s  (%.2f〜%.2f)",
+                    out.relative_to(ROOT), top, bottom)
 
     # 旧 SVG を削除
     for cid in CAMERA_CROPS:
         svg = out_dir / f"{cid}.svg"
         if svg.exists():
             svg.unlink()
-            print(f"  🗑 remove {svg.relative_to(ROOT)}")
+            logger.info("  🗑 remove %s", svg.relative_to(ROOT))
 
 
 def main() -> int:
@@ -323,7 +330,7 @@ def main() -> int:
         cmd_camera(args.apply, args.force)
 
     if not args.apply:
-        print("\n--apply で実生成 (API 課金が発生します)")
+        logger.info("--apply で実生成 (API 課金が発生します)")
     return 0
 
 
