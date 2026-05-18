@@ -212,6 +212,24 @@ def _resolve_channel_label() -> dict:
     return info
 
 
+def _resolve_token(*, scope_label: str) -> str:
+    """OAuth env resolve + access_token 取得を 1 関数に集約する helper (§3.7-b)。
+
+    `fetch_analytics` / `_fetch_impressions_metrics` / `_fetch_retention_curve`
+    で 3 度繰り返されていた 8 行 pattern を圧縮する。OAuth env が
+    1 つでも欠けていれば caller のコンテキストを含む明確な RuntimeError。
+    upload_video は token refresh が必要なため別経路 (= 既存の _resolve_oauth_env
+    + _oauth_access_token を保持)。
+    """
+    client_id, client_secret, refresh_token = _resolve_oauth_env()
+    if not all([client_id, client_secret, refresh_token]):
+        raise RuntimeError(
+            f"{scope_label}: YouTube OAuth 認証情報が未設定 "
+            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
+        )
+    return _oauth_access_token(client_id, client_secret, refresh_token)
+
+
 def _oauth_access_token(client_id: str, client_secret: str,
                         refresh_token: str) -> str:
     """refresh_token から access_token を取得。
@@ -268,14 +286,7 @@ def fetch_analytics(video_id: str,
     """YouTube Analytics API で詳細メトリクスを取得（要OAuth、自チャンネル動画のみ）。"""
     import requests
 
-    client_id, client_secret, refresh_token = _resolve_oauth_env()
-    if not all([client_id, client_secret, refresh_token]):
-        raise RuntimeError(
-            "YouTube Analytics認証情報が未設定 "
-            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
-        )
-
-    token = _oauth_access_token(client_id, client_secret, refresh_token)
+    token = _resolve_token(scope_label="YouTube Analytics")
 
     if not start_date:
         start_date = (date.today() - timedelta(days=30)).isoformat()
@@ -406,14 +417,7 @@ def fetch_traffic_sources(video_id: str,
     """
     import requests
 
-    client_id, client_secret, refresh_token = _resolve_oauth_env()
-    if not all([client_id, client_secret, refresh_token]):
-        raise RuntimeError(
-            "YouTube Analytics認証情報が未設定 "
-            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
-        )
-
-    token = _oauth_access_token(client_id, client_secret, refresh_token)
+    token = _resolve_token(scope_label="YouTube traffic-source")
 
     if not start_date:
         start_date = (date.today() - timedelta(days=30)).isoformat()
@@ -473,14 +477,7 @@ def fetch_retention_curve(video_id: str,
     """
     import requests
 
-    client_id, client_secret, refresh_token = _resolve_oauth_env()
-    if not all([client_id, client_secret, refresh_token]):
-        raise RuntimeError(
-            "YouTube Analytics認証情報が未設定 "
-            "(YOUTUBE_OAUTH_CLIENT_ID / CLIENT_SECRET / REFRESH_TOKEN)"
-        )
-
-    token = _oauth_access_token(client_id, client_secret, refresh_token)
+    token = _resolve_token(scope_label="YouTube retention-curve")
 
     if not start_date:
         start_date = (date.today() - timedelta(days=30)).isoformat()
