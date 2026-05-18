@@ -48,10 +48,10 @@ def main() -> int:
     info_resp.raise_for_status()
     info = info_resp.json()
     scopes = (info.get("scope") or "").split()
-    print(f"google_email: {info.get('email')}")
-    print(f"google_sub  : {info.get('sub')}")
-    print(f"audience    : {info.get('aud')}")
-    print(f"scopes      : {scopes}")
+    logger.info("google_email: %s", info.get('email'))
+    logger.info("google_sub  : %s", info.get('sub'))
+    logger.info("audience    : %s", info.get('aud'))
+    logger.info("scopes      : %s", scopes)
 
     has_youtube_read = any(
         s in scopes
@@ -62,16 +62,15 @@ def main() -> int:
         )
     )
     if not has_youtube_read:
-        print()
-        print(
+        logger.warning(
             "⚠ チャンネル詳細 (= title / subscribers / channel_id) を取得するには "
             "scope `https://www.googleapis.com/auth/youtube.readonly` が不足しています。",
         )
-        print(
+        logger.warning(
             "  対処: OAuth Playground で再 Authorize 時にこの scope も追加して "
             "新しい refresh_token を発行 → .env に上書き。",
         )
-        print(
+        logger.warning(
             "  なお現状の scope (`youtube.upload` + `yt-analytics.readonly`) で "
             "upload と Analytics 取得自体は動作します。",
         )
@@ -95,15 +94,14 @@ def main() -> int:
     for ch in items:
         s = ch.get("snippet", {})
         st = ch.get("statistics", {})
-        print()
-        print(f"channel_id  : {ch.get('id')}")
-        print(f"title       : {s.get('title')}")
-        print(f"custom_url  : {s.get('customUrl')}")
-        print(f"published_at: {s.get('publishedAt')}")
-        print(f"subscribers : {st.get('subscriberCount')}")
-        print(f"videos      : {st.get('videoCount')}")
-        print(f"views       : {st.get('viewCount')}")
-        print(f"url         : https://www.youtube.com/channel/{ch.get('id')}")
+        logger.info("channel_id  : %s", ch.get('id'))
+        logger.info("title       : %s", s.get('title'))
+        logger.info("custom_url  : %s", s.get('customUrl'))
+        logger.info("published_at: %s", s.get('publishedAt'))
+        logger.info("subscribers : %s", st.get('subscriberCount'))
+        logger.info("videos      : %s", st.get('videoCount'))
+        logger.info("views       : %s", st.get('viewCount'))
+        logger.info("url         : https://www.youtube.com/channel/%s", ch.get('id'))
     return 0
 
 
