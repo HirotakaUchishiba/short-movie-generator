@@ -218,6 +218,38 @@ def snap_line_boundaries_to_silence(
     return snapped
 
 
+def split_global_speed(target: float | None = None) -> tuple[float, float]:
+    """target 速度倍率を ElevenLabs native speed と ffmpeg atempo に分解する。
+
+    例:
+      target=0.5 → native=0.7, atempo=0.714
+      target=1.0 → native=1.0, atempo=1.0
+      target=1.5 → native=1.2, atempo=1.25
+      target=2.0 → native=1.2, atempo=1.667
+    """
+    speed = float(target if target is not None else config.TTS_GLOBAL_SPEED)
+    speed = max(0.5, min(2.0, speed))
+    native = max(config.TTS_NATIVE_SPEED_MIN,
+                 min(config.TTS_NATIVE_SPEED_MAX, speed))
+    atempo = speed / native
+    return native, atempo
+
+
+def full_screenplay_voice_settings() -> dict:
+    """one-shot 生成で使う screenplay-wide voice settings。
+
+    config 既定値 + global speed (= native speed への投影) を 1 dict にまとめる。
+    """
+    native_speed, _atempo = split_global_speed()
+    return {
+        "voice_id": config.ELEVENLABS_VOICE_ID,
+        "stability": config.ELEVENLABS_VOICE_STABILITY,
+        "similarity_boost": config.ELEVENLABS_VOICE_SIMILARITY_BOOST,
+        "style": config.ELEVENLABS_VOICE_STYLE,
+        "speed": native_speed,
+    }
+
+
 def apply_silenceremove_inplace(
     input_path: str, max_silence_sec: float, threshold_db: float,
 ) -> None:
