@@ -468,55 +468,17 @@ def _get_duration(path: str) -> float:
 
 
 def _trim_video(input_path: str, duration: float, output_path: str) -> None:
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-t", f"{duration:.3f}",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-an",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Video trim failed: {r.stderr[-500:]}")
+    """stages.ffmpeg_helpers.trim_video への shim (§3.1.1-c)。"""
+    _ffmpeg_helpers.trim_video(input_path, duration, output_path)
 
 
-def _extend_video_to_duration(input_path: str, target_duration: float,
-                              output_path: str) -> None:
-    """slow_mo で映像を target_duration まで引き伸ばす。音声トラックは捨てる
-    (input は trim 段階で -an のため元から無音想定)。
-
-    setpts=PTS*ratio で全フレームを等倍にスローモーション化する。
-    ratio < 1.0 (= 短縮) の呼出は誤用なのでエラーにする。
-    """
-    cur = _get_duration(input_path)
-    if cur <= 0.0:
-        raise RuntimeError(f"動画尺取得に失敗: {input_path}")
-
-    ratio = target_duration / cur
-    if ratio <= 1.0 + 1e-3:
-        # 既に十分長い → 単純コピーで output を作る
-        shutil.copyfile(input_path, output_path)
-        return
-
-    if ratio > 2.0:
-        logger.warning(
-            "slow_mo ratio が大きすぎます (%.2fx)。動画 %.2fs → %.2fs に延長します",
-            ratio, cur, target_duration,
-        )
-
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-filter_complex", f"[0:v]setpts=PTS*{ratio:.6f}[v]",
-        "-map", "[v]",
-        "-c:v", "libx264", "-preset", "medium", "-crf", "18",
-        "-pix_fmt", "yuv420p",
-        "-an",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Video slow_mo extension failed: {r.stderr[-500:]}")
+def _extend_video_to_duration(
+    input_path: str, target_duration: float, output_path: str,
+) -> None:
+    """stages.ffmpeg_helpers.extend_video_to_duration への shim (§3.1.1-c)。"""
+    _ffmpeg_helpers.extend_video_to_duration(
+        input_path, target_duration, output_path,
+    )
 
 
 def _generate_tts(text: str, output_path: str,
@@ -604,20 +566,8 @@ def _build_scene_audio(tts_paths: list[tuple[str, float]], scene_duration: float
 
 
 def _replace_audio(video_path: str, audio_path: str, output_path: str) -> None:
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", video_path,
-        "-i", audio_path,
-        "-map", "0:v",
-        "-map", "1:a",
-        "-c:v", "copy",
-        "-c:a", "aac", "-b:a", "192k",
-        "-shortest",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Audio replace failed: {r.stderr[-500:]}")
+    """stages.ffmpeg_helpers.replace_audio への shim (§3.1.1-c)。"""
+    _ffmpeg_helpers.replace_audio(video_path, audio_path, output_path)
 
 
 from stages import prompts as _prompts  # noqa: E402

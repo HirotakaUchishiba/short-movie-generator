@@ -6,6 +6,7 @@ from unittest.mock import MagicMock
 import pytest
 
 import scene_gen
+from stages import ffmpeg_helpers as _ffmpeg_helpers
 
 
 @pytest.fixture
@@ -29,10 +30,10 @@ def test_extend_video_to_duration_skips_when_already_long_enough(
     dst = tmp_path / "out.mp4"
     _make_dummy(str(src), b"video")
 
-    monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 5.05)
+    monkeypatch.setattr(_ffmpeg_helpers, "get_duration", lambda p: 5.05)
 
     run_spy = MagicMock()
-    monkeypatch.setattr(scene_gen.sp, "run", run_spy)
+    monkeypatch.setattr(_ffmpeg_helpers.sp, "run", run_spy)
 
     scene_gen._extend_video_to_duration(str(src), 5.0, str(dst))
 
@@ -46,7 +47,7 @@ def test_extend_video_to_duration_invokes_setpts(tmp_path, monkeypatch) -> None:
     dst = tmp_path / "out.mp4"
     _make_dummy(str(src))
 
-    monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 5.0)
+    monkeypatch.setattr(_ffmpeg_helpers, "get_duration", lambda p: 5.0)
 
     captured: list[list[str]] = []
 
@@ -60,7 +61,7 @@ def test_extend_video_to_duration_invokes_setpts(tmp_path, monkeypatch) -> None:
         r.stderr = ""
         return r
 
-    monkeypatch.setattr(scene_gen.sp, "run", fake_run)
+    monkeypatch.setattr(_ffmpeg_helpers.sp, "run", fake_run)
 
     scene_gen._extend_video_to_duration(str(src), 6.5, str(dst))
 
@@ -81,7 +82,7 @@ def test_extend_video_to_duration_warns_when_ratio_too_large(
     dst = tmp_path / "out.mp4"
     _make_dummy(str(src))
 
-    monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 3.0)
+    monkeypatch.setattr(_ffmpeg_helpers, "get_duration", lambda p: 3.0)
 
     def fake_run(cmd, **_kwargs):
         with open(dst, "wb") as f:
@@ -90,10 +91,10 @@ def test_extend_video_to_duration_warns_when_ratio_too_large(
         r.returncode = 0
         return r
 
-    monkeypatch.setattr(scene_gen.sp, "run", fake_run)
+    monkeypatch.setattr(_ffmpeg_helpers.sp, "run", fake_run)
 
     import logging
-    with caplog.at_level(logging.WARNING, logger="scene_gen"):
+    with caplog.at_level(logging.WARNING, logger="stages.ffmpeg_helpers"):
         scene_gen._extend_video_to_duration(str(src), 7.0, str(dst))
 
     assert any("slow_mo ratio" in rec.message for rec in caplog.records)
@@ -106,7 +107,7 @@ def test_extend_video_to_duration_raises_on_ffmpeg_failure(
     dst = tmp_path / "out.mp4"
     _make_dummy(str(src))
 
-    monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 5.0)
+    monkeypatch.setattr(_ffmpeg_helpers, "get_duration", lambda p: 5.0)
 
     def fake_run(cmd, **_kwargs):
         r = MagicMock()
@@ -114,7 +115,7 @@ def test_extend_video_to_duration_raises_on_ffmpeg_failure(
         r.stderr = "ffmpeg boom"
         return r
 
-    monkeypatch.setattr(scene_gen.sp, "run", fake_run)
+    monkeypatch.setattr(_ffmpeg_helpers.sp, "run", fake_run)
 
     with pytest.raises(RuntimeError, match="slow_mo extension failed"):
         scene_gen._extend_video_to_duration(str(src), 6.5, str(dst))
