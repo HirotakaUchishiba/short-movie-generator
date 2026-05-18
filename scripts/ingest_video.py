@@ -6,7 +6,6 @@
 """
 import argparse
 import json
-import logging
 import subprocess
 import sys
 from pathlib import Path
@@ -16,12 +15,11 @@ ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT))
 
 import config  # noqa: E402
-import log_setup  # noqa: E402
 from analytics import db  # noqa: E402
 from improvement import observed as _observed  # noqa: E402
+from scripts._cli_base import get_logger  # noqa: E402
 
-log_setup.setup()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _ffprobe_duration(path: str) -> float | None:

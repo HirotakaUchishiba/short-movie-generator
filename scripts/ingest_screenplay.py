@@ -7,7 +7,6 @@
 """
 import argparse
 import json
-import logging
 import sys
 from pathlib import Path
 
@@ -15,12 +14,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT))
 
-import log_setup  # noqa: E402
 from analytics import db, auto_tag  # noqa: E402
 from improvement import observed as _observed  # noqa: E402
+from scripts._cli_base import get_logger  # noqa: E402
 
-log_setup.setup()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def main() -> int:
