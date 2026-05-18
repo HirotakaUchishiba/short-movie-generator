@@ -254,6 +254,45 @@ def _collect_novel_intent_candidates(screenplay: dict) -> list[dict]:
     ]
 
 
+def _run_frames_phase(
+    *,
+    video_path: str,
+    fps: float,
+    frames_dir: str,
+    use_cache: bool,
+    on_progress: ProgressCallback | None,
+    cancel_token: CancelToken | None,
+) -> list[str]:
+    """frames phase: video_sha 計算 + cache restore or 新規 extract + event 発火。
+
+    330 行の ``run()`` から最初の phase を独立化 (= §3.3 段階移行)。
+    video_sha は本関数内に閉じ込めて caller には返さない (= 後段で参照なし)。
+    """
+    _emit(on_progress, "phase_start", {"phase": "frames"})
+    video_sha = _cache.file_sha256(video_path)
+    restored = (
+        _cache.restore_frames(video_sha, fps, frames_dir) if use_cache else None
+    )
+    if restored is not None:
+        frame_paths = restored
+        _emit(on_progress, "phase_complete", {
+            "phase": "frames",
+            "frame_count": len(frame_paths),
+            "from_cache": True,
+        })
+    else:
+        frame_paths = _extract_frames(video_path, fps, frames_dir)
+        if use_cache:
+            _cache.store_frames(video_sha, fps, frames_dir)
+        _emit(on_progress, "phase_complete", {
+            "phase": "frames",
+            "frame_count": len(frame_paths),
+            "from_cache": False,
+        })
+    _check_cancel(cancel_token)
+    return frame_paths
+
+
 def _run_save_phase(
     screenplay: dict,
     *,
@@ -414,26 +453,14 @@ def run(
         frame_interval_sec = 1.0 / options.fps
 
         # ─── Phase: frames (cache: video_sha + fps) ──────
-        _emit(on_progress, "phase_start", {"phase": "frames"})
-        video_sha = _cache.file_sha256(video_path)
-        restored = _cache.restore_frames(video_sha, options.fps, frames_dir) if use_cache else None
-        if restored is not None:
-            frame_paths = restored
-            _emit(on_progress, "phase_complete", {
-                "phase": "frames",
-                "frame_count": len(frame_paths),
-                "from_cache": True,
-            })
-        else:
-            frame_paths = _extract_frames(video_path, options.fps, frames_dir)
-            if use_cache:
-                _cache.store_frames(video_sha, options.fps, frames_dir)
-            _emit(on_progress, "phase_complete", {
-                "phase": "frames",
-                "frame_count": len(frame_paths),
-                "from_cache": False,
-            })
-        _check_cancel(cancel_token)
+        frame_paths = _run_frames_phase(
+            video_path=video_path,
+            fps=options.fps,
+            frames_dir=frames_dir,
+            use_cache=use_cache,
+            on_progress=on_progress,
+            cancel_token=cancel_token,
+        )
 
         transcript: dict = {"text": "", "segments": [], "words": [], "duration": 0.0}
         phrase_features: list[dict] = []
