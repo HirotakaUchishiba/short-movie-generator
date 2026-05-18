@@ -83,6 +83,7 @@ from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.analyze import analyze_bp  # noqa: E402
+from routes.catalogs import catalogs_bp  # noqa: E402
 from routes.character_metas import character_metas_bp  # noqa: E402
 from routes.locations import locations_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
@@ -104,6 +105,7 @@ app.register_blueprint(analyze_bp)
 app.register_blueprint(reference_videos_bp)
 app.register_blueprint(locations_bp)
 app.register_blueprint(character_metas_bp)
+app.register_blueprint(catalogs_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -323,26 +325,7 @@ def api_bg_cache_info(ts, scene_idx):
 # routes/screenplay.py に移管済 (§3.1.2-a)。
 
 
-# characters/ 配下の画像 ref 一覧 (拡張子なし)。Stage 1 の登場人物選択 UI 用。
-@app.route("/api/characters", methods=["GET"])
-def api_list_characters():
-    """利用可能な resolved id (= <base>__<wardrobe> / <base>) 一覧。
-    新ネスト構造 (characters/<base>/<wardrobe>.png) と旧 flat レイアウトの
-    両方に対応 (analyze.character_meta.list_character_images)。"""
-    from analyze import character_meta as cmeta_mod
-    return jsonify({"characters": cmeta_mod.list_character_images()})
-
-
-# preset ライブラリ全部をフロントに返す。UI dropdown 用。
-@app.route("/api/presets", methods=["GET"])
-def api_presets():
-    import config as _config
-    return jsonify({
-        "libraries": _config.PROMPT_PRESET_LIBRARIES,
-        "labels_ja": _config.PRESET_LABELS_JA,
-        "category_labels_ja": _config.PRESET_CATEGORY_LABELS_JA,
-        "emotion_default_preset_ids": _config.EMOTION_DEFAULT_PRESET_IDS,
-    })
+# characters / presets endpoint は routes/catalogs.py に移管済 (= §3.1.2)。
 
 
 # ───────────────── ジョブステータス ─────────────────
