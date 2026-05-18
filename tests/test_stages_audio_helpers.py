@@ -250,6 +250,29 @@ def test_detect_all_silences_finds_inserted_silence(tmp_path):
     assert len(mid_silences) >= 1
 
 
+def test_trim_internal_pauses_shrinks_long_silence(tmp_path):
+    """tone + 1s 無音 + tone を trim_internal_pauses にかけると尺が縮む。
+
+    config.TTS_PAUSE_KEEP_MS の現行値で実走 (= 既定値 70ms 程度)。
+    """
+    import json
+    src = tmp_path / "src.mp3"
+    _build_tone_silence_tone(str(src), tone_sec=0.2, silence_sec=1.0)
+    dst = tmp_path / "dst.mp3"
+    audio_helpers.trim_internal_pauses(str(src), str(dst))
+
+    def _dur(path: str) -> float:
+        r = sp.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", path],
+            capture_output=True, text=True,
+        )
+        return float(json.loads(r.stdout)["format"]["duration"])
+
+    assert dst.exists() and dst.stat().st_size > 0
+    assert _dur(str(dst)) < _dur(str(src)) - 0.5
+
+
 def test_apply_silenceremove_inplace_shrinks_silence(tmp_path):
     """tone + 1s 無音 + tone を 100ms 上限で圧縮すると尺が短くなる。"""
     import json

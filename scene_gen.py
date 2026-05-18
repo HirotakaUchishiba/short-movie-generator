@@ -247,34 +247,12 @@ def _neighbor_line_text(screenplay: dict | None, scene_idx: int,
     )
 
 
+from stages import audio_helpers as _audio_helpers_for_trim  # noqa: E402
+
+
 def _trim_internal_pauses(input_path: str, output_path: str) -> None:
-    """TTS音声内部の長すぎる無音を圧縮 + 任意でatempoによる速度補正。
-
-    silenceremove: 「stop_silence秒以下の無音は残し、それを超える無音は stop_silence に短縮」
-    atempo: 1.0 以外を指定すると速度倍率 (ピッチ維持で時間軸を変える)
-    """
-    keep_sec = config.TTS_PAUSE_KEEP_MS / 1000.0
-    filters = [
-        f"silenceremove="
-        f"start_periods=0:"
-        f"stop_periods=-1:"
-        f"stop_silence={keep_sec:.3f}:"
-        f"stop_threshold={config.TTS_PAUSE_THRESHOLD_DB}dB"
-    ]
-    tempo = float(getattr(config, "TTS_TEMPO_MULTIPLIER", 1.0))
-    if abs(tempo - 1.0) > 0.001:
-        # atempoは1段で 0.5〜2.0 まで有効。それ以上なら多段に分ける必要があるが現状はOK
-        filters.append(f"atempo={tempo:.3f}")
-
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-af", ",".join(filters),
-        "-c:a", "libmp3lame", "-q:a", "4",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Internal pause trim failed: {r.stderr[-500:]}")
+    """stages.audio_helpers.trim_internal_pauses への shim (§3.1.1-d)。"""
+    _audio_helpers_for_trim.trim_internal_pauses(input_path, output_path)
 
 
 from stages import ffmpeg_helpers as _ffmpeg_helpers  # noqa: E402
@@ -285,10 +263,12 @@ def _apply_volume(input_path: str, db: float, output_path: str) -> None:
     return _ffmpeg_helpers.apply_volume(input_path, db, output_path)
 
 
+from stages import image_helpers as _image_helpers  # noqa: E402
+
+
 def _prepare_background(bg_path: str, output_path: str) -> None:
-    bg = Image.open(bg_path).convert("RGB")
-    bg = bg.resize((config.VIDEO_WIDTH, config.VIDEO_HEIGHT), Image.LANCZOS)
-    bg.save(output_path, "PNG")
+    """stages.image_helpers.prepare_background への shim (§3.1.1-d)。"""
+    _image_helpers.prepare_background(bg_path, output_path)
 
 
 from stages import character_refs as _character_refs  # noqa: E402
