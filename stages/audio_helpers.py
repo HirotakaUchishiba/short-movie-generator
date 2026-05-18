@@ -1,7 +1,7 @@
 """scene_gen.py から audio 編集 helper を切り出した module。
 
-将来 PR で _apply_silenceremove_inplace / _detect_all_silences 等も同
-module に集約する (= 計画書 §3.1.1-d 段階移行)。
+extract / concat 系 + silence 検出系 + tempo 補正系を一括で持つ。
+scene_gen 側は private shim を残して既存 callsite を破壊しない。
 
 参照: docs/plannings/2026-05-17_comprehensive-refactoring-plan.md §3.1.1
 """
@@ -122,3 +122,123 @@ def concat_audios_to_mp3(audio_paths: list[str], output_path: str) -> None:
     r = sp.run(cmd, capture_output=True, text=True)
     if r.returncode != 0:
         raise RuntimeError(f"mp3 concat failed: {r.stderr[-500:]}")
+
+
+def detect_all_silences(
+    audio_path: str, threshold_db: float = -40.0,
+    min_silence_sec: float = 0.03,
+) -> list[tuple[float, float]]:
+    """ffmpeg silencedetect で audio_path 内の全無音区間 [(start, end), ...] を返す。
+
+    char_ts boundary snap 用に使うので min_silence_sec は短め (30ms)。
+    """
+    cmd = [
+        "ffmpeg", "-hide_banner", "-i", audio_path,
+        "-af", f"silencedetect=noise={threshold_db}dB:d={min_silence_sec:.3f}",
+        "-f", "null", "-",
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    silences: list[tuple[float, float]] = []
+    cur_start: float | None = None
+    for line in r.stderr.splitlines():
+        if "silence_start:" in line:
+            try:
+                cur_start = float(
+                    line.split("silence_start:")[1].strip().split()[0])
+            except (ValueError, IndexError):
+                cur_start = None
+        elif "silence_end:" in line and cur_start is not None:
+            try:
+                end_str = line.split("silence_end:")[1].strip().split()[0]
+                silences.append((cur_start, float(end_str)))
+            except (ValueError, IndexError):
+                pass
+            cur_start = None
+    return silences
+
+
+def snap_line_boundaries_to_silence(
+    line_times: list[dict],
+    silences: list[tuple[float, float]],
+    snap_tolerance_sec: float = 0.2,
+    min_speech_sec: float = MIN_SPEECH_DURATION_SEC,
+) -> list[dict]:
+    """char_ts ベースの abs_start/abs_end を、最寄りの無音区間境界に snap する。
+
+    - abs_end → 近隣 (±tolerance) の silence.start に snap (発声末尾を無音直前で切る)
+    - abs_start → 近隣 (±tolerance) の silence.end に snap (子音オンセット直前から始める)
+    - snap 候補が前後 line と overlap する場合は元の char_ts を保持
+    - line間に検出可能な無音が無い (連続発声) 場合も char_ts のまま
+    """
+    if not silences or not line_times:
+        return [dict(lt) for lt in line_times]
+    sorted_sils = sorted(silences)
+
+    def silence_with_start_near(t: float) -> tuple[float, float] | None:
+        best: tuple[float, float] | None = None
+        best_dist = snap_tolerance_sec + 1.0
+        for s_start, s_end in sorted_sils:
+            d = abs(s_start - t)
+            if d <= snap_tolerance_sec and d < best_dist:
+                best = (s_start, s_end)
+                best_dist = d
+            if s_start > t + snap_tolerance_sec:
+                break
+        return best
+
+    def silence_with_end_near(t: float) -> tuple[float, float] | None:
+        best: tuple[float, float] | None = None
+        best_dist = snap_tolerance_sec + 1.0
+        for s_start, s_end in sorted_sils:
+            d = abs(s_end - t)
+            if d <= snap_tolerance_sec and d < best_dist:
+                best = (s_start, s_end)
+                best_dist = d
+            if s_start > t + snap_tolerance_sec:
+                break
+        return best
+
+    snapped: list[dict] = []
+    for lt in line_times:
+        new_start = lt["abs_start"]
+        new_end = lt["abs_end"]
+        sil_end = silence_with_start_near(new_end)
+        if sil_end and sil_end[0] > new_start + min_speech_sec:
+            new_end = sil_end[0]
+        sil_start = silence_with_end_near(new_start)
+        if sil_start and sil_start[1] < new_end - min_speech_sec:
+            new_start = sil_start[1]
+        snapped.append({**lt, "abs_start": new_start, "abs_end": new_end})
+
+    # overlap 検出 → overlap している隣接 line 対は元の char_ts に戻す
+    for i in range(len(snapped) - 1):
+        if snapped[i]["abs_end"] > snapped[i + 1]["abs_start"]:
+            snapped[i]["abs_end"] = line_times[i]["abs_end"]
+            snapped[i + 1]["abs_start"] = line_times[i + 1]["abs_start"]
+    return snapped
+
+
+def apply_silenceremove_inplace(
+    input_path: str, max_silence_sec: float, threshold_db: float,
+) -> None:
+    """ffmpeg silenceremove で max_silence_sec 超の無音を圧縮 (in-place)。
+
+    per-line speech body にのみ適用 (mid-line の長い無音を圧縮する用途)。
+    leading silence は start_periods=0 で保護、trailing は呼出元が body を切出した時点で除去済み。
+    """
+    tmp_path = input_path + ".sr.tmp.mp3"
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af",
+        f"silenceremove="
+        f"start_periods=0:"
+        f"stop_periods=-1:"
+        f"stop_silence={max_silence_sec:.3f}:"
+        f"stop_threshold={threshold_db}dB",
+        "-c:a", "libmp3lame", "-q:a", "4",
+        tmp_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"silenceremove failed: {r.stderr[-500:]}")
+    os.replace(tmp_path, input_path)

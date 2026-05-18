@@ -126,15 +126,113 @@ def test_scene_gen_shims_delegate_to_audio_helpers(monkeypatch):
         calls.append("tail")
         return 0.5
 
+    def fake_detect(*a, **kw):
+        calls.append("detect")
+        return []
+
+    def fake_snap(*a, **kw):
+        calls.append("snap")
+        return []
+
+    def fake_silenceremove(*a, **kw):
+        calls.append("silenceremove")
+
     monkeypatch.setattr(audio_helpers, "extract_audio_segment", fake_extract)
     monkeypatch.setattr(audio_helpers, "convert_to_aac", fake_convert)
     monkeypatch.setattr(audio_helpers, "concat_audios_to_aac", fake_concat_aac)
     monkeypatch.setattr(audio_helpers, "concat_audios_to_mp3", fake_concat_mp3)
     monkeypatch.setattr(audio_helpers, "natural_tail_silence_sec", fake_tail)
+    monkeypatch.setattr(audio_helpers, "detect_all_silences", fake_detect)
+    monkeypatch.setattr(
+        audio_helpers, "snap_line_boundaries_to_silence", fake_snap,
+    )
+    monkeypatch.setattr(
+        audio_helpers, "apply_silenceremove_inplace", fake_silenceremove,
+    )
 
     scene_gen._extract_audio_segment("a", 0, 1, "b")
     scene_gen._convert_to_aac("a", "b")
     scene_gen._concat_audios_to_aac(["a"], "b")
     scene_gen._concat_audios_to_mp3(["a"], "b")
     assert scene_gen._natural_tail_silence_sec() == 0.5
-    assert calls == ["extract", "convert", "concat_aac", "concat_mp3", "tail"]
+    assert scene_gen._detect_all_silences("a") == []
+    assert scene_gen._snap_line_boundaries_to_silence([], []) == []
+    scene_gen._apply_silenceremove_inplace("a", 0.5, -35.0)
+    assert calls == [
+        "extract", "convert", "concat_aac", "concat_mp3", "tail",
+        "detect", "snap", "silenceremove",
+    ]
+
+
+def test_snap_line_boundaries_to_silence_preserves_when_no_silence():
+    """silence が空なら入力をそのまま (deep copy で) 返す。"""
+    line_times = [{"abs_start": 0.5, "abs_end": 1.5}]
+    out = audio_helpers.snap_line_boundaries_to_silence(line_times, [])
+    assert out == line_times
+    assert out is not line_times  # deep copy なので参照は別
+
+
+def test_snap_line_boundaries_to_silence_snaps_to_nearest():
+    """silence.start 近傍に end を snap、silence.end 近傍に start を snap する。"""
+    line_times = [{"abs_start": 0.30, "abs_end": 1.45}]
+    silences = [(0.0, 0.25), (1.50, 2.0)]
+    out = audio_helpers.snap_line_boundaries_to_silence(
+        line_times, silences, snap_tolerance_sec=0.2,
+    )
+    assert out[0]["abs_start"] == pytest.approx(0.25)
+    assert out[0]["abs_end"] == pytest.approx(1.50)
+
+
+def _build_tone_silence_tone(
+    out_path: str, tone_sec: float, silence_sec: float,
+) -> None:
+    """tone → silence → tone の mp3 を作る (lavfi 3 入力 + concat filter)。"""
+    cmd = [
+        "ffmpeg", "-y",
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={tone_sec}",
+        "-f", "lavfi", "-i", f"anullsrc=duration={silence_sec}",
+        "-f", "lavfi", "-i", f"sine=frequency=440:duration={tone_sec}",
+        "-filter_complex", "[0:a][1:a][2:a]concat=n=3:v=0:a=1[out]",
+        "-map", "[out]",
+        "-c:a", "libmp3lame", "-q:a", "4",
+        out_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(r.stderr)
+
+
+def test_detect_all_silences_finds_inserted_silence(tmp_path):
+    """中央に 0.4s の無音を挟んだ mp3 から silence が 1 つ検出される。"""
+    out = tmp_path / "with_silence.mp3"
+    _build_tone_silence_tone(str(out), tone_sec=0.3, silence_sec=0.4)
+    silences = audio_helpers.detect_all_silences(str(out))
+    mid_silences = [
+        (s, e) for s, e in silences if 0.1 < s < 0.6 and 0.1 < e < 1.0
+    ]
+    assert len(mid_silences) >= 1
+
+
+def test_apply_silenceremove_inplace_shrinks_silence(tmp_path):
+    """tone + 1s 無音 + tone を 100ms 上限で圧縮すると尺が短くなる。"""
+    import json
+    import shutil
+    src = tmp_path / "src.mp3"
+    _build_tone_silence_tone(str(src), tone_sec=0.2, silence_sec=1.0)
+    target = tmp_path / "target.mp3"
+    shutil.copy(src, target)
+
+    def _dur(path: str) -> float:
+        r = sp.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", path],
+            capture_output=True, text=True,
+        )
+        return float(json.loads(r.stdout)["format"]["duration"])
+
+    before = _dur(str(target))
+    audio_helpers.apply_silenceremove_inplace(
+        str(target), max_silence_sec=0.1, threshold_db=-30.0,
+    )
+    after = _dur(str(target))
+    assert after < before - 0.5
