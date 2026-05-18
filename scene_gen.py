@@ -1143,88 +1143,38 @@ def _snap_line_boundaries_to_silence(
     return snapped
 
 
+from stages import audio_helpers as _audio_helpers  # noqa: E402
+
+
 def _extract_audio_segment(input_path: str, start_sec: float, duration: float,
                             output_path: str, codec: str = "aac",
                             bitrate: str = "192k") -> None:
-    """ffmpegで input_path から指定区間を切出して output_path に保存。
-
-    -ss を -i の後ろに置く (output seeking) ことで frame-accurate なseekを保証。
-    -ss を -i の前に置くと mp3 packet 境界 (~26ms) にスナップして語頭/語尾が削れる。
-    """
-    cmd = [
-        "ffmpeg", "-y",
-        "-i", input_path,
-        "-ss", f"{start_sec:.3f}",
-        "-t", f"{max(duration, MIN_SPEECH_DURATION_SEC):.3f}",
-        "-c:a", codec, "-b:a", bitrate,
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Audio extraction failed: {r.stderr[-500:]}")
+    """stages.audio_helpers.extract_audio_segment への shim (§3.1.1-d)。"""
+    _audio_helpers.extract_audio_segment(
+        input_path, start_sec, duration, output_path,
+        codec=codec, bitrate=bitrate,
+    )
 
 
 def _convert_to_aac(input_path: str, output_path: str,
                      bitrate: str = "192k") -> None:
-    cmd = ["ffmpeg", "-y", "-i", input_path,
-           "-c:a", "aac", "-b:a", bitrate, output_path]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"AAC convert failed: {r.stderr[-500:]}")
+    """stages.audio_helpers.convert_to_aac への shim。"""
+    _audio_helpers.convert_to_aac(input_path, output_path, bitrate=bitrate)
 
 
 def _concat_audios_to_aac(audio_paths: list[str], output_path: str) -> None:
-    """複数audioを ffmpeg で連結 → AAC m4a 出力。"""
-    if not audio_paths:
-        return
-    if len(audio_paths) == 1:
-        _convert_to_aac(audio_paths[0], output_path)
-        return
-    inputs: list[str] = []
-    for p in audio_paths:
-        inputs.extend(["-i", p])
-    chain = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
-    filter_str = f"{chain}concat=n={len(audio_paths)}:v=0:a=1[out]"
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", filter_str,
-        "-map", "[out]",
-        "-c:a", "aac", "-b:a", "192k",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Audio concat failed: {r.stderr[-500:]}")
-
-
-from stages import audio_helpers as _audio_helpers  # noqa: E402
+    """stages.audio_helpers.concat_audios_to_aac への shim。"""
+    _audio_helpers.concat_audios_to_aac(audio_paths, output_path)
 
 
 def _natural_tail_silence_sec() -> float:
-    """stages.audio_helpers.natural_tail_silence_sec への shim (§3.1.1-d)。"""
+    """stages.audio_helpers.natural_tail_silence_sec への shim。"""
     return _audio_helpers.natural_tail_silence_sec()
 
 
 def _concat_audios_to_mp3(audio_paths: list[str], output_path: str) -> None:
-    """複数audioを ffmpeg で連結 → mp3 出力 (per-line speech body + trailing用)。"""
-    if not audio_paths:
-        return
-    if len(audio_paths) == 1:
-        os.replace(audio_paths[0], output_path)
-        return
-    inputs: list[str] = []
-    for p in audio_paths:
-        inputs.extend(["-i", p])
-    chain = "".join(f"[{i}:a]" for i in range(len(audio_paths)))
-    filter_str = f"{chain}concat=n={len(audio_paths)}:v=0:a=1[out]"
-    cmd = ["ffmpeg", "-y"] + inputs + [
-        "-filter_complex", filter_str,
-        "-map", "[out]",
-        "-c:a", "libmp3lame", "-q:a", "4",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"mp3 concat failed: {r.stderr[-500:]}")
+    """stages.audio_helpers.concat_audios_to_mp3 への shim。"""
+    _audio_helpers.concat_audios_to_mp3(audio_paths, output_path)
 
 
 def _extract_line_audio_segment(
