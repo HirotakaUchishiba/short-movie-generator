@@ -250,6 +250,38 @@ def full_screenplay_voice_settings() -> dict:
     }
 
 
+def trim_internal_pauses(input_path: str, output_path: str) -> None:
+    """TTS 音声内部の長すぎる無音を圧縮 + 任意で atempo による速度補正。
+
+    silenceremove: 「stop_silence 秒以下の無音は残し、それを超える無音は
+    stop_silence に短縮」。
+    atempo: 1.0 以外を指定すると速度倍率 (ピッチ維持で時間軸を変える)。
+    """
+    keep_sec = config.TTS_PAUSE_KEEP_MS / 1000.0
+    filters = [
+        f"silenceremove="
+        f"start_periods=0:"
+        f"stop_periods=-1:"
+        f"stop_silence={keep_sec:.3f}:"
+        f"stop_threshold={config.TTS_PAUSE_THRESHOLD_DB}dB"
+    ]
+    tempo = float(getattr(config, "TTS_TEMPO_MULTIPLIER", 1.0))
+    if abs(tempo - 1.0) > 0.001:
+        # atempo は 1 段で 0.5〜2.0 まで有効。それ以上なら多段に分ける必要が
+        # あるが現状はOK
+        filters.append(f"atempo={tempo:.3f}")
+
+    cmd = [
+        "ffmpeg", "-y", "-i", input_path,
+        "-af", ",".join(filters),
+        "-c:a", "libmp3lame", "-q:a", "4",
+        output_path,
+    ]
+    r = sp.run(cmd, capture_output=True, text=True)
+    if r.returncode != 0:
+        raise RuntimeError(f"Internal pause trim failed: {r.stderr[-500:]}")
+
+
 def apply_silenceremove_inplace(
     input_path: str, max_silence_sec: float, threshold_db: float,
 ) -> None:
