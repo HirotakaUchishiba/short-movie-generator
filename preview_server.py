@@ -183,11 +183,14 @@ from routes import _helpers as _route_helpers  # noqa: E402
 from routes._helpers import api_error  # noqa: E402
 
 
-def _validate_ts(ts: str) -> str:
-    return _route_helpers.validate_ts(ts)
+# _validate_ts は preview_server 側で未使用のため削除済 (= §3.1.2)。
+# 外部から必要な場合は routes._helpers.validate_ts を直接 import する。
 
 
 def _ts_path(ts: str) -> str:
+    """test 互換 shim: tests/test_preview_server_lost_cleanup.py が
+    `preview_server._ts_path()` で TS path を組み立てるため残す。
+    Blueprint 移管済の各 endpoint からは未使用。"""
     return _route_helpers.ts_path(ts, temp_dir=TEMP_DIR)
 
 
@@ -249,11 +252,14 @@ _active_ts = job_runner._active_ts
 
 
 def _spawn_job(fn, *, kind: str, ts: str, exclusive_ts: bool = True) -> str:
+    """test 互換 shim: tests/test_preview_server_concurrent_jobs.py が
+    `preview_server._spawn_job()` で並行起動の整合性を検証するため残す。"""
     return job_runner.spawn_job(fn, kind=kind, ts=ts, exclusive_ts=exclusive_ts)
 
 
-def _job_already_running_response(e: JobAlreadyRunningError):
-    return job_runner.job_already_running_response(e)
+# _job_already_running_response は preview_server 側で未使用のため削除済
+# (= §3.1.2)。外部から必要な場合は job_runner.job_already_running_response
+# を直接 import する。
 
 
 # /api/jobs/<job_id> は routes/jobs.py に移管済 (= §3.1.2)。
