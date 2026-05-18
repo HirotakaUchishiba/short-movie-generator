@@ -7,7 +7,28 @@
 直接実行 (``python3 scripts/xxx.py``) と ``python -m scripts.xxx`` の
 両方で動く。
 
-Usage:
+## 新規 script の docstring テンプレート (= 統一フォーマット)
+
+新規 script は冒頭 docstring を以下の構成にする:
+
+    #!/usr/bin/env python3
+    \"\"\"<1 行サマリ: 何をする CLI か>。
+
+    <2-3 行の補足説明: 入力 / 出力 / 副作用 / cron 想定など>
+
+    使い方:
+        python3 scripts/<name>.py <positional> [--option <val>]
+        python3 scripts/<name>.py <別パターン>
+
+    参照: <関連 plannings doc があれば>
+    \"\"\"
+
+「使い方:」セクションには **少なくとも 1 つの実行可能なコマンド例** を
+含めること。フラグや positional の詳細は argparse の help に書く
+(= docstring と argparse で重複させない)。
+
+## Python boilerplate
+
     import sys
     from pathlib import Path
     sys.path.insert(0, str(Path(__file__).resolve().parent.parent))
@@ -18,7 +39,7 @@ Usage:
     def main() -> int:
         ...
 
-参照: docs/plannings/2026-05-17_comprehensive-refactoring-plan.md §3.4
+参照: docs/plannings/2026-05-17_comprehensive-refactoring-plan.md §3.4 / §5
 """
 
 import logging

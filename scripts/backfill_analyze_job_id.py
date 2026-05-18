@@ -6,6 +6,10 @@ Stage 1「素材編集」セクションは metadata.json の analyze_job_id 有
 screenplay 名で逆引きして書き戻す。
 
 冪等。analyze_job_id が既にあるプロジェクトはスキップ。dry-run 既定。
+
+使い方:
+    python3 scripts/backfill_analyze_job_id.py            # dry-run
+    python3 scripts/backfill_analyze_job_id.py --apply    # 実際に書き戻し
 """
 import argparse
 import json
