@@ -1518,20 +1518,8 @@ def _build_audios_from_per_voice(
 
 
 def _split_global_speed(target: float | None = None) -> tuple[float, float]:
-    """target 速度倍率を ElevenLabs native speed と ffmpeg atempo に分解する。
-
-    例:
-      target=0.5 → native=0.7, atempo=0.714
-      target=1.0 → native=1.0, atempo=1.0
-      target=1.5 → native=1.2, atempo=1.25
-      target=2.0 → native=1.2, atempo=1.667
-    """
-    speed = float(target if target is not None else config.TTS_GLOBAL_SPEED)
-    speed = max(0.5, min(2.0, speed))
-    native = max(config.TTS_NATIVE_SPEED_MIN,
-                 min(config.TTS_NATIVE_SPEED_MAX, speed))
-    atempo = speed / native
-    return native, atempo
+    """stages.audio_helpers.split_global_speed への shim (§3.1.1-d)。"""
+    return _audio_helpers.split_global_speed(target)
 
 
 def _apply_atempo_inplace(input_path: str, atempo: float) -> None:
@@ -1549,15 +1537,8 @@ def _apply_silenceremove_inplace(
 
 
 def _full_screenplay_voice_settings() -> dict:
-    """one-shot生成で使う screenplay-wide voice settings (config の既定値 + global speed)。"""
-    native_speed, _atempo = _split_global_speed()
-    return {
-        "voice_id": config.ELEVENLABS_VOICE_ID,
-        "stability": config.ELEVENLABS_VOICE_STABILITY,
-        "similarity_boost": config.ELEVENLABS_VOICE_SIMILARITY_BOOST,
-        "style": config.ELEVENLABS_VOICE_STYLE,
-        "speed": native_speed,
-    }
+    """stages.audio_helpers.full_screenplay_voice_settings への shim。"""
+    return _audio_helpers.full_screenplay_voice_settings()
 
 
 def generate_screenplay_tts_one_shot(screenplay: dict, ts_path: str) -> dict | None:

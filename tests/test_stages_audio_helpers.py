@@ -183,6 +183,43 @@ def test_snap_line_boundaries_to_silence_snaps_to_nearest():
     assert out[0]["abs_end"] == pytest.approx(1.50)
 
 
+def test_split_global_speed_unity_returns_no_correction():
+    native, atempo = audio_helpers.split_global_speed(target=1.0)
+    assert native == pytest.approx(1.0)
+    assert atempo == pytest.approx(1.0)
+
+
+def test_split_global_speed_above_native_max_uses_atempo(monkeypatch):
+    monkeypatch.setattr("config.TTS_NATIVE_SPEED_MIN", 0.7)
+    monkeypatch.setattr("config.TTS_NATIVE_SPEED_MAX", 1.2)
+    native, atempo = audio_helpers.split_global_speed(target=1.5)
+    assert native == pytest.approx(1.2)
+    assert atempo == pytest.approx(1.25)
+
+
+def test_split_global_speed_clamps_extreme():
+    # clamp [0.5, 2.0]
+    n_low, a_low = audio_helpers.split_global_speed(target=0.1)
+    n_hi, a_hi = audio_helpers.split_global_speed(target=10.0)
+    # 念のため戻り値が clamp 範囲内
+    assert 0.5 <= n_low * a_low <= 2.0
+    assert 0.5 <= n_hi * a_hi <= 2.0
+
+
+def test_full_screenplay_voice_settings_includes_config_defaults(monkeypatch):
+    monkeypatch.setattr("config.ELEVENLABS_VOICE_ID", "vid-1")
+    monkeypatch.setattr("config.ELEVENLABS_VOICE_STABILITY", 0.42)
+    monkeypatch.setattr("config.ELEVENLABS_VOICE_SIMILARITY_BOOST", 0.61)
+    monkeypatch.setattr("config.ELEVENLABS_VOICE_STYLE", 0.18)
+    monkeypatch.setattr("config.TTS_GLOBAL_SPEED", 1.0)
+    vs = audio_helpers.full_screenplay_voice_settings()
+    assert vs["voice_id"] == "vid-1"
+    assert vs["stability"] == pytest.approx(0.42)
+    assert vs["similarity_boost"] == pytest.approx(0.61)
+    assert vs["style"] == pytest.approx(0.18)
+    assert vs["speed"] == pytest.approx(1.0)
+
+
 def _build_tone_silence_tone(
     out_path: str, tone_sec: float, silence_sec: float,
 ) -> None:
