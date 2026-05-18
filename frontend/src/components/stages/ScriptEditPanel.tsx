@@ -24,6 +24,8 @@ import {
   wardrobeLabel,
 } from "./script-edit-utils";
 import { AnalyzeSuggestedBadge } from "./AnalyzeSuggestedBadge";
+import { CameraDistancePicker } from "./CameraDistancePicker";
+import { LocationPicker } from "./LocationPicker";
 import { ScriptEditRow } from "./ScriptEditRow";
 
 // resolveLineSpeaker / collectRawSpeakerResidue / computeDiagnostics は
@@ -932,102 +934,8 @@ function BaseCharacterCard({
 // CAMERA_DISTANCE_OPTIONS は script-edit-utils.ts に移管済。
 // どちらも本ファイル冒頭で import している。
 
-/**
- * シーンの背景 (= location_ref) を選ぶ。analyze が pre-fill した値を初期表示し、
- * ユーザが訂正できる。空選択で `(未設定)` (= completeness banner で警告)。
- */
-function LocationPicker({
-  scene,
-  locationIds,
-  onSceneChange,
-}: {
-  scene: AbstractScreenplay["scenes"][number];
-  locationIds: string[];
-  onSceneChange: (
-    fn: (
-      s: AbstractScreenplay["scenes"][number],
-    ) => AbstractScreenplay["scenes"][number],
-  ) => void;
-}) {
-  const value = scene.location_ref ?? "";
-  return (
-    <label className="flex items-center gap-1">
-      <span className="text-slate-500 shrink-0">🏠 背景</span>
-      <select
-        className="select text-xs flex-1"
-        value={value}
-        onChange={(e) => {
-          const v = e.target.value;
-          onSceneChange((s) => {
-            const next = { ...s };
-            if (v) {
-              next.location_ref = v;
-            } else {
-              delete (next as Record<string, unknown>).location_ref;
-            }
-            return next;
-          });
-        }}
-      >
-        <option value="">(未設定)</option>
-        {locationIds.map((id) => (
-          <option key={id} value={id}>
-            {id}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
-
-/**
- * シーンのカメラ距離 (= camera_distance) を選ぶ。analyze が pre-fill した値を
- * 初期表示し、ユーザが訂正できる。空選択は `_derive_identity` の fallback
- * (= ロケ既定 → "medium-close") に委ねる。
- */
-function CameraDistancePicker({
-  scene,
-  onSceneChange,
-}: {
-  scene: AbstractScreenplay["scenes"][number];
-  onSceneChange: (
-    fn: (
-      s: AbstractScreenplay["scenes"][number],
-    ) => AbstractScreenplay["scenes"][number],
-  ) => void;
-}) {
-  const value = scene.camera_distance ?? "";
-  return (
-    <label className="flex items-center gap-1">
-      <span className="text-slate-500 shrink-0">🎥 距離</span>
-      <select
-        className="select text-xs flex-1"
-        value={value}
-        onChange={(e) => {
-          const v = e.target.value;
-          onSceneChange((s) => {
-            const next = { ...s };
-            if (v) {
-              next.camera_distance = v as NonNullable<
-                typeof next.camera_distance
-              >;
-            } else {
-              delete (next as Record<string, unknown>).camera_distance;
-            }
-            return next;
-          });
-        }}
-      >
-        <option value="">(自動: ロケ既定)</option>
-        {CAMERA_DISTANCE_OPTIONS.map((c) => (
-          <option key={c.value} value={c.value}>
-            {c.label}
-          </option>
-        ))}
-      </select>
-    </label>
-  );
-}
+// LocationPicker は ./LocationPicker.tsx に移管済 (= §3.1.3-c)。
+// CameraDistancePicker は ./CameraDistancePicker.tsx に移管済。
 
 /**
  * 動画全体の登場人物を characters/ 配下の画像から選択するセクション。
