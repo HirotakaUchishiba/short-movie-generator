@@ -293,6 +293,26 @@ def _run_frames_phase(
     return frame_paths
 
 
+def _run_audio_phase(
+    *,
+    video_path: str,
+    audio_path: str,
+    on_progress: ProgressCallback | None,
+    cancel_token: CancelToken | None,
+) -> str:
+    """audio phase: 音声抽出 + sha 計算 + event 発火 → audio_sha を返す。
+
+    330 行の ``run()`` の 2 番目 phase を独立化 (= §3.3)。cache 対象外
+    (= 動画ごとに毎回抽出する)。
+    """
+    _emit(on_progress, "phase_start", {"phase": "audio"})
+    _extract_audio(video_path, audio_path)
+    audio_sha = _cache.file_sha256(audio_path)
+    _emit(on_progress, "phase_complete", {"phase": "audio"})
+    _check_cancel(cancel_token)
+    return audio_sha
+
+
 def _run_save_phase(
     screenplay: dict,
     *,
@@ -469,11 +489,12 @@ def run(
 
         if has_audio:
             # ─── Phase: audio (cache 対象外) ─────────
-            _emit(on_progress, "phase_start", {"phase": "audio"})
-            _extract_audio(video_path, audio_path)
-            audio_sha = _cache.file_sha256(audio_path)
-            _emit(on_progress, "phase_complete", {"phase": "audio"})
-            _check_cancel(cancel_token)
+            audio_sha = _run_audio_phase(
+                video_path=video_path,
+                audio_path=audio_path,
+                on_progress=on_progress,
+                cancel_token=cancel_token,
+            )
 
             # ─── Phase: whisper (cache: audio_sha) ───
             _emit(on_progress, "phase_start", {"phase": "whisper"})
