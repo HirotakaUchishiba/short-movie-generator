@@ -139,11 +139,12 @@ def main() -> int:
         logger.error(str(e))
         return 1
 
-    print(f"rollback results for video_id={args.video_id}:")
+    logger.info("rollback results for video_id=%s:", args.video_id)
     for plat, info in results.items():
-        print(f"  {plat}: {info['status']} (post_id={info['post_id']})")
+        logger.info("  %s: %s (post_id=%s)",
+                    plat, info["status"], info["post_id"])
         if info["status"] == "failed":
-            print(f"    error: {info.get('error')}")
+            logger.error("    error: %s", info.get("error"))
     has_failure = any(r["status"] == "failed" for r in results.values())
     return 1 if has_failure else 0
 

@@ -200,10 +200,10 @@ def main() -> int:
         logger.error("fetch_reference failed: %s", e)
         return 1
 
-    print(f"sha256: {result['sha256']}")
-    print(f"path:   {result['path']}")
-    print(f"size:   {result['size_bytes']:,} bytes")
-    print(f"license: {result['license_status']}")
+    logger.info("sha256: %s", result["sha256"])
+    logger.info("path:   %s", result["path"])
+    logger.info("size:   %s bytes", f"{result['size_bytes']:,}")
+    logger.info("license: %s", result["license_status"])
     return 0
 
 

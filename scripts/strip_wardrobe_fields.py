@@ -182,19 +182,19 @@ def main() -> int:
             continue
         touched += 1
         total_changes += len(changes)
-        print(f"\n=== {rel} ===")
+        logger.info("=== %s ===", rel)
         for c in changes:
-            print(f"  - {c}")
+            logger.info("  - %s", c)
         if args.apply:
             _atomic_write(path, new_sp)
-            print("  ✓ 書き戻し完了")
+            logger.info("  ✓ 書き戻し完了")
 
-    print(
-        f"\n対象 snapshot: {len(paths)} 件 / 変更あり: {touched} 件 / "
-        f"合計変更数: {total_changes}",
+    logger.info(
+        "対象 snapshot: %d 件 / 変更あり: %d 件 / 合計変更数: %d",
+        len(paths), touched, total_changes,
     )
     if not args.apply:
-        print("(dry-run。実際に書き換えるには --apply を付与)")
+        logger.info("(dry-run。実際に書き換えるには --apply を付与)")
     return 0
 
 
