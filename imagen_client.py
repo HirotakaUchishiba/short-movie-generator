@@ -1,12 +1,12 @@
 import logging
-import time
 
 from PIL import Image
 from google import genai
 from google.genai import types
 
 import config
-import io_utils
+import io_utils  # noqa: F401  # 既存テストで monkeypatch 対象として残す
+from common.api_client import call_with_retry
 
 logger = logging.getLogger(__name__)
 
@@ -49,33 +49,31 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
     else:
         contents = f"Generate a vertical portrait image (taller than wide, 9:16 ratio): {prompt}"
 
-    response = None
-    last_err: Exception | None = None
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            response = client.models.generate_content(
-                model=MODEL,
-                contents=contents,
-                config=types.GenerateContentConfig(
-                    response_modalities=["IMAGE", "TEXT"],
-                    imageConfig=types.ImageConfig(
-                        aspectRatio=aspect_ratio,
-                    ),
-                    http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_SEC * 1000),
+    def _api_call():
+        return client.models.generate_content(
+            model=MODEL,
+            contents=contents,
+            config=types.GenerateContentConfig(
+                response_modalities=["IMAGE", "TEXT"],
+                imageConfig=types.ImageConfig(
+                    aspectRatio=aspect_ratio,
                 ),
-            )
-            break
-        except Exception as e:
-            last_err = e
-            if attempt < MAX_RETRIES:
-                wait = io_utils.next_backoff_seconds(attempt, list(BACKOFF_SECONDS))
-                logger.warning(
-                    "imagen API失敗 (attempt %d): %s → %.1f秒後 retry",
-                    attempt + 1, str(e)[:120], wait,
-                )
-                time.sleep(wait)
-            else:
-                raise RuntimeError(f"imagen API failed after {MAX_RETRIES + 1} attempts: {e}") from e
+                http_options=types.HttpOptions(timeout=REQUEST_TIMEOUT_SEC * 1000),
+            ),
+        )
+
+    try:
+        response = call_with_retry(
+            _api_call,
+            max_retries=MAX_RETRIES + 1,
+            backoff_seconds=list(BACKOFF_SECONDS),
+            logger=logger,
+            context="imagen",
+        )
+    except Exception as e:
+        raise RuntimeError(
+            f"imagen API failed after {MAX_RETRIES + 1} attempts: {e}"
+        ) from e
 
     candidates = response.candidates or []
     if not candidates or not candidates[0].content or not candidates[0].content.parts:
