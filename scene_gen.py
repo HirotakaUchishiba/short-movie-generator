@@ -1226,9 +1226,12 @@ def _concat_audios_to_aac(audio_paths: list[str], output_path: str) -> None:
         raise RuntimeError(f"Audio concat failed: {r.stderr[-500:]}")
 
 
+from stages import audio_helpers as _audio_helpers  # noqa: E402
+
+
 def _natural_tail_silence_sec() -> float:
-    """audio 末尾の自然な余白秒数 (= 全 line 共通、config.TTS_MAX_SILENCE_MS 由来)。"""
-    return max(0.0, min(2.0, float(config.TTS_MAX_SILENCE_MS) / 1000.0))
+    """stages.audio_helpers.natural_tail_silence_sec への shim (§3.1.1-d)。"""
+    return _audio_helpers.natural_tail_silence_sec()
 
 
 def _concat_audios_to_mp3(audio_paths: list[str], output_path: str) -> None:
@@ -1677,20 +1680,8 @@ def _split_global_speed(target: float | None = None) -> tuple[float, float]:
 
 
 def _apply_atempo_inplace(input_path: str, atempo: float) -> None:
-    """ffmpeg atempo で速度補正 (in-place)。pitch維持で時間軸のみ変化。"""
-    if abs(atempo - 1.0) < 0.001:
-        return
-    tmp_path = input_path + ".tempo.tmp.mp3"
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-af", f"atempo={atempo:.4f}",
-        "-c:a", "libmp3lame", "-q:a", "4",
-        tmp_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"atempo failed: {r.stderr[-500:]}")
-    os.replace(tmp_path, input_path)
+    """stages.audio_helpers.apply_atempo_inplace への shim (§3.1.1-d)。"""
+    return _audio_helpers.apply_atempo_inplace(input_path, atempo)
 
 
 def _apply_silenceremove_inplace(input_path: str, max_silence_sec: float,
