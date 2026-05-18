@@ -83,6 +83,7 @@ from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.analyze import analyze_bp  # noqa: E402
+from routes.locations import locations_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.reference_videos import reference_videos_bp  # noqa: E402
 from routes.screenplay import screenplay_bp  # noqa: E402
@@ -100,6 +101,7 @@ app.register_blueprint(assets_bp)
 app.register_blueprint(screenplay_bp)
 app.register_blueprint(analyze_bp)
 app.register_blueprint(reference_videos_bp)
+app.register_blueprint(locations_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -388,73 +390,7 @@ def api_job(job_id):
 # reference_videos endpoints は routes/reference_videos.py に移管済 (= §3.1.2)。
 
 
-# ───────────────── locations CRUD ─────────────────
-
-
-@app.route("/api/locations", methods=["GET"])
-def api_list_locations():
-    from analyze import location as loc_mod
-    items = []
-    for lid in loc_mod.list_locations():
-        try:
-            items.append(loc_mod.load_location(lid).to_dict())
-        except Exception as e:
-            logger.warning("location %s 読み込み失敗: %s", lid, e)
-    return jsonify({"locations": items})
-
-
-@app.route("/api/locations/<loc_id>", methods=["GET"])
-def api_get_location(loc_id):
-    from analyze import location as loc_mod
-    try:
-        return jsonify(loc_mod.load_location(loc_id).to_dict())
-    except FileNotFoundError:
-        return api_error("LOCATION_NOT_FOUND", f"location not found: {loc_id}", 404, location_id=loc_id)
-    except ValueError as e:
-        return api_error("LOCATION_INVALID", str(e), 400)
-
-
-@app.route("/api/locations", methods=["POST"])
-def api_create_location():
-    from analyze import location as loc_mod
-    data = request.get_json(force=True) or {}
-    if not data.get("id"):
-        return api_error("LOCATION_ID_REQUIRED", "id required", 400)
-    try:
-        loc = loc_mod.Location.from_dict(data)
-        loc_mod.save_location(loc)
-    except ValueError as e:
-        return api_error("LOCATION_INVALID", str(e), 400)
-    return jsonify(loc.to_dict()), 201
-
-
-@app.route("/api/locations/<loc_id>", methods=["PUT"])
-def api_update_location(loc_id):
-    from analyze import location as loc_mod
-    if not loc_mod.ID_RE.match(loc_id):
-        return api_error("LOCATION_INVALID_ID", "invalid id", 400)
-    data = request.get_json(force=True) or {}
-    data["id"] = loc_id
-    try:
-        loc = loc_mod.Location.from_dict(data)
-        loc_mod.save_location(loc)
-    except ValueError as e:
-        return api_error("LOCATION_INVALID", str(e), 400)
-    return jsonify(loc.to_dict())
-
-
-@app.route("/api/locations/<loc_id>", methods=["DELETE"])
-def api_delete_location(loc_id):
-    from analyze import location as loc_mod
-    try:
-        deleted = loc_mod.delete_location(loc_id)
-    except ValueError as e:
-        return api_error("LOCATION_INVALID", str(e), 400)
-    if not deleted:
-        return api_error("LOCATION_NOT_FOUND", f"location not found: {loc_id}", 404, location_id=loc_id)
-    return jsonify({"id": loc_id, "deleted": True})
-
-
+# locations CRUD は routes/locations.py に移管済 (= §3.1.2)。
 # /asset/location/<loc_id>/preview は routes/assets.py に移管済み。
 
 
