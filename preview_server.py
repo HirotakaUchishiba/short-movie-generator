@@ -84,6 +84,7 @@ from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.analyze import analyze_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
+from routes.reference_videos import reference_videos_bp  # noqa: E402
 from routes.screenplay import screenplay_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
 
@@ -98,6 +99,7 @@ app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
 app.register_blueprint(screenplay_bp)
 app.register_blueprint(analyze_bp)
+app.register_blueprint(reference_videos_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -383,72 +385,7 @@ def api_job(job_id):
 # Blueprint に移管済み。
 
 
-# ───────────────── reference videos (analyze 用) ─────────────────
-
-@app.route("/api/reference_videos", methods=["POST"])
-def api_upload_reference_video():
-    """multipart で動画をアップロードし、content-addressed (sha256) で保存する。
-
-    既存 sha256 と一致する場合は dedup され既存メタを返す (HTTP 200)。
-    新規なら 201。実体は routes._helpers.save_reference_video を経由
-    (= POST /api/projects/from-reference-video と共通経路)。
-    """
-    f = request.files.get("file")
-    if not f:
-        return api_error(
-            "REFERENCE_VIDEO_FILE_REQUIRED",
-            "file required (multipart 'file' field)",
-            400,
-        )
-    try:
-        result = _route_helpers.save_reference_video(f)
-    except ValueError as e:
-        return api_error(
-            "REFERENCE_VIDEO_UNSUPPORTED_EXT", str(e), 400,
-            allowed=list(analyze_job.ALLOWED_VIDEO_EXTS),
-        )
-    status = 200 if result["deduplicated"] else 201
-    return jsonify(result), status
-
-
-@app.route("/api/reference_videos", methods=["GET"])
-def api_list_reference_videos():
-    return jsonify({"reference_videos": analyze_job.list_reference_videos()})
-
-
-@app.route("/api/reference_videos/<sha>", methods=["DELETE"])
-def api_delete_reference_video(sha):
-    if not re.match(r'^[a-f0-9]{64}$', sha):
-        return api_error(
-            "REFERENCE_VIDEO_INVALID_SHA256",
-            "invalid sha256 (64 hex chars required)",
-            400,
-        )
-
-    force = request.args.get("force", "").lower() in ("1", "true", "yes")
-    deleted = analyze_job.delete_reference_video(sha, force=force)
-    if not deleted:
-        n = analyze_job.count_jobs_for_video(sha)
-        return api_error(
-            "REFERENCE_VIDEO_REFERENCED_BY_JOBS",
-            (
-                f"この動画は {n} 件の analyze ジョブから参照されています。"
-                "?force=true を指定すると関連ジョブごと削除します。"
-            ),
-            409,
-            count=n,
-            # 旧 frontend が job_count を読んでいるので併記 (= 段階的移行)
-            job_count=n,
-        )
-
-    file_path = analyze_job.reference_video_path(sha)
-    if file_path and os.path.exists(file_path):
-        os.unlink(file_path)
-        return jsonify({"sha256": sha, "deleted": True, "force": force}), 200
-    return jsonify({
-        "sha256": sha, "deleted": True, "force": force,
-        "warning": "DB row deleted but file not found",
-    }), 200
+# reference_videos endpoints は routes/reference_videos.py に移管済 (= §3.1.2)。
 
 
 # ───────────────── locations CRUD ─────────────────
