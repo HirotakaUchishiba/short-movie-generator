@@ -7,6 +7,9 @@ schema.sql の `CREATE TABLE IF NOT EXISTS` と
 壊さずに新カラム / 新テーブルを追加する。
 
 CI / 本番 cron 起動前に毎回実行しても idempotent。
+
+使い方:
+    python3 scripts/migrate.py
 """
 import logging
 import sys
