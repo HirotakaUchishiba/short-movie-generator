@@ -766,15 +766,7 @@ def bg_scan_cache(screenplay: dict, temp_dir: str) -> dict:
     return decisions
 
 
-def _now_iso() -> str:
-    """ISO 8601 (local time, second precision) の現在時刻。
-
-    bg/kling decisions の `decided_at` メタとして書き出され、tz-naive で OK。
-    """
-    from datetime import datetime as _dt
-    return _dt.now().isoformat(timespec="seconds")
-
-
+from common.datetime_helpers import now_iso_local_seconds as _now_iso  # noqa: E402
 # _now_iso_seconds は _now_iso と同一実装の重複だったため統合 (= §3.1.1)。
 # 既存 callsite (kling decisions 書き込み) との互換性のためエイリアスを残す。
 _now_iso_seconds = _now_iso

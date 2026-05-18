@@ -35,12 +35,9 @@ logger = logging.getLogger(__name__)
 
 stage_cache_bp = Blueprint("stage_cache", __name__)
 
+from common.datetime_helpers import now_iso_local_seconds as _now_iso
+
 _HASH16_RE = re.compile(r'^[0-9a-f]{16}$')
-
-
-def _now_iso() -> str:
-    from datetime import datetime as _dt
-    return _dt.now().isoformat(timespec="seconds")
 
 
 class _StageCacheHandler:
