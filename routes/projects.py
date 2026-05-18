@@ -149,14 +149,20 @@ def api_create_project():
     data = request.get_json(force=True) or {}
     name = data.get("screenplay_name")
     if not name:
-        return jsonify({"error": "screenplay_name が必要です"}), 400
+        return api_error(
+            "PROJECT_SCREENPLAY_NAME_REQUIRED",
+            "screenplay_name が必要です", 400,
+        )
     analyze_job_id = data.get("analyze_job_id") or None
     if analyze_job_id and not _JOB_ID_RE.match(analyze_job_id):
-        return jsonify({"error": "invalid analyze_job_id"}), 400
+        return api_error(
+            "PROJECT_INVALID_ANALYZE_JOB_ID",
+            "invalid analyze_job_id", 400,
+        )
     try:
         screenplay = staged_pipeline.load_template(name)
     except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
+        return api_error("PROJECT_TEMPLATE_NOT_FOUND", str(e), 404)
 
     ts = datetime.now().strftime("%Y%m%d_%H%M%S")
     project_path = ts_path(ts)
@@ -168,7 +174,7 @@ def api_create_project():
         )
     except Exception as e:
         logger.exception("script stage failed")
-        return jsonify({"error": str(e)}), 500
+        return api_error("PROJECT_SCRIPT_STAGE_FAILED", str(e), 500)
 
     return jsonify({"timestamp": ts, "current_stage": "script"}), 201
 
