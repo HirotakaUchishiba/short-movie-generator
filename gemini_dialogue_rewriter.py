@@ -16,7 +16,7 @@ import json
 import logging
 import os
 import re
-import time
+import time  # noqa: F401  # _call_gemini で SDK が内部利用、明示 import で test stub 容易化
 from dataclasses import dataclass, field
 from typing import Literal
 
@@ -337,40 +337,28 @@ def rewrite_screenplay(sp: dict) -> RewriteResult:
             status="skipped", screenplay=sp, reason="empty_prompt",
         )
 
-    # 4. API call + retry
-    last_err: Exception | None = None
+    # 4. API call + retry (= common.api_client.call_with_retry 経由、§3.2-b)
+    from common.api_client import call_with_retry
+
     text = ""
     input_tokens = 0
     output_tokens = 0
-    for attempt in range(MAX_RETRIES + 1):
-        try:
-            text, input_tokens, output_tokens = _call_gemini(prompt)
-            break
-        except Exception as e:  # noqa: BLE001 — SDK は色々投げる
-            last_err = e
-            if attempt < MAX_RETRIES:
-                wait = BACKOFF_SECONDS[
-                    min(attempt, len(BACKOFF_SECONDS) - 1)
-                ]
-                logger.warning(
-                    "[rewrite] Gemini API 失敗 (attempt %d): %s → %ds 後 retry",
-                    attempt + 1, str(e)[:120], wait,
-                )
-                time.sleep(wait)
-            else:
-                logger.warning(
-                    "[rewrite] Gemini API %d 回 retry 後 fail: %s → original 採用",
-                    MAX_RETRIES + 1, str(e)[:200],
-                )
-                return RewriteResult(
-                    status="skipped", screenplay=sp,
-                    reason=f"api_error: {type(e).__name__}",
-                )
-    else:
-        # for-else は break 無しで到達 (= 上で return 済なので実際には到達しない)
+    try:
+        text, input_tokens, output_tokens = call_with_retry(
+            lambda: _call_gemini(prompt),
+            max_retries=MAX_RETRIES + 1,
+            backoff_seconds=list(BACKOFF_SECONDS),
+            logger=logger,
+            context="[rewrite] Gemini",
+        )
+    except Exception as e:  # noqa: BLE001 — SDK は色々投げる
+        logger.warning(
+            "[rewrite] Gemini API %d 回 retry 後 fail: %s → original 採用",
+            MAX_RETRIES + 1, str(e)[:200],
+        )
         return RewriteResult(
             status="skipped", screenplay=sp,
-            reason=f"api_error: {last_err}",
+            reason=f"api_error: {type(e).__name__}",
         )
 
     # 5. JSON parse
