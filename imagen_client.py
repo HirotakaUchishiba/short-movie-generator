@@ -6,9 +6,19 @@ from google.genai import types
 
 import config
 import io_utils  # noqa: F401  # 既存テストで monkeypatch 対象として残す
-from common.api_client import call_with_retry
+from common.api_client import APIClientError, call_with_retry
 
 logger = logging.getLogger(__name__)
+
+
+class ImagenClientError(APIClientError):
+    """Imagen (= Gemini gemini-3-pro-image-preview) 固有のエラー。
+
+    APIClientError を継承し caller が provider 非依存に拾える形に統一
+    (= §3.2 親クラスへの登録、Phase 1-8 で elevenlabs/fal/lipsync は
+    既に統一済)。
+    """
+
 
 MODEL = "gemini-3-pro-image-preview"
 REQUEST_TIMEOUT_SEC = 120
@@ -71,13 +81,15 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
             context="imagen",
         )
     except Exception as e:
-        raise RuntimeError(
+        raise ImagenClientError(
             f"imagen API failed after {MAX_RETRIES + 1} attempts: {e}"
         ) from e
 
     candidates = response.candidates or []
     if not candidates or not candidates[0].content or not candidates[0].content.parts:
-        raise RuntimeError("画像が生成されませんでした（コンテンツポリシー等）")
+        raise ImagenClientError(
+            "画像が生成されませんでした（コンテンツポリシー等）"
+        )
 
     for part in candidates[0].content.parts:
         if hasattr(part, "inline_data") and part.inline_data and part.inline_data.data:
@@ -97,4 +109,4 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
             _os.replace(tmp, output_path)
             return
 
-    raise RuntimeError("画像が生成されませんでした")
+    raise ImagenClientError("画像が生成されませんでした")
