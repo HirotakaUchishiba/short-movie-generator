@@ -307,16 +307,12 @@ def _trim_internal_pauses(input_path: str, output_path: str) -> None:
         raise RuntimeError(f"Internal pause trim failed: {r.stderr[-500:]}")
 
 
+from stages import ffmpeg_helpers as _ffmpeg_helpers  # noqa: E402
+
+
 def _apply_volume(input_path: str, db: float, output_path: str) -> None:
-    cmd = [
-        "ffmpeg", "-y", "-i", input_path,
-        "-filter:a", f"volume={db:+.1f}dB",
-        "-c:a", "libmp3lame", "-q:a", "4",
-        output_path,
-    ]
-    r = sp.run(cmd, capture_output=True, text=True)
-    if r.returncode != 0:
-        raise RuntimeError(f"Volume apply failed: {r.stderr[-300:]}")
+    """stages.ffmpeg_helpers.apply_volume への shim (§3.1.1-c)。"""
+    return _ffmpeg_helpers.apply_volume(input_path, db, output_path)
 
 
 def _prepare_background(bg_path: str, output_path: str) -> None:
@@ -517,12 +513,8 @@ def _generate_background_with_retry(scene_idx: int, scene: dict, temp_dir: str,
 
 
 def _get_duration(path: str) -> float:
-    result = sp.run(
-        ["ffprobe", "-v", "quiet", "-print_format", "json",
-         "-show_format", path],
-        capture_output=True, text=True,
-    )
-    return float(json.loads(result.stdout)["format"]["duration"])
+    """stages.ffmpeg_helpers.get_duration への shim (§3.1.1-c)。"""
+    return _ffmpeg_helpers.get_duration(path)
 
 
 def _trim_video(input_path: str, duration: float, output_path: str) -> None:
