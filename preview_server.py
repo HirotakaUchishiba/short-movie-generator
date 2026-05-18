@@ -85,6 +85,7 @@ from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.analyze import analyze_bp  # noqa: E402
 from routes.catalogs import catalogs_bp  # noqa: E402
 from routes.character_metas import character_metas_bp  # noqa: E402
+from routes.jobs import jobs_bp  # noqa: E402
 from routes.locations import locations_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.reference_videos import reference_videos_bp  # noqa: E402
@@ -106,6 +107,7 @@ app.register_blueprint(reference_videos_bp)
 app.register_blueprint(locations_bp)
 app.register_blueprint(character_metas_bp)
 app.register_blueprint(catalogs_bp)
+app.register_blueprint(jobs_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -342,28 +344,7 @@ def _job_already_running_response(e: JobAlreadyRunningError):
     return job_runner.job_already_running_response(e)
 
 
-@app.route("/api/jobs/<job_id>", methods=["GET"])
-def api_job(job_id):
-    with _jobs_lock:
-        job = _jobs.get(job_id)
-    if not job:
-        # メモリに無ければ disk から復元 (= サーバ再起動後も lost / completed
-        # を UI に返せる)
-        persisted = job_store.get(job_id)
-        if not persisted:
-            return api_error("JOB_NOT_FOUND", "ジョブが見つかりません", 404, job_id=job_id)
-        job = persisted
-    started = job.get("started_at") or time.time()
-    finished = job.get("finished_at")
-    elapsed = round((finished or time.time()) - started, 1)
-    return jsonify({
-        "id": job["id"],
-        "kind": job["kind"],
-        "ts": job["ts"],
-        "status": job["status"],
-        "elapsed": elapsed,
-        "error": job.get("error"),
-    })
+# /api/jobs/<job_id> は routes/jobs.py に移管済 (= §3.1.2)。
 
 
 # ───────────────── アセット配信 ─────────────────
