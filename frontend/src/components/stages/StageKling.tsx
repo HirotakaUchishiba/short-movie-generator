@@ -211,7 +211,7 @@ function BulkKlingRegenBar({ totalCost }: { totalCost: number | null }) {
       await api.klingCache.decisionsBulk(ts, "all-fresh");
       await ctx.regen({ stage: "kling" });
     } catch (e) {
-      console.error(e);
+      console.error("[StageKling] kling cache all-fresh decisions failed:", e);
     }
   };
 

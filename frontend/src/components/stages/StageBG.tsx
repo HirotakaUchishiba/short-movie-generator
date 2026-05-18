@@ -176,7 +176,7 @@ function BulkBGRegenBar({
       await api.bgCache.decisionsBulk(ts, "all-fresh");
       await ctx.regen({ stage: "bg" });
     } catch (e) {
-      console.error(e);
+      console.error("[StageBG] bg cache all-fresh decisions failed:", e);
     }
   };
 
