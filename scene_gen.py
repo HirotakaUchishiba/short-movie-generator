@@ -961,94 +961,31 @@ def generate_backgrounds(screenplay: dict, temp_dir: str,
     return bg_paths
 
 
-def _resolve_inline_tag(line: dict, _scene: dict, _line_idx: int) -> str:
-    """このlineに対する ElevenLabs V3 inline tag を解決する。
+from stages import text_mapping as _text_mapping  # noqa: E402
 
-    優先順位:
-      1. line.audio_tags[0] (ユーザー手動指定)
-      2. line.emotion → config.EMOTION_AUDIO_TAGS の最初のタグ (自動補完)
-      3. なし (タグ無し)
-    """
-    user_tags = line.get("audio_tags") or []
-    if user_tags:
-        first = str(user_tags[0]).strip()
-        if first:
-            return first
-    emo = line.get("emotion")
-    if emo and getattr(config, "EMOTION_AUDIO_TAGS_ENABLED", True):
-        auto = config.EMOTION_AUDIO_TAGS.get(emo, [])
-        if auto:
-            first = str(auto[0]).strip()
-            if first:
-                return first
-    return ""
+
+def _resolve_inline_tag(line: dict, scene: dict, line_idx: int) -> str:
+    """stages.text_mapping.resolve_inline_tag への shim (§3.1.1-d)。"""
+    return _text_mapping.resolve_inline_tag(line, scene, line_idx)
 
 
 def _build_screenplay_text(screenplay: dict) -> tuple[str, list[dict]]:
-    """全line.text を半角スペース×2 で連結。各lineのchar offsetを line_specs に記録して返す。
-
-    mood.tts_inline_tags / line.audio_tags があれば line.text の直前に
-    "[tag] " を挿入する (ElevenLabs V3 の inline 感情タグ仕様)。
-    line_specs.char_start は **発話本文 (text)** の先頭位置を指す
-    (タグ部分は char_alignment 上スキップされる前提なのでマッピングに影響しない)。
-    """
-    line_specs: list[dict] = []
-    text_parts: list[str] = []
-    cursor = 0
-    for s_idx, scene in enumerate(screenplay["scenes"]):
-        for l_idx, line in enumerate(scene.get("lines") or []):
-            t = line["text"]
-            tag = _resolve_inline_tag(line, scene, l_idx)
-            prefix = f"[{tag}] " if tag else ""
-            if cursor > 0:
-                cursor += len(SCREENPLAY_TEXT_SEPARATOR)
-            # tag prefix を含めて送信文字列に乗せるが、line_specs は本文のみを指す
-            text_parts.append(prefix + t)
-            cursor += len(prefix)
-            line_specs.append({
-                "scene_idx": s_idx,
-                "line_idx": l_idx,
-                "char_start": cursor,
-                "char_end": cursor + len(t),
-            })
-            cursor += len(t)
-    return SCREENPLAY_TEXT_SEPARATOR.join(text_parts), line_specs
+    """stages.text_mapping.build_screenplay_text への shim。"""
+    return _text_mapping.build_screenplay_text(screenplay)
 
 
-def _build_position_to_time_map(input_text: str,
-                                  char_timestamps: list[dict]) -> list[dict | None]:
-    """input_text の各文字位置 → {start, end} のマップを構築。
-
-    APIが入力charの一部を返さない/順序が異なる場合に備えて、順次マッチで紐付ける。
-    """
-    result: list[dict | None] = [None] * len(input_text)
-    cursor = 0
-    for entry in char_timestamps:
-        ch = entry["char"]
-        while cursor < len(input_text) and input_text[cursor] != ch:
-            cursor += 1
-        if cursor < len(input_text):
-            result[cursor] = {"start": float(entry["start"]),
-                              "end": float(entry["end"])}
-            cursor += 1
-    return result
+def _build_position_to_time_map(
+    input_text: str, char_timestamps: list[dict],
+) -> list[dict | None]:
+    """stages.text_mapping.build_position_to_time_map への shim。"""
+    return _text_mapping.build_position_to_time_map(input_text, char_timestamps)
 
 
-def _find_line_time_range(pos_to_time: list[dict | None],
-                           char_start: int, char_end: int) -> tuple[float | None, float | None]:
-    """[char_start, char_end) 範囲内で最初/最後の有効timestampを探す。"""
-    abs_start = None
-    for i in range(char_start, min(char_end, len(pos_to_time))):
-        if pos_to_time[i]:
-            abs_start = pos_to_time[i]["start"]
-            break
-    abs_end = None
-    upper = min(char_end, len(pos_to_time)) - 1
-    for i in range(upper, char_start - 1, -1):
-        if pos_to_time[i]:
-            abs_end = pos_to_time[i]["end"]
-            break
-    return abs_start, abs_end
+def _find_line_time_range(
+    pos_to_time: list[dict | None], char_start: int, char_end: int,
+) -> tuple[float | None, float | None]:
+    """stages.text_mapping.find_line_time_range への shim。"""
+    return _text_mapping.find_line_time_range(pos_to_time, char_start, char_end)
 
 
 def _detect_all_silences(
