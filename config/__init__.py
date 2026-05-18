@@ -10,11 +10,13 @@ from config.api_keys import (  # noqa: F401
     SYNCSO_API_KEY,
 )
 
-VIDEO_WIDTH = 1080
-VIDEO_HEIGHT = 1920
-FPS = 60
-
-LANGUAGE = "ja"
+# 動画基本表示設定は config.visual から re-export (= §3.1.4-b)。
+from config.visual import (  # noqa: F401, E402
+    FPS,
+    LANGUAGE,
+    VIDEO_HEIGHT,
+    VIDEO_WIDTH,
+)
 FONT_PATH = "/System/Library/Fonts/ヒラギノ角ゴシック W7.ttc"
 FONT_SIZE = 78
 FONT_BORDER_WIDTH = 6
