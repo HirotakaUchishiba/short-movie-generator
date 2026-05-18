@@ -10,7 +10,6 @@
     python3 scripts/analyze_video.py path/to/reference.mov --fps 2.0
 """
 import argparse
-import logging
 import sys
 from pathlib import Path
 
@@ -18,11 +17,10 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT))
 
-import log_setup  # noqa: E402
 from analyze import AnalyzeCancelled, AnalyzeOptions, run  # noqa: E402
+from scripts._cli_base import get_logger  # noqa: E402
 
-log_setup.setup()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 
 def _log_progress(event: str, data: dict) -> None:
