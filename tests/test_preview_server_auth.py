@@ -32,7 +32,8 @@ def test_token_required_when_env_set(auth_client) -> None:
     r = client.get("/api/projects")
     assert r.status_code == 401
     body = r.get_json()
-    assert body["error"] == "unauthorized"
+    assert body["message"] == "unauthorized"
+    assert body["error_code"] == "UNAUTHORIZED"
 
 
 def test_correct_token_passes(auth_client) -> None:

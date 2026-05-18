@@ -120,7 +120,7 @@ def _check_auth_token():
     auth = request.headers.get("Authorization", "")
     if auth == f"Bearer {_AUTH_TOKEN}":
         return None
-    return jsonify({"error": "unauthorized"}), 401
+    return api_error("UNAUTHORIZED", "unauthorized", 401)
 
 
 @app.before_request
@@ -208,7 +208,7 @@ from routes.projects import (  # noqa: E402, F401
 def api_tts_source(ts):
     _validate_ts(ts)
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     full_text, line_specs = scene_gen._build_screenplay_text(sp)
     return jsonify({
@@ -226,7 +226,7 @@ def api_tts_source(ts):
 def api_composed_prompts(ts, scene_idx):
     _validate_ts(ts)
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx >= len(scenes):
@@ -247,7 +247,7 @@ def api_composed_prompts(ts, scene_idx):
 def api_project_progress(ts):
     _validate_ts(ts)
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     return jsonify({
         "progress": progress_store.load(_ts_path(ts)),
         "current_stage": progress_store.current_stage(_ts_path(ts)),
@@ -278,19 +278,21 @@ def api_bg_cache_info(ts, scene_idx):
     _validate_ts(ts)
     ts_path = _ts_path(ts)
     if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     try:
         sp = staged_pipeline.load_project_screenplay(ts_path)
     except FileNotFoundError:
-        return jsonify({"error": "snapshot not found"}), 404
+        return api_error("BG_CACHE_SNAPSHOT_NOT_FOUND", "snapshot not found", 404)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
-        return jsonify({"error": "scene_idx out of range"}), 400
+        return api_error(
+            "BG_CACHE_SCENE_OUT_OF_RANGE", "scene_idx out of range", 400,
+        )
     import bg_cache
     try:
         key = bg_cache.compute_bg_cache_key(scenes[scene_idx], sp)
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return api_error("BG_CACHE_KEY_FAILED", str(e), 500)
     cached = bg_cache.lookup(key)
     info: dict = {"cache_key": key, "cached": cached is not None}
     if cached is not None:
@@ -476,7 +478,7 @@ def api_create_location():
     from analyze import location as loc_mod
     data = request.get_json(force=True) or {}
     if not data.get("id"):
-        return jsonify({"error": "id required"}), 400
+        return api_error("LOCATION_ID_REQUIRED", "id required", 400)
     try:
         loc = loc_mod.Location.from_dict(data)
         loc_mod.save_location(loc)
@@ -489,7 +491,7 @@ def api_create_location():
 def api_update_location(loc_id):
     from analyze import location as loc_mod
     if not loc_mod.ID_RE.match(loc_id):
-        return jsonify({"error": "invalid id"}), 400
+        return api_error("LOCATION_INVALID_ID", "invalid id", 400)
     data = request.get_json(force=True) or {}
     data["id"] = loc_id
     try:
@@ -544,7 +546,7 @@ def api_get_character_meta(char_id):
 def api_update_character_meta(char_id):
     from analyze import character_meta as cmeta_mod
     if not cmeta_mod.ID_RE.match(char_id):
-        return jsonify({"error": "invalid id"}), 400
+        return api_error("LOCATION_INVALID_ID", "invalid id", 400)
     data = request.get_json(force=True) or {}
     data["id"] = char_id
     try:
@@ -767,7 +769,7 @@ def api_apply_scene_boundaries(ts):
     _validate_ts(ts)
     ts_path = _ts_path(ts)
     if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     raw = data.get("line_boundaries")
     if not isinstance(raw, list) or not all(isinstance(x, int) for x in raw):
@@ -885,7 +887,7 @@ def _stage_scan_cache(ts: str, stage: str):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     try:
         decisions = handler.scan_fn(sp, _ts_path(ts))
@@ -905,7 +907,7 @@ def _stage_get_decisions(ts: str, stage: str):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     return jsonify(progress_store.get_decisions(_ts_path(ts), stage))
 
 
@@ -914,7 +916,7 @@ def _stage_use_cache(ts: str, stage: str, scene_idx: int):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     cache_key = data.get("key")
     if not cache_key:
@@ -941,7 +943,7 @@ def _stage_queue_fresh(ts: str, stage: str, scene_idx: int):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
@@ -956,7 +958,7 @@ def _stage_scene_rescan(ts: str, stage: str, scene_idx: int):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
@@ -978,7 +980,7 @@ def _stage_decisions_bulk(ts: str, stage: str):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     action = data.get("action")
     if action not in ("all-cache", "all-fresh"):
@@ -1029,7 +1031,7 @@ def _stage_generate_remaining(ts: str, stage: str):
     if handler is None:
         return jsonify({"error": f"unknown stage: {stage}"}), 400
     if not os.path.isdir(_ts_path(ts)):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     n_scenes = len(sp.get("scenes") or [])
     cur = progress_store.get_decisions(_ts_path(ts), stage)
