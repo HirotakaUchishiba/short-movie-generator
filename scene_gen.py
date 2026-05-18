@@ -325,26 +325,12 @@ def _prepare_background(bg_path: str, output_path: str) -> None:
     bg.save(output_path, "PNG")
 
 
-def _resolve_character_refs(scene: dict) -> list[str]:
-    """scene.identity.character_refs (SSOT) から参照画像を解決する。"""
-    identity = scene.get("identity") or {}
-    if "character_refs" in identity:
-        names = list(identity.get("character_refs") or [])
-    else:
-        names = list(config.DEFAULT_CHARACTER_REFS)
+from stages import character_refs as _character_refs  # noqa: E402
 
-    seen: set[str] = set()
-    resolved: list[str] = []
-    for name in names:
-        if name in seen:
-            continue
-        seen.add(name)
-        ref_path = os.path.join(config.CHARACTERS_DIR, f"{name}.png")
-        if os.path.exists(ref_path):
-            resolved.append(ref_path)
-        else:
-            logger.warning("キャラクター参照画像が見つかりません: %s", ref_path)
-    return resolved
+
+def _resolve_character_refs(scene: dict) -> list[str]:
+    """stages.character_refs.resolve_character_refs への shim (§3.1.1-b)。"""
+    return _character_refs.resolve_character_refs(scene)
 
 
 _CUE_LABELS_BG = {
