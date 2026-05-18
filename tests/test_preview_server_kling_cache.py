@@ -380,4 +380,5 @@ def test_cache_delete_returns_404_when_entry_missing(client, project,
     r = client.delete(f"/api/kling-cache/{nonexistent}")
     assert r.status_code == 404
     body = r.get_json()
-    assert "not found" in (body.get("error") or "").lower()
+    assert body.get("error_code") == "CACHE_ENTRY_NOT_FOUND"
+    assert "not found" in (body.get("message") or "").lower()

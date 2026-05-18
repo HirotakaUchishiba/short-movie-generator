@@ -230,7 +230,11 @@ def api_composed_prompts(ts, scene_idx):
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx >= len(scenes):
-        return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
+        return api_error(
+            "SCENE_INDEX_OUT_OF_RANGE",
+            f"scene_idx範囲外: {scene_idx}", 400,
+            scene_idx=scene_idx, scene_count=len(scenes),
+        )
     scene = scenes[scene_idx]
     bg_prompt = scene_gen._build_background_prompt(
         scene, sp, ts_path=_ts_path(ts), s_idx=scene_idx)
@@ -358,7 +362,7 @@ def api_job(job_id):
         # を UI に返せる)
         persisted = job_store.get(job_id)
         if not persisted:
-            return jsonify({"error": "ジョブが見つかりません"}), 404
+            return api_error("JOB_NOT_FOUND", "ジョブが見つかりません", 404, job_id=job_id)
         job = persisted
     started = job.get("started_at") or time.time()
     finished = job.get("finished_at")
@@ -468,9 +472,9 @@ def api_get_location(loc_id):
     try:
         return jsonify(loc_mod.load_location(loc_id).to_dict())
     except FileNotFoundError:
-        return jsonify({"error": f"location not found: {loc_id}"}), 404
+        return api_error("LOCATION_NOT_FOUND", f"location not found: {loc_id}", 404, location_id=loc_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("LOCATION_INVALID", str(e), 400)
 
 
 @app.route("/api/locations", methods=["POST"])
@@ -483,7 +487,7 @@ def api_create_location():
         loc = loc_mod.Location.from_dict(data)
         loc_mod.save_location(loc)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("LOCATION_INVALID", str(e), 400)
     return jsonify(loc.to_dict()), 201
 
 
@@ -498,7 +502,7 @@ def api_update_location(loc_id):
         loc = loc_mod.Location.from_dict(data)
         loc_mod.save_location(loc)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("LOCATION_INVALID", str(e), 400)
     return jsonify(loc.to_dict())
 
 
@@ -508,9 +512,9 @@ def api_delete_location(loc_id):
     try:
         deleted = loc_mod.delete_location(loc_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("LOCATION_INVALID", str(e), 400)
     if not deleted:
-        return jsonify({"error": f"location not found: {loc_id}"}), 404
+        return api_error("LOCATION_NOT_FOUND", f"location not found: {loc_id}", 404, location_id=loc_id)
     return jsonify({"id": loc_id, "deleted": True})
 
 
@@ -539,21 +543,21 @@ def api_get_character_meta(char_id):
     try:
         return jsonify(cmeta_mod.load_character_meta(char_id).to_dict())
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("CHARACTER_META_INVALID", str(e), 400)
 
 
 @app.route("/api/character-metas/<char_id>", methods=["PUT"])
 def api_update_character_meta(char_id):
     from analyze import character_meta as cmeta_mod
     if not cmeta_mod.ID_RE.match(char_id):
-        return api_error("LOCATION_INVALID_ID", "invalid id", 400)
+        return api_error("CHARACTER_META_INVALID_ID", "invalid id", 400)
     data = request.get_json(force=True) or {}
     data["id"] = char_id
     try:
         meta = cmeta_mod.CharacterMeta.from_dict(data)
         cmeta_mod.save_character_meta(meta)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("CHARACTER_META_INVALID", str(e), 400)
     return jsonify(meta.to_dict())
 
 
@@ -563,9 +567,13 @@ def api_delete_character_meta(char_id):
     try:
         deleted = cmeta_mod.delete_character_meta(char_id)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("CHARACTER_META_INVALID", str(e), 400)
     if not deleted:
-        return jsonify({"error": f"character_meta not found: {char_id}"}), 404
+        return api_error(
+            "CHARACTER_META_NOT_FOUND",
+            f"character_meta not found: {char_id}", 404,
+            character_id=char_id,
+        )
     return jsonify({"id": char_id, "deleted": True})
 
 
@@ -773,19 +781,20 @@ def api_apply_scene_boundaries(ts):
     data = request.get_json(force=True) or {}
     raw = data.get("line_boundaries")
     if not isinstance(raw, list) or not all(isinstance(x, int) for x in raw):
-        return jsonify({
-            "error": "line_boundaries は int の list である必要があります",
-        }), 400
+        return api_error(
+            "SCENE_BOUNDARIES_INVALID",
+            "line_boundaries は int の list である必要があります", 400,
+        )
     try:
         with _screenplay_lock(ts):
             result = staged_pipeline.apply_scene_boundaries(ts_path, raw)
     except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
+        return api_error("SCENE_BOUNDARIES_NOT_FOUND", str(e), 404)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("SCENE_BOUNDARIES_INVALID", str(e), 400)
     except Exception as e:
         logger.exception("apply_scene_boundaries failed")
-        return jsonify({"error": str(e)}), 500
+        return api_error("SCENE_BOUNDARIES_FAILED", str(e), 500)
     return jsonify({
         "ok": True,
         "scenes": result["scenes"],
@@ -885,7 +894,7 @@ def _resolve_handler(stage: str) -> _StageCacheHandler | None:
 def _stage_scan_cache(ts: str, stage: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
@@ -893,7 +902,7 @@ def _stage_scan_cache(ts: str, stage: str):
         decisions = handler.scan_fn(sp, _ts_path(ts))
     except Exception as e:
         logger.exception("%s scan failed", stage)
-        return jsonify({"error": str(e)}), 500
+        return api_error("STAGE_CACHE_SCAN_FAILED", str(e), 500, stage=stage)
     progress_store.set_scan_result(_ts_path(ts), stage, decisions)
     return jsonify({
         "scene_decisions": decisions,
@@ -905,7 +914,7 @@ def _stage_scan_cache(ts: str, stage: str):
 def _stage_get_decisions(ts: str, stage: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     return jsonify(progress_store.get_decisions(_ts_path(ts), stage))
@@ -914,25 +923,25 @@ def _stage_get_decisions(ts: str, stage: str):
 def _stage_use_cache(ts: str, stage: str, scene_idx: int):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     cache_key = data.get("key")
     if not cache_key:
-        return jsonify({"error": "key required"}), 400
+        return api_error("CACHE_KEY_REQUIRED", "key required", 400)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
-        return jsonify({"error": "scene_idx out of range"}), 400
+        return api_error("SCENE_INDEX_OUT_OF_RANGE", "scene_idx out of range", 400, scene_idx=scene_idx)
     try:
         handler.commit_fn(scene_idx, scenes[scene_idx], sp,
                            _ts_path(ts), cache_key)
     except FileNotFoundError as e:
-        return jsonify({"error": str(e)}), 404
+        return api_error("CACHE_ENTRY_NOT_FOUND", str(e), 404, key=cache_key)
     except Exception as e:
         logger.exception("%s use_cache failed", stage)
-        return jsonify({"error": str(e)}), 500
+        return api_error("STAGE_CACHE_USE_FAILED", str(e), 500, stage=stage)
     progress_store.set_scene_decision(
         _ts_path(ts), stage, scene_idx, "cache", cache_key)
     return jsonify({"ok": True, "decision": "cache", "key": cache_key})
@@ -941,13 +950,13 @@ def _stage_use_cache(ts: str, stage: str, scene_idx: int):
 def _stage_queue_fresh(ts: str, stage: str, scene_idx: int):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
-        return jsonify({"error": "scene_idx out of range"}), 400
+        return api_error("SCENE_INDEX_OUT_OF_RANGE", "scene_idx out of range", 400, scene_idx=scene_idx)
     progress_store.set_scene_decision(
         _ts_path(ts), stage, scene_idx, "fresh", None)
     return jsonify({"ok": True, "decision": "fresh"})
@@ -956,17 +965,17 @@ def _stage_queue_fresh(ts: str, stage: str, scene_idx: int):
 def _stage_scene_rescan(ts: str, stage: str, scene_idx: int):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     if scene_idx < 0 or scene_idx >= len(scenes):
-        return jsonify({"error": "scene_idx out of range"}), 400
+        return api_error("SCENE_INDEX_OUT_OF_RANGE", "scene_idx out of range", 400, scene_idx=scene_idx)
     try:
         decisions_all = handler.scan_fn(sp, _ts_path(ts))
     except Exception as e:
-        return jsonify({"error": str(e)}), 500
+        return api_error("STAGE_CACHE_SCAN_FAILED", str(e), 500, stage=stage)
     new_rec = decisions_all.get(str(scene_idx)) or {}
     cur = progress_store.get_decisions(_ts_path(ts), stage)
     decisions = dict(cur.get("scene_decisions") or {})
@@ -978,13 +987,16 @@ def _stage_scene_rescan(ts: str, stage: str, scene_idx: int):
 def _stage_decisions_bulk(ts: str, stage: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     action = data.get("action")
     if action not in ("all-cache", "all-fresh"):
-        return jsonify({"error": "action must be all-cache or all-fresh"}), 400
+        return api_error(
+            "STAGE_DECISIONS_BULK_INVALID_ACTION",
+            "action must be all-cache or all-fresh", 400, action=action,
+        )
     sp, _ = _load_screenplay_for_project(ts)
     scenes = sp.get("scenes") or []
     cur = progress_store.get_decisions(_ts_path(ts), stage)
@@ -1029,7 +1041,7 @@ def _stage_decisions_bulk(ts: str, stage: str):
 def _stage_generate_remaining(ts: str, stage: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not os.path.isdir(_ts_path(ts)):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     sp, _ = _load_screenplay_for_project(ts)
@@ -1046,10 +1058,11 @@ def _stage_generate_remaining(ts: str, stage: str):
         elif d != "cache":
             pending.append(i)
     if pending:
-        return jsonify({
-            "error": "未判断のシーンがあります",
-            "pending_scenes": pending,
-        }), 400
+        return api_error(
+            "STAGE_DECISIONS_PENDING",
+            "未判断のシーンがあります", 400,
+            pending_scenes=pending,
+        )
 
     try:
         job_id = _spawn_job(
@@ -1075,30 +1088,30 @@ def _generate_fresh_and_mark(stage: str, sp: dict, ts_path: str,
 def _stage_cache_entries(stage: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     return jsonify({"entries": handler.cache_module.list_entries()})
 
 
 def _stage_cache_blacklist(stage: str, key: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not _HASH16_RE.match(key):
-        return jsonify({"error": "invalid key"}), 400
+        return api_error("CACHE_INVALID_KEY", "invalid key", 400, key=key)
     data = request.get_json(force=True) or {}
     reason = data.get("reason") or ""
     ok = handler.cache_module.blacklist(key, reason)
     if not ok:
-        return jsonify({"error": "entry not found"}), 404
+        return api_error("CACHE_ENTRY_NOT_FOUND", "entry not found", 404, key=key)
     return jsonify({"ok": True})
 
 
 def _stage_cache_delete(stage: str, key: str):
     handler = _resolve_handler(stage)
     if handler is None:
-        return jsonify({"error": f"unknown stage: {stage}"}), 400
+        return api_error("STAGE_UNKNOWN", f"unknown stage: {stage}", 400, stage=stage)
     if not _HASH16_RE.match(key):
-        return jsonify({"error": "invalid key"}), 400
+        return api_error("CACHE_INVALID_KEY", "invalid key", 400, key=key)
     mp4_or_png, meta = handler.cache_module._entry_paths(key)
     is_deleted = False
     for p in (mp4_or_png, meta):
@@ -1107,9 +1120,9 @@ def _stage_cache_delete(stage: str, key: str):
                 os.remove(p)
                 is_deleted = True
             except Exception as e:
-                return jsonify({"error": str(e)}), 500
+                return api_error("CACHE_ENTRY_DELETE_FAILED", str(e), 500, key=key)
     if not is_deleted:
-        return jsonify({"error": "entry not found"}), 404
+        return api_error("CACHE_ENTRY_NOT_FOUND", "entry not found", 404, key=key)
     return jsonify({"ok": True, "deleted": key})
 
 

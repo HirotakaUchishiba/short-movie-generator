@@ -12,6 +12,7 @@ from flask import Blueprint, jsonify, request
 from cost_tracking import estimator as cost_estimator
 from cost_tracking import pricebook as cost_pricebook
 from cost_tracking import report as cost_report
+from routes._helpers import api_error
 
 cost_bp = Blueprint("cost", __name__)
 
@@ -25,11 +26,11 @@ def api_cost_pricebook():
     })
 
 
-def _estimate_for_stage(stage: str, args) -> tuple[dict, int]:
-    """``/api/cost/estimate/<stage>`` の stage 別ロジック (純粋関数)。"""
+def _estimate_for_stage(stage: str, args):
+    """``/api/cost/estimate/<stage>`` の stage 別ロジック (api_error / 200 dict を返す)。"""
     model = args.get("model")
     if not model:
-        return {"error": "model required"}, 400
+        return api_error("COST_MODEL_REQUIRED", "model required", 400)
     try:
         if stage == "tts":
             est = cost_estimator.estimate_tts(
@@ -58,17 +59,16 @@ def _estimate_for_stage(stage: str, args) -> tuple[dict, int]:
                 model=model,
             )
         else:
-            return {"error": f"unknown stage: {stage}"}, 400
+            return api_error("COST_UNKNOWN_STAGE", f"unknown stage: {stage}", 400, stage=stage)
     except (ValueError, TypeError) as e:
-        return {"error": str(e)}, 400
-    return asdict(est), 200
+        return api_error("COST_INVALID_ARG", str(e), 400)
+    return jsonify(asdict(est)), 200
 
 
 @cost_bp.route("/api/cost/estimate/<stage>", methods=["GET"])
 def api_cost_estimate(stage):
     """動的見積もり (履歴 only)。履歴が ``MIN_HISTORY_SAMPLES`` 未満なら ``confidence=insufficient``。"""
-    payload, status = _estimate_for_stage(stage, request.args)
-    return jsonify(payload), status
+    return _estimate_for_stage(stage, request.args)
 
 
 @cost_bp.route("/api/cost/median/<stage>", methods=["GET"])
@@ -76,11 +76,11 @@ def api_cost_median(stage):
     """履歴から per-unit cost の median を返す (frontend で rate × units 計算用)。"""
     model = request.args.get("model")
     if not model:
-        return jsonify({"error": "model required"}), 400
+        return api_error("COST_MODEL_REQUIRED", "model required", 400)
     try:
         rate = cost_estimator.median_rate(stage, model)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("COST_MEDIAN_FAILED", str(e), 400)
     return jsonify(asdict(rate))
 
 

@@ -14,6 +14,7 @@ import imagen_client
 import progress_store
 import video_analyzer
 from cost_tracking import pricebook as cost_pricebook
+from routes._helpers import api_error
 
 config_bp = Blueprint("config", __name__)
 
@@ -56,11 +57,11 @@ def api_set_model():
     data = request.get_json(force=True) or {}
     model = data.get("model")
     if not model:
-        return jsonify({"error": "model required"}), 400
+        return api_error("CONFIG_MODEL_REQUIRED", "model required", 400)
     try:
         elevenlabs_client.set_model(model)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("CONFIG_MODEL_INVALID", str(e), 400)
     return jsonify({"ok": True, "tts_pricing": _tts_pricing()})
 
 
@@ -70,10 +71,10 @@ def api_set_speed():
     data = request.get_json(force=True) or {}
     speed = data.get("speed")
     if not isinstance(speed, (int, float)):
-        return jsonify({"error": "speed (number) required"}), 400
+        return api_error("CONFIG_SPEED_REQUIRED", "speed (number) required", 400)
     speed = float(speed)
     if speed < 0.5 or speed > 2.0:
-        return jsonify({"error": "speed must be 0.5〜2.0"}), 400
+        return api_error("CONFIG_SPEED_OUT_OF_RANGE", "speed must be 0.5〜2.0", 400, speed=speed)
     config.TTS_GLOBAL_SPEED = speed
     return jsonify({"ok": True, "tts_pricing": _tts_pricing()})
 
@@ -87,7 +88,10 @@ def api_set_silences():
     if "max_ms" in data:
         v = data["max_ms"]
         if not isinstance(v, (int, float)) or v < 50 or v > 2000:
-            return jsonify({"error": "max_ms must be 50〜2000"}), 400
+            return api_error(
+                "CONFIG_MAX_MS_OUT_OF_RANGE",
+                "max_ms must be 50〜2000", 400, max_ms=v,
+            )
         config.TTS_MAX_SILENCE_MS = float(v)
     return jsonify({"ok": True, "tts_pricing": _tts_pricing()})
 

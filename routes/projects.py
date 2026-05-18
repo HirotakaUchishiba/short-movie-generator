@@ -460,7 +460,7 @@ def api_project_detail(ts):
     validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     meta = staged_pipeline.read_metadata(project_path) or {}
     progress = progress_store.load(project_path)
     analyze_status_val = progress_store.analyze_status(project_path)
