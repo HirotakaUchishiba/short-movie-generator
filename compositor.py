@@ -132,10 +132,17 @@ def _line_window(line: dict, next_line: dict | None,
     return start, end
 
 
+# 字幕 chunk 分割で「ここで切ると自然」と判定する文字集合。
+# 優先度: STRONG (= 文末記号) > SPACE > DOT > PARTICLES > TERMINAL の順で
+# 探索し、最初に見つかったものを境界に採用する (= _find_natural_split_pos)。
+
+# 句読点 / 感嘆符 (= 文末・文節末。ASCII , . は念のため両対応、TTS では事前除去済)
 _BREAK_STRONG = "、。！？!?,."
+# 全角・半角空白 (= 既に視覚的な区切りなのでそこで切る)
 _BREAK_SPACE = "　 "
+# 中黒 (= 並列項目の区切り。例: "AI・機械学習")
 _BREAK_DOT = "・"
-# 主要助詞 (1文字)
+# 主要助詞 (1文字、これらの「直後」で切る)
 _BREAK_PARTICLES_1CHAR = set("はがをにでとやもへ")
 # 終助詞 (これらの「直前」で切る) — 文末が明確なものに限定。
 # 「な/か/よ」は会話表現で「かな」「なあ」のように続くことが多いため除外
