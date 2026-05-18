@@ -55,24 +55,19 @@ SUBTITLE_MAX_CHARS_PER_LINE = 17
 SUBTITLE_CHUNK_ENABLED = True
 SUBTITLE_CHUNK_MAX_CHARS = 12
 
-ELEVENLABS_VOICE_ID = "0ptCJp0xgdabdcpVtCB5"
-ELEVENLABS_VOICE_STABILITY = 0.5
-ELEVENLABS_VOICE_SIMILARITY_BOOST = 0.75
-ELEVENLABS_VOICE_STYLE = 0.3
-
-# TTS全体の速度倍率 (0.5x〜2.0x)。
-# 0.7〜1.2 までは ElevenLabs の native speed パラメータを使用。
-# それ以外の範囲は ffmpeg atempo で後処理して合計速度を達成。
-TTS_GLOBAL_SPEED = 1.0
-TTS_NATIVE_SPEED_MIN = 0.7  # ElevenLabs公式下限
-TTS_NATIVE_SPEED_MAX = 1.2  # ElevenLabs公式上限
-
-# 長い無音を圧縮する後処理 (ElevenLabsが文間に挿入する間を切り詰める)
-# True なら tts_full.mp3 内の TTS_MAX_SILENCE_MS を超える無音を圧縮。
-# 値は per-line audio 末尾の自然な余白秒数にも使われる (= 全 line 共通)
-TTS_TRIM_LONG_SILENCES = True
-TTS_MAX_SILENCE_MS = 250                # この長さまでの無音は残し、超過分はカット
-TTS_SILENCE_THRESHOLD_DB = -40.0        # この音量以下を無音と判定
+# TTS 関連の固定設定は config.tts から re-export (= §3.1.4-b 段階移行)。
+from config.tts import (  # noqa: F401, E402
+    ELEVENLABS_VOICE_ID,
+    ELEVENLABS_VOICE_STABILITY,
+    ELEVENLABS_VOICE_SIMILARITY_BOOST,
+    ELEVENLABS_VOICE_STYLE,
+    TTS_GLOBAL_SPEED,
+    TTS_NATIVE_SPEED_MIN,
+    TTS_NATIVE_SPEED_MAX,
+    TTS_TRIM_LONG_SILENCES,
+    TTS_MAX_SILENCE_MS,
+    TTS_SILENCE_THRESHOLD_DB,
+)
 
 EMOTION_MOTION_ADDONS: dict[str, str] = {
     "驚き": "sudden eye widening, quick startled motion",
