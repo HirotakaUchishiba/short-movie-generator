@@ -48,6 +48,12 @@ export function groupByBase(refs: string[]): Map<string, string[]> {
 
 export const wardrobeLabel = (w: string): string => w || "base";
 
+/** cost (USD) を表示用文字列に整形する。null / undefined は em-dash を返す。 */
+export function fmtCost(c: number | null | undefined): string {
+  if (c == null) return "—";
+  return `$${c.toFixed(4)}`;
+}
+
 /**
  * line.speaker が明示されていない場合に、scene の他 line の speaker から
  * 単一候補が決まるならそれを implicit active として返す。

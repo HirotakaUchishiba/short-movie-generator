@@ -16,6 +16,7 @@ import {
   collectAllLineSpeakers,
   collectRawSpeakerResidue,
   computeDiagnostics,
+  fmtCost,
   groupByBase,
   joinRef,
   resolveLineSpeaker,
@@ -1371,10 +1372,7 @@ function Row({
   );
 }
 
-function fmtCost(c: number | null | undefined): string {
-  if (c == null) return "—";
-  return `$${c.toFixed(4)}`;
-}
+// fmtCost は script-edit-utils.ts に移管済 (= §3.1.3-d)。
 
 /**
  * compose の不整合をユーザに見せる警告バナー。
