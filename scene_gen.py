@@ -235,46 +235,16 @@ def _apply_pronunciation_hints(text: str, hints: dict | None,
 
 
 def _load_global_furigana_dict() -> dict[str, str]:
-    try:
-        import furigana_store
-        return furigana_store.load()
-    except Exception as e:
-        logger.warning("furigana_store ロード失敗: %s", e)
-        return {}
+    """stages.text_utils.load_global_furigana_dict への shim (§3.1.1)。"""
+    return _text_utils.load_global_furigana_dict()
 
 
 def _neighbor_line_text(screenplay: dict | None, scene_idx: int,
                          line_idx: int, direction: str) -> str | None:
-    """指定lineの前/後のline.textを取得。シーン境界を跨いで隣接シーンも探索する。
-
-    direction: "prev" または "next"
-    """
-    if not screenplay:
-        return None
-    scenes = screenplay.get("scenes", [])
-    if scene_idx >= len(scenes):
-        return None
-    cur_lines = scenes[scene_idx].get("lines") or []
-
-    if direction == "prev":
-        if line_idx > 0:
-            return cur_lines[line_idx - 1].get("text")
-        for s in range(scene_idx - 1, -1, -1):
-            prev_lines = scenes[s].get("lines") or []
-            if prev_lines:
-                return prev_lines[-1].get("text")
-        return None
-
-    if direction == "next":
-        if line_idx + 1 < len(cur_lines):
-            return cur_lines[line_idx + 1].get("text")
-        for s in range(scene_idx + 1, len(scenes)):
-            next_lines = scenes[s].get("lines") or []
-            if next_lines:
-                return next_lines[0].get("text")
-        return None
-
-    return None
+    """stages.text_utils.neighbor_line_text への shim (§3.1.1)。"""
+    return _text_utils.neighbor_line_text(
+        screenplay, scene_idx, line_idx, direction,
+    )
 
 
 def _trim_internal_pauses(input_path: str, output_path: str) -> None:
