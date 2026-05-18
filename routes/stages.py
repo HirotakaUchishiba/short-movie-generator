@@ -21,6 +21,7 @@ from qa import artifact_paths as qa_artifact_paths
 from qa import recorder as qa_recorder
 
 from routes._helpers import (
+    api_error,
     is_analyze_pending,
     load_screenplay_for_project,
     ts_path,
@@ -29,10 +30,11 @@ from routes._helpers import (
 
 
 def _analyze_stage_not_ready_response():
-    return jsonify({
-        "error_code": "ANALYZE_STAGE_NOT_READY",
-        "message": "Stage 0 (analyze) が完了するまで他のステージを実行できません",
-    }), 403
+    return api_error(
+        "ANALYZE_STAGE_NOT_READY",
+        "Stage 0 (analyze) が完了するまで他のステージを実行できません",
+        403,
+    )
 
 logger = logging.getLogger(__name__)
 
@@ -88,11 +90,11 @@ def api_approve(ts):
     data = request.get_json(force=True) or {}
     stage = data.get("stage")
     if stage not in progress_store.STAGES:
-        return jsonify({"error": f"不正なstage: {stage}"}), 400
+        return api_error("STAGE_INVALID", f"不正なstage: {stage}", 400, stage=stage)
     try:
         progress_store.mark_approved(ts_path(ts), stage)
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("STAGE_APPROVE_FAILED", str(e), 400)
     return jsonify({
         "ok": True,
         "approved_stage": stage,
@@ -110,29 +112,31 @@ def api_reject(ts):
     validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     data = request.get_json(force=True) or {}
     stage = data.get("stage")
     if stage not in progress_store.STAGES:
-        return jsonify({"error": f"不正なstage: {stage}"}), 400
+        return api_error("STAGE_INVALID", f"不正なstage: {stage}", 400, stage=stage)
     tags = data.get("tags") or []
     if not isinstance(tags, list):
-        return jsonify({"error": "tags は list でなければなりません"}), 400
+        return api_error("REJECT_TAGS_INVALID", "tags は list でなければなりません", 400)
     note = data.get("note")
     if note is not None:
         if not isinstance(note, str):
-            return jsonify({"error": "note は string または null"}), 400
+            return api_error("REJECT_NOTE_INVALID", "note は string または null", 400)
         if len(note) > _REJECT_NOTE_MAX_LENGTH:
-            return jsonify({
-                "error": f"note は {_REJECT_NOTE_MAX_LENGTH} 文字以内 "
-                         f"(actual={len(note)})",
-            }), 400
+            return api_error(
+                "REJECT_NOTE_TOO_LONG",
+                f"note は {_REJECT_NOTE_MAX_LENGTH} 文字以内 "
+                f"(actual={len(note)})",
+                400, max_length=_REJECT_NOTE_MAX_LENGTH, actual=len(note),
+            )
     scene_idx = data.get("scene_idx")
     line_idx = data.get("line_idx")
     if scene_idx is not None and not isinstance(scene_idx, int):
-        return jsonify({"error": "scene_idx は int または null"}), 400
+        return api_error("REJECT_SCENE_IDX_INVALID", "scene_idx は int または null", 400)
     if line_idx is not None and not isinstance(line_idx, int):
-        return jsonify({"error": "line_idx は int または null"}), 400
+        return api_error("REJECT_LINE_IDX_INVALID", "line_idx は int または null", 400)
 
     artifact_p = _stage_artifact_paths(
         project_path, stage, scene_idx, line_idx,
@@ -150,7 +154,7 @@ def api_reject(ts):
             screenplay_snapshot_path=snapshot_for_archive,
         )
     except ValueError as e:
-        return jsonify({"error": str(e)}), 400
+        return api_error("REJECT_RECORD_FAILED", str(e), 400)
     return jsonify({
         "ok": True,
         "failure_id": failure_id,
@@ -163,7 +167,7 @@ def api_run_next(ts):
     validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
     if is_analyze_pending(ts):
         return _analyze_stage_not_ready_response()
     sp, name = load_screenplay_for_project(ts)
@@ -188,7 +192,7 @@ def api_regen(ts):
     # bg ステージの「キャッシュ無視」再生成: 該当 scene に内部 hint を立てる
     force_no_cache = bool(data.get("force_no_cache", False))
     if stage not in {"tts", "bg", "kling", "scene", "overlay"}:
-        return jsonify({"error": f"このstageは再生成不可: {stage}"}), 400
+        return api_error("STAGE_NOT_REGENERABLE", f"このstageは再生成不可: {stage}", 400, stage=stage)
     if is_analyze_pending(ts):
         return _analyze_stage_not_ready_response()
 

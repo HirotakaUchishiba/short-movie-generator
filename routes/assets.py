@@ -17,6 +17,7 @@ import scene_gen
 from analyze import job as analyze_job
 
 from routes._helpers import (
+    api_error,
     load_screenplay_for_project,
     safe_join,
     ts_path,
@@ -55,7 +56,7 @@ def asset_tts_merged(ts):
         path = scene_gen.build_merged_tts_preview(sp, project_path)
     except Exception as e:
         logger.exception("merged TTS build failed")
-        return jsonify({"error": str(e)}), 500
+        return api_error("MERGED_TTS_BUILD_FAILED", str(e), 500)
     if not path or not os.path.exists(path):
         return "", 404
     mimetype = "audio/mp4" if path.endswith(".m4a") else "audio/mpeg"

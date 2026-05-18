@@ -51,7 +51,9 @@ def test_pricebook_endpoint(client) -> None:
 def test_estimate_missing_model_returns_400(client) -> None:
     r = client.get("/api/cost/estimate/bg?image_count=1")
     assert r.status_code == 400
-    assert "model required" in r.get_json()["error"]
+    body = r.get_json()
+    assert body["error_code"] == "COST_MODEL_REQUIRED"
+    assert "model required" in body["message"]
 
 
 def test_estimate_unknown_stage_returns_400(client) -> None:

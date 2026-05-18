@@ -195,7 +195,8 @@ def test_reject_note_too_long(client, project):
     )
     assert r.status_code == 400
     body = r.get_json()
-    assert "2000" in body["error"]
+    assert body["error_code"] == "REJECT_NOTE_TOO_LONG"
+    assert "2000" in body["message"]
 
 
 def test_reject_note_at_limit_accepted(client, project):
