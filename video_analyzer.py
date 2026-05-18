@@ -150,6 +150,12 @@ class ScreenplayParseError(RuntimeError):
 
     parse に失敗しても Claude 呼び出し自体は課金されているため、上位は
     例外を catch して ``usage`` を recorder に渡す責務を持つ。
+
+    呼び出し規約 (= cost-tracking-convention.md §3):
+    上位 (= analyze/pipeline.py) で本例外を catch したら、
+    ``cost_recorder.record_analyze()`` を ``metadata={"parse_error": True,
+    "reason": str(e)[:200]}`` 付きで呼び出すこと。``usage`` 同梱形式は
+    Phase 4 で ``metadata.parse_error`` 経由に統一予定 (§4.6-a)。
     """
 
     def __init__(self, message: str, *, usage: dict | None = None) -> None:
