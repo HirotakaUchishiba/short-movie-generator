@@ -277,29 +277,8 @@ def _job_already_running_response(e: JobAlreadyRunningError):
 # character-metas CRUD は routes/character_metas.py に移管済 (= §3.1.2)。
 
 
-# ───────────────── analyze ジョブ ─────────────────
-
-_JOB_ID_RE = re.compile(r"^analyze_[\w]+$")
-_TS_RE = re.compile(r"^\d{8}_\d{6}$")
-
-
-def _job_to_dict(j) -> dict:
-    return {
-        "id": j.id,
-        "video_sha256": j.video_sha256,
-        "options": json.loads(j.options_json),
-        "status": j.status,
-        "current_phase": j.current_phase,
-        "error": j.error,
-        "estimated_cost_usd": j.estimated_cost_usd,
-        "actual_cost_usd": j.actual_cost_usd,
-        "screenplay_path": j.screenplay_path,
-        "style_name": j.style_name,
-        "created_at": j.created_at,
-        "started_at": j.started_at,
-        "finished_at": j.finished_at,
-        "cancellation_requested": bool(j.cancellation_requested),
-    }
+# _JOB_ID_RE / _TS_RE / _job_to_dict は routes/analyze.py 移管後は preview_server
+# 側では未使用のため削除済 (= §3.1.2-b)。
 
 
 # GET /api/screenplay/analyze/<job_id> は routes/analyze.py に移管済 (§3.1.2-b)。
