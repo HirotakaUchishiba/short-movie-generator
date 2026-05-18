@@ -191,17 +191,15 @@ def _ts_path(ts: str) -> str:
     return _route_helpers.ts_path(ts, temp_dir=TEMP_DIR)
 
 
-def _safe_join(base: str, *parts: str) -> str:
-    return _route_helpers.safe_join(base, *parts)
-
-
-def _load_screenplay_for_project(ts: str) -> tuple[dict, str]:
-    """互換 shim: routes._helpers.load_screenplay_for_project に移管済み。"""
-    return _route_helpers.load_screenplay_for_project(ts, temp_dir=TEMP_DIR)
+# _safe_join / _load_screenplay_for_project は preview_server 側で未使用のため
+# 削除済 (= §3.1.2)。外部から必要な場合は routes._helpers から直接 import する。
 
 
 def _ffprobe_duration(path: str) -> float:
-    """互換 shim: routes._helpers.ffprobe_duration に移管済み。"""
+    """互換 shim: tests/test_preview_server_analyze.py が
+    `monkeypatch.setattr(preview_server, "_ffprobe_duration", ...)` で
+    patch するため、shim を残す (= 全 endpoint が Blueprint 移管済の今は
+    preview_server 内部からは呼ばれない)。"""
     return _route_helpers.ffprobe_duration(path)
 
 
