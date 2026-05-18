@@ -23,6 +23,8 @@ import {
   splitRef,
   wardrobeLabel,
 } from "./script-edit-utils";
+import { AnalyzeSuggestedBadge } from "./AnalyzeSuggestedBadge";
+import { ScriptEditRow } from "./ScriptEditRow";
 
 // resolveLineSpeaker / collectRawSpeakerResidue / computeDiagnostics は
 // 外部テスト / import で参照されるため re-export を保つ (§3.1.3-c)。
@@ -494,15 +496,21 @@ export default function ScriptEditPanel({
               className="w-64 max-w-full bg-black rounded"
             />
             <dl className="text-xs text-slate-400 space-y-1">
-              <Row label="job id" value={job.id} mono />
-              <Row label="status" value={job.status} />
-              <Row
+              <ScriptEditRow label="job id" value={job.id} mono />
+              <ScriptEditRow label="status" value={job.status} />
+              <ScriptEditRow
                 label="video sha256"
                 value={`${job.video_sha256.slice(0, 16)}…`}
                 mono
               />
-              <Row label="cost (実)" value={fmtCost(job.actual_cost_usd)} />
-              <Row label="finished at" value={job.finished_at ?? "—"} />
+              <ScriptEditRow
+                label="cost (実)"
+                value={fmtCost(job.actual_cost_usd)}
+              />
+              <ScriptEditRow
+                label="finished at"
+                value={job.finished_at ?? "—"}
+              />
             </dl>
           </div>
         </details>
@@ -920,20 +928,9 @@ function BaseCharacterCard({
   );
 }
 
-/** analyze が推定した初期値であることを示す小バッジ。 */
-function AnalyzeSuggestedBadge() {
-  return (
-    <span
-      className="text-[10px] text-violet-300 bg-violet-500/10 rounded px-1.5 py-0.5"
-      title="analyze が参考動画から推定した初期値です。必要なら修正してください"
-    >
-      ✨ analyze 推定
-    </span>
-  );
-}
-
-// CAMERA_DISTANCE_OPTIONS は script-edit-utils.ts に移管済 (§3.1.3-c)。
-// 本ファイル冒頭で import している。
+// AnalyzeSuggestedBadge は ./AnalyzeSuggestedBadge.tsx に移管済 (= §3.1.3-c)。
+// CAMERA_DISTANCE_OPTIONS は script-edit-utils.ts に移管済。
+// どちらも本ファイル冒頭で import している。
 
 /**
  * シーンの背景 (= location_ref) を選ぶ。analyze が pre-fill した値を初期表示し、
@@ -1353,25 +1350,7 @@ function SpeakerPicker({
   );
 }
 
-function Row({
-  label,
-  value,
-  mono,
-}: {
-  label: string;
-  value: string;
-  mono?: boolean;
-}) {
-  return (
-    <div className="flex gap-2">
-      <dt className="text-slate-500 w-28 shrink-0">{label}</dt>
-      <dd className={mono ? "font-mono text-slate-300" : "text-slate-300"}>
-        {value}
-      </dd>
-    </div>
-  );
-}
-
+// Row (= ScriptEditRow) は ./ScriptEditRow.tsx に移管済 (= §3.1.3-c)。
 // fmtCost は script-edit-utils.ts に移管済 (= §3.1.3-d)。
 
 /**
