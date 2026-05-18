@@ -1,7 +1,10 @@
-"""routes/* で共有する純関数ヘルパ。preview_server からも import される。
+"""routes/* で共有する純関数ヘルパ。
 
-Blueprint 分割の途中段階で `preview_server._validate_ts` 等が複数 module から
-参照されるのを避けるため、シグネチャ stable な util をここに集約する。
+api_error / validate_ts / ts_path / safe_join / load_screenplay_for_project /
+is_analyze_pending / ffprobe_duration / save_reference_video /
+classify_abstract_diff を 17 個の Blueprint module から共有する。
+preview_server.py 内に残る test 互換 shim (_ts_path / _spawn_job /
+_ffprobe_duration) もここを経由する。
 """
 from __future__ import annotations
 
