@@ -328,3 +328,47 @@ def api_put_project_abstract(ts):
         "revoked_approvals": revoked_approvals,
         "classification": classification,
     })
+
+
+@screenplay_bp.route("/api/projects/<ts>/scene-boundaries", methods=["POST"])
+def api_apply_scene_boundaries(ts):
+    """TTS 完了後に scene 境界だけを再定義する。line のテキスト・順序は不変。
+
+    body: {line_boundaries: [int, ...]}  scene 開始 line index (flat) 昇順、先頭は 0
+
+    効果:
+      - snapshot の scenes[] を再構築 (line は flat 順を保ち boundaries で再 group)
+      - tts_full.mp3 から per-line / per-scene を新 scene index で再分割
+      - bg / kling / scene / overlay 系の生成物を全削除し progress を reset
+      - tts は generated 維持、approved 解除 (再確認させる)
+      - **ElevenLabs API は呼ばれない** ので追加課金なし
+    """
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return api_error(
+            "PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404,
+        )
+    data = request.get_json(force=True) or {}
+    raw = data.get("line_boundaries")
+    if not isinstance(raw, list) or not all(isinstance(x, int) for x in raw):
+        return api_error(
+            "SCENE_BOUNDARIES_INVALID",
+            "line_boundaries は int の list である必要があります", 400,
+        )
+    try:
+        with screenplay_lock(ts):
+            result = staged_pipeline.apply_scene_boundaries(project_path, raw)
+    except FileNotFoundError as e:
+        return api_error("SCENE_BOUNDARIES_NOT_FOUND", str(e), 404)
+    except ValueError as e:
+        return api_error("SCENE_BOUNDARIES_INVALID", str(e), 400)
+    except Exception as e:
+        logger.exception("apply_scene_boundaries failed")
+        return api_error("SCENE_BOUNDARIES_FAILED", str(e), 500)
+    return jsonify({
+        "ok": True,
+        "scenes": result["scenes"],
+        "lines": result["lines"],
+        "subtitles_reset_lines": result.get("subtitles_reset_lines", 0),
+    })
