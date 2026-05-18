@@ -11,6 +11,18 @@ import {
   ScriptEditContext,
   type ScriptEditContextValue,
 } from "./ScriptEditContext";
+import {
+  collectAllLineSpeakers,
+  groupByBase,
+  joinRef,
+  resolveLineSpeaker,
+  splitRef,
+  wardrobeLabel,
+} from "./script-edit-utils";
+
+// resolveLineSpeaker は collectRawSpeakerResidue 等のテストで使われるため
+// re-export を保つ (= test / external import の互換性維持)。
+export { resolveLineSpeaker };
 
 const EMOTIONS = [
   "驚き",
@@ -817,38 +829,8 @@ export function collectRawSpeakerResidue(
   return [...allIds].sort();
 }
 
-// ─── 被写体 (base) × 衣装 (wardrobe) の解決ヘルパー ─────────
-
-/** resolved id (= `"<base>__<wardrobe>"` or `"<base>"`) を分解する。 */
-function splitRef(ref: string): { base: string; wardrobe: string } {
-  const i = ref.indexOf("__");
-  return i < 0
-    ? { base: ref, wardrobe: "" }
-    : { base: ref.slice(0, i), wardrobe: ref.slice(i + 2) };
-}
-
-/** base + wardrobe を resolved id に再合成する (`wardrobe === ""` なら base 単独)。 */
-function joinRef(base: string, wardrobe: string): string {
-  return wardrobe ? `${base}__${wardrobe}` : base;
-}
-
-/** resolved refs を base 単位にグルーピングし、各 base の利用可能 wardrobes
- *  list を返す (`""` = base.png 単独)。base の登場順を保ち、wardrobe は昇順。 */
-function groupByBase(refs: string[]): Map<string, string[]> {
-  const out = new Map<string, Set<string>>();
-  for (const ref of refs) {
-    const { base, wardrobe } = splitRef(ref);
-    if (!out.has(base)) out.set(base, new Set());
-    out.get(base)!.add(wardrobe);
-  }
-  const result = new Map<string, string[]>();
-  for (const [base, set] of out) {
-    result.set(base, [...set].sort());
-  }
-  return result;
-}
-
-const wardrobeLabel = (w: string) => w || "base";
+// splitRef / joinRef / groupByBase / wardrobeLabel は script-edit-utils.ts に
+// 移管済 (= §3.1.3-b)。本ファイル冒頭で import している。
 
 /**
  * frontend 側で abstract から `AbstractDiagnostics` を再計算する。
@@ -1373,35 +1355,8 @@ function SceneCharacterSelector({
  *   2. `selected` 未設定 + `siblingSpeakers` が 1 種類のみ → 暗黙 active
  *   3. それ以外 → undefined (= active 無し、ユーザに選ばせる)
  */
-export function resolveLineSpeaker(
-  selected: string | undefined,
-  siblingSpeakers: string[] = [],
-): { resolved: string | undefined; implicit: boolean } {
-  if (selected) {
-    return { resolved: selected, implicit: false };
-  }
-  const uniq = Array.from(new Set(siblingSpeakers.filter(Boolean)));
-  if (uniq.length === 1) {
-    return { resolved: uniq[0], implicit: true };
-  }
-  return { resolved: undefined, implicit: false };
-}
-
-/** 全 scene を走査して line.speaker のユニーク集合を返す (= bulk-apply / implicit
- *  active 判定に使う)。 */
-function collectAllLineSpeakers(
-  scenes: AbstractScreenplay["scenes"],
-): string[] {
-  const set = new Set<string>();
-  for (const sc of scenes) {
-    for (const ln of sc.lines ?? []) {
-      if (typeof ln.speaker === "string" && ln.speaker) {
-        set.add(ln.speaker);
-      }
-    }
-  }
-  return [...set].sort();
-}
+// resolveLineSpeaker / collectAllLineSpeakers は script-edit-utils.ts に
+// 移管済 (= §3.1.3-b)。本ファイル冒頭で import + re-export している。
 
 function SpeakerPicker({
   characters,
