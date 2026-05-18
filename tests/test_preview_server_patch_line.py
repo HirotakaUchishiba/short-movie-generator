@@ -100,7 +100,7 @@ def test_patch_line_rejects_start_end(client, project):
             json={"patch": {field: 0.5}},
         )
         assert r.status_code == 400, f"{field} の patch が通った"
-        assert "許可されていない" in r.get_json()["error"]
+        assert "許可されていない" in r.get_json()["message"]
     # 元の値は不変
     sp = json.load(open(project["sp_path"]))
     assert sp["scenes"][0]["lines"][1]["start"] == 1
@@ -150,7 +150,7 @@ def test_patch_line_rejects_unknown_field(client, project):
         json={"patch": {"evil_field": "danger"}},
     )
     assert r.status_code == 400
-    assert "許可されていない" in r.get_json()["error"]
+    assert "許可されていない" in r.get_json()["message"]
 
 
 def test_patch_line_rejects_out_of_range(client, project):

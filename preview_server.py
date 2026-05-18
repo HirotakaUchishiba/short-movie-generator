@@ -83,6 +83,7 @@ from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
+from routes.screenplay import screenplay_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
@@ -94,6 +95,7 @@ app.register_blueprint(intent_suggestions_bp)
 app.register_blueprint(stages_bp)
 app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
+app.register_blueprint(screenplay_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -263,45 +265,7 @@ from routes.stages import (  # noqa: E402, F401
 
 # ───────────────── 台本書き戻し ─────────────────
 
-@app.route("/api/projects/<ts>/screenplay", methods=["PUT"])
-def api_save_screenplay(ts):
-    """全 screenplay を上書き保存し、変更内容に応じて Stage 2-6 承認を解除する。
-
-    2026-05-17 schema 撤廃: line.speaker 変更も含む全 line/scene 編集は
-    `classify_abstract_diff` で分類され、breaking (= TTS / 動画に影響) なら
-    Stage 2 以降の承認が自動 reset される (= 古い voice の audio が次工程に
-    流れるのを防ぐ。段階的ゲート方式 §15)。
-    """
-
-    _validate_ts(ts)
-    ts_path = _ts_path(ts)
-    if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    data = request.get_json(force=True) or {}
-    sp = data.get("screenplay")
-    if not isinstance(sp, dict):
-        return jsonify({"error": "screenplayが必要です"}), 400
-    try:
-        from screenplay_validator import validate_screenplay
-        errors = validate_screenplay(sp, strict=False)
-        if errors:
-            return jsonify({"error": "validator失敗", "details": errors}), 400
-        with _screenplay_lock(ts):
-            try:
-                old_sp = staged_pipeline.load_project_abstract(ts_path)
-            except FileNotFoundError:
-                old_sp = {}
-            classification = _route_helpers.classify_abstract_diff(old_sp, sp)
-            if classification == "unchanged":
-                return jsonify({"ok": True, "classification": "unchanged"})
-            staged_pipeline.save_project_screenplay(ts_path, sp)
-            if classification == "breaking":
-                progress_store.revoke_all_approvals(ts_path)
-            elif classification == "safe_only":
-                progress_store.revoke_overlay_only(ts_path)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True, "classification": classification})
+# PUT /api/projects/<ts>/screenplay は routes/screenplay.py に移管済 (§3.1.2-a)。
 
 
 # bg_cache 情報取得: 該当 scene の合成入力からキャッシュキーを派生し、
@@ -341,109 +305,8 @@ def api_bg_cache_info(ts, scene_idx):
     return jsonify(info)
 
 
-# Server-side merge: line 単位の field patch。
-# 全 screenplay を投げる PUT と異なり、複数 client が並行 patch しても他 line を上書きしない。
-@app.route("/api/projects/<ts>/lines/<int:scene_idx>/<int:line_idx>",
-            methods=["PATCH"])
-def api_patch_line(ts, scene_idx, line_idx):
-    """abstract snapshot の line に部分 patch を適用する。
-
-    snapshot は abstract 形式のまま読み書きする (= live derivation を維持)。
-    派生フィールド (voice_overrides の base 値・background_prompt 等) は
-    Stage 2 以降が compose を介して読むので、ここでは触らない。
-    """
-    _validate_ts(ts)
-    data = request.get_json(force=True) or {}
-    patch = data.get("patch")
-    if not isinstance(patch, dict):
-        return jsonify({"error": "patch (object) が必要です"}), 400
-    # abstract line schema に揃えた allowlist。start/end は **TTS が SSOT** で
-    # ユーザー編集対象外 (analyze の Whisper 値 → Stage 2 で実音声長に上書き)
-    # なので除外する。subtitles/hidden は字幕分割・抑止フラグとして残す。
-    # voice_overrides は line 個別 override が compose で base に上書き優先される
-    allowed = {
-        "text", "tts_text", "emotion",
-        "emotion_intensity", "delivery", "audio_tags", "speaker",
-        "pronunciation_hints", "acoustic",
-        "subtitles", "hidden",
-    }
-    unknown = set(patch.keys()) - allowed
-    if unknown:
-        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
-
-    ts_path = _ts_path(ts)
-    if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    try:
-        from screenplay_validator import validate_abstract
-        with _screenplay_lock(ts):
-            sp = staged_pipeline.load_project_abstract(ts_path)
-            scenes = sp.get("scenes") or []
-            if scene_idx >= len(scenes):
-                return jsonify({"error": f"scene_idx範囲外: {scene_idx}"}), 400
-            lines = scenes[scene_idx].get("lines") or []
-            if line_idx >= len(lines):
-                return jsonify({"error": f"line_idx範囲外: {line_idx}"}), 400
-            # patch 前の snapshot を保持 (= classify diff 用)
-            from copy import deepcopy
-            old_sp = deepcopy(sp)
-            line = lines[line_idx]
-            for k, v in patch.items():
-                if v is None:
-                    line.pop(k, None)
-                else:
-                    line[k] = v
-            errors = validate_abstract(sp, strict=False)
-            if errors:
-                return jsonify({"error": "validator失敗", "details": errors}), 400
-            classification = _route_helpers.classify_abstract_diff(old_sp, sp)
-            if classification == "unchanged":
-                return jsonify({"ok": True, "classification": "unchanged"})
-            staged_pipeline.save_project_screenplay(ts_path, sp)
-            # line.speaker / text / emotion 等の patch は breaking 扱いになり、
-            # Stage 2 以降の承認が自動 reset される (= 古い voice / 動画 / 字幕
-            # が次工程に流れるのを防ぐ。2026-05-17 schema 撤廃)
-            if classification == "breaking":
-                progress_store.revoke_all_approvals(ts_path)
-            elif classification == "safe_only":
-                progress_store.revoke_overlay_only(ts_path)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True, "classification": classification})
-
-
-# screenplay-level patch (subtitle_y_from_bottom 等)。
-@app.route("/api/projects/<ts>/screenplay-meta", methods=["PATCH"])
-def api_patch_screenplay_meta(ts):
-    _validate_ts(ts)
-    data = request.get_json(force=True) or {}
-    patch = data.get("patch")
-    if not isinstance(patch, dict):
-        return jsonify({"error": "patch (object) が必要です"}), 400
-    allowed = {"subtitle_y_from_bottom"}
-    unknown = set(patch.keys()) - allowed
-    if unknown:
-        return jsonify({"error": f"許可されていないフィールド: {sorted(unknown)}"}), 400
-
-    ts_path = _ts_path(ts)
-    if not os.path.isdir(ts_path):
-        return jsonify({"error": "プロジェクトが存在しません"}), 404
-    try:
-        from screenplay_validator import validate_abstract
-        with _screenplay_lock(ts):
-            sp = staged_pipeline.load_project_abstract(ts_path)
-            for k, v in patch.items():
-                if v is None:
-                    sp.pop(k, None)
-                else:
-                    sp[k] = v
-            errors = validate_abstract(sp, strict=False)
-            if errors:
-                return jsonify({"error": "validator失敗", "details": errors}), 400
-            staged_pipeline.save_project_screenplay(ts_path, sp)
-    except Exception as e:
-        return jsonify({"error": str(e)}), 500
-    return jsonify({"ok": True})
+# PATCH /api/projects/<ts>/lines/<s>/<l> および /screenplay-meta は
+# routes/screenplay.py に移管済 (§3.1.2-a)。
 
 
 # characters/ 配下の画像 ref 一覧 (拡張子なし)。Stage 1 の登場人物選択 UI 用。
