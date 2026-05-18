@@ -3,6 +3,14 @@ import StageGate, { useShellCtx } from "../StageGate";
 import { ttsMergedAssetUrl, api } from "../../api";
 import type { CostMedianRate, Line, Scene, TtsPricing } from "../../types";
 import { useCostMedianRate } from "../../useCostMedianRate";
+import {
+  type CostBreakdown,
+  formatJpy,
+  formatUsd,
+  lineCost,
+  sceneCost,
+  screenplayCost,
+} from "../../tts-cost";
 // シーン境界編集は Stage 1 (ScriptEditPanel) に移動済み。Stage 2 では扱わない。
 
 export default function StageTTS() {
@@ -42,85 +50,8 @@ export default function StageTTS() {
     </StageGate>
   );
 }
-// ─────────────────────────────────────────────────────────
-// コスト計算 (= 履歴 median rate × 単位)。
-// 履歴不足なら usd / jpy は null。credits は ElevenLabs モデル仕様情報なので常に算出する。
-// ─────────────────────────────────────────────────────────
-
-interface CostBreakdown {
-  chars: number;
-  credits: number;
-  usd: number | null;
-  jpy: number | null;
-}
-
-function countChars(line: Line): number {
-  return (line.text ?? "").length;
-}
-
-function lineCost(
-  line: Line,
-  pricing: TtsPricing,
-  rate: CostMedianRate | null,
-): CostBreakdown {
-  const chars = countChars(line);
-  const credits = chars * pricing.credit_multiplier;
-  if (!rate || rate.usd_per_unit == null) {
-    return { chars, credits, usd: null, jpy: null };
-  }
-  const usd = chars * rate.usd_per_unit;
-  return { chars, credits, usd, jpy: usd * rate.jpy_per_usd };
-}
-
-function _sumCost(a: CostBreakdown, b: CostBreakdown): CostBreakdown {
-  const usd =
-    a.usd == null && b.usd == null ? null : (a.usd ?? 0) + (b.usd ?? 0);
-  const jpy =
-    a.jpy == null && b.jpy == null ? null : (a.jpy ?? 0) + (b.jpy ?? 0);
-  return {
-    chars: a.chars + b.chars,
-    credits: a.credits + b.credits,
-    usd,
-    jpy,
-  };
-}
-
-const _ZERO_COST: CostBreakdown = {
-  chars: 0,
-  credits: 0,
-  usd: null,
-  jpy: null,
-};
-
-function sceneCost(
-  scene: Scene,
-  pricing: TtsPricing,
-  rate: CostMedianRate | null,
-): CostBreakdown {
-  return (scene.lines ?? []).reduce(
-    (acc, l) => _sumCost(acc, lineCost(l, pricing, rate)),
-    _ZERO_COST,
-  );
-}
-
-function screenplayCost(
-  scenes: Scene[],
-  pricing: TtsPricing,
-  rate: CostMedianRate | null,
-): CostBreakdown {
-  return scenes.reduce(
-    (acc, s) => _sumCost(acc, sceneCost(s, pricing, rate)),
-    _ZERO_COST,
-  );
-}
-
-function _formatUsd(usd: number | null, digits = 4): string {
-  return usd == null ? "履歴不足" : `$${usd.toFixed(digits)}`;
-}
-
-function _formatJpy(jpy: number | null): string {
-  return jpy == null ? "—" : `¥${jpy.toFixed(2)}`;
-}
+// コスト計算 (= lineCost / sceneCost / screenplayCost / formatUsd / formatJpy)
+// は ../../tts-cost.ts に抽出済み (= §5-c)。
 
 // ─────────────────────────────────────────────────────────
 // 価格バナー
@@ -158,8 +89,8 @@ function PricingBanner({
             label="credits"
             value={`${totalCost.credits.toLocaleString()}`}
           />
-          <Stat label="全シーン1回生成" value={_formatUsd(totalCost.usd, 3)} />
-          <Stat label="(円換算)" value={_formatJpy(totalCost.jpy)} />
+          <Stat label="全シーン1回生成" value={formatUsd(totalCost.usd, 3)} />
+          <Stat label="(円換算)" value={formatJpy(totalCost.jpy)} />
         </div>
       </div>
       <SpeedControl key={pricing.global_speed} pricing={pricing} />
@@ -444,10 +375,10 @@ function BulkRegenBar({ totalCost }: { totalCost: CostBreakdown }) {
           <span className="text-xs text-slate-400">
             コスト:{" "}
             <span className="text-emerald-300 font-mono">
-              {_formatUsd(totalCost.usd, 4)}
+              {formatUsd(totalCost.usd, 4)}
             </span>
             <span className="text-slate-500 ml-1">
-              ({_formatJpy(totalCost.jpy)} / {totalCost.credits} credits)
+              ({formatJpy(totalCost.jpy)} / {totalCost.credits} credits)
             </span>
           </span>
           <button
@@ -479,7 +410,7 @@ function BulkRegenBar({ totalCost }: { totalCost: CostBreakdown }) {
                 disabled={running}
                 onClick={onForceRegen}
               >
-                本当に {_formatUsd(totalCost.usd, 4)} 使う
+                本当に {formatUsd(totalCost.usd, 4)} 使う
               </button>
             </>
           )}
@@ -697,10 +628,10 @@ function SceneTTSCard({
         <span className="text-xs text-slate-400">
           このシーンの文字数 →{" "}
           <span className="text-emerald-300 font-mono">
-            {_formatUsd(cost.usd, 4)}
+            {formatUsd(cost.usd, 4)}
           </span>
           <span className="text-slate-500 ml-1">
-            ({_formatJpy(cost.jpy)} / {cost.credits} credits)
+            ({formatJpy(cost.jpy)} / {cost.credits} credits)
           </span>
         </span>
       </div>
@@ -747,7 +678,7 @@ function LineTTSRow({
           <div className="text-xs text-slate-400 mt-1">
             start={line.start}s{line.end != null && `, end=${line.end}s`}
             <span className="mx-1">·</span>
-            {cost.chars}字 → {_formatUsd(cost.usd, 5)}
+            {cost.chars}字 → {formatUsd(cost.usd, 5)}
           </div>
         </div>
         <div className="flex gap-2 items-center flex-shrink-0">
