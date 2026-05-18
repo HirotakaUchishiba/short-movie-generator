@@ -24,6 +24,7 @@ from project_state import screenplay_lock
 from routes._helpers import (
     api_error,
     classify_abstract_diff,
+    is_analyze_pending,
     ts_path,
     validate_ts,
 )
@@ -212,3 +213,118 @@ def api_patch_screenplay_meta(ts):
     except Exception as e:
         return api_error("SCREENPLAY_META_PATCH_FAILED", str(e), 500)
     return jsonify({"ok": True})
+
+
+@screenplay_bp.route("/api/projects/<ts>/abstract", methods=["GET"])
+def api_get_project_abstract(ts):
+    """project の現在 snapshot を生のまま返す (= 抽象台本、UI 編集対象)。
+
+    completeness の判定は frontend が abstract から live 計算するので、
+    diagnostics はレスポンスに含めない (``analyze.compose.diagnose_abstract``
+    は関数として残しているため、CLI / 別ツールから引き続き利用可能)。
+    """
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return api_error(
+            "ANALYZE_PROJECT_NOT_FOUND",
+            "プロジェクトが存在しません",
+            404,
+        )
+    if is_analyze_pending(ts):
+        return api_error(
+            "ANALYZE_STAGE_NOT_READY",
+            "Stage 0 (analyze) が完了するまで abstract を読めません",
+            403,
+        )
+    try:
+        sp = staged_pipeline.load_project_abstract(project_path)
+    except FileNotFoundError:
+        return api_error(
+            "ANALYZE_SNAPSHOT_NOT_FOUND",
+            "screenplay snapshot not found",
+            404,
+        )
+    return jsonify({
+        "screenplay_path": staged_pipeline.project_screenplay_path(project_path),
+        "abstract": sp,
+    })
+
+
+@screenplay_bp.route("/api/projects/<ts>/abstract", methods=["PUT"])
+def api_put_project_abstract(ts):
+    """project snapshot (= 抽象台本) を上書き保存し、変更内容に応じて承認を解除する。
+
+    snapshot は抽象台本のまま保存される。Stage 2 以降が読むときに compose を
+    都度走らせて派生フィールドを生成する
+    (= ``staged_pipeline.load_project_screenplay``)。
+
+    Phase D-G16: 変更を ``classify_abstract_diff`` で分類し:
+      - unchanged → save スキップ、approval も触らず 200 を返す
+      - safe_only (= subtitle_y_from_bottom 等 overlay にしか影響しない field)
+                 → Stage 6 (overlay) 承認だけ revoke、Stage 2-5 は維持
+      - breaking → 従来通り全 revoke
+    CLAUDE.md「コストのかかる操作を安易に実行しない」原則に従い、再 TTS / 再
+    動画生成を不要な場面で促さない。
+    """
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return api_error(
+            "ANALYZE_PROJECT_NOT_FOUND",
+            "プロジェクトが存在しません",
+            404,
+        )
+    if is_analyze_pending(ts):
+        return api_error(
+            "ANALYZE_STAGE_NOT_READY",
+            "Stage 0 (analyze) が完了するまで abstract を更新できません",
+            403,
+        )
+    data = request.get_json(force=True) or {}
+    abstract = data.get("abstract")
+    if not isinstance(abstract, dict):
+        return api_error(
+            "ANALYZE_ABSTRACT_REQUIRED",
+            "abstract (object) is required",
+            400,
+        )
+    scenes = abstract.get("scenes")
+    if not isinstance(scenes, list) or not scenes:
+        return api_error(
+            "ANALYZE_ABSTRACT_SCENES_EMPTY",
+            "abstract.scenes must be non-empty array",
+            400,
+        )
+    from screenplay_validator import validate_abstract
+    errors = validate_abstract(abstract, strict=False)
+    if errors:
+        return api_error(
+            "ANALYZE_ABSTRACT_VALIDATION_FAILED",
+            "abstract のスキーマ検証に失敗しました",
+            400,
+            errors=errors,
+        )
+    try:
+        old_abstract = staged_pipeline.load_project_abstract(project_path)
+    except FileNotFoundError:
+        old_abstract = {}
+    classification = classify_abstract_diff(old_abstract, abstract)
+    revoked_approvals = False
+    with screenplay_lock(ts):
+        if classification == "unchanged":
+            pass
+        else:
+            staged_pipeline.save_project_screenplay(project_path, abstract)
+            if classification == "breaking":
+                progress_store.revoke_all_approvals(project_path)
+                revoked_approvals = True
+            elif classification == "safe_only":
+                progress_store.revoke_overlay_only(project_path)
+                revoked_approvals = True
+    return jsonify({
+        "screenplay_path": staged_pipeline.project_screenplay_path(project_path),
+        "scenes": len(scenes),
+        "revoked_approvals": revoked_approvals,
+        "classification": classification,
+    })
