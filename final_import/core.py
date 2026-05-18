@@ -308,8 +308,7 @@ def _save_metadata(ts_path: str, meta: dict) -> None:
     io_utils.atomic_write_json(os.path.join(ts_path, "metadata.json"), meta)
 
 
-def _now_iso() -> str:
-    return datetime.now().isoformat(timespec="seconds")
+from common.datetime_helpers import now_iso_local_seconds as _now_iso
 
 
 def read_caption_from_snapshot(ts_path: str) -> str:
