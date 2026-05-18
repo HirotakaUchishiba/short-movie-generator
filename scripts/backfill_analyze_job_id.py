@@ -22,6 +22,9 @@ sys.path.insert(0, str(ROOT))
 
 import config  # noqa: E402
 from analytics import db as _db  # noqa: E402
+from scripts._cli_base import get_logger  # noqa: E402
+
+logger = get_logger("backfill_analyze_job_id")
 
 
 def find_job_id_for_screenplay(name: str) -> str | None:
@@ -50,7 +53,7 @@ def main() -> int:
 
     temp_dir = Path(config.TEMP_DIR)
     if not temp_dir.is_dir():
-        print(f"temp_dir が存在しません: {temp_dir}", file=sys.stderr)
+        logger.error("temp_dir が存在しません: %s", temp_dir)
         return 1
 
     updated = 0
@@ -63,7 +66,7 @@ def main() -> int:
         try:
             meta = json.loads(meta_path.read_text(encoding="utf-8"))
         except json.JSONDecodeError as e:
-            print(f"[skip] {ts_dir.name}: invalid json ({e})")
+            logger.warning("[skip] %s: invalid json (%s)", ts_dir.name, e)
             continue
         if meta.get("analyze_job_id"):
             skipped_already += 1
@@ -79,19 +82,18 @@ def main() -> int:
                 json.dumps(meta, ensure_ascii=False, indent=2) + "\n",
                 encoding="utf-8",
             )
-            print(f"[apply ] {ts_dir.name} ← {job_id}")
+            logger.info("[apply ] %s ← %s", ts_dir.name, job_id)
         else:
-            print(f"[dryrun] {ts_dir.name} ← {job_id}")
+            logger.info("[dryrun] %s ← %s", ts_dir.name, job_id)
         updated += 1
 
     mode = "apply" if args.apply else "dry-run"
-    print(
-        f"\n[{mode}] backfill候補 {updated} 件 / "
-        f"既に紐付済 {skipped_already} 件 / "
-        f"対応 analyze_job 無し {skipped_no_match} 件",
+    logger.info(
+        "[%s] backfill候補 %d 件 / 既に紐付済 %d 件 / 対応 analyze_job 無し %d 件",
+        mode, updated, skipped_already, skipped_no_match,
     )
     if not args.apply and updated > 0:
-        print("実行するには --apply を付けてください。")
+        logger.info("実行するには --apply を付けてください。")
     return 0
 
 
