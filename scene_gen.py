@@ -816,9 +816,18 @@ def bg_scan_cache(screenplay: dict, temp_dir: str) -> dict:
     return decisions
 
 
-def _now_iso_seconds() -> str:
+def _now_iso() -> str:
+    """ISO 8601 (local time, second precision) の現在時刻。
+
+    bg/kling decisions の `decided_at` メタとして書き出され、tz-naive で OK。
+    """
     from datetime import datetime as _dt
     return _dt.now().isoformat(timespec="seconds")
+
+
+# _now_iso_seconds は _now_iso と同一実装の重複だったため統合 (= §3.1.1)。
+# 既存 callsite (kling decisions 書き込み) との互換性のためエイリアスを残す。
+_now_iso_seconds = _now_iso
 
 
 def _clear_bg_downstream(scene_idx: int, temp_dir: str) -> None:
@@ -2050,11 +2059,6 @@ def kling_scan_cache(screenplay: dict, temp_dir: str) -> dict:
             rec["decided_at"] = _now_iso()
         decisions[str(i)] = rec
     return decisions
-
-
-def _now_iso() -> str:
-    from datetime import datetime as _dt
-    return _dt.now().isoformat(timespec="seconds")
 
 
 def _clear_kling_downstream(scene_idx: int, temp_dir: str) -> None:
