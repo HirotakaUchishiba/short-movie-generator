@@ -200,16 +200,16 @@ def main() -> int:
     if not args.skip_freeze:
         out_dir = Path(args.out_dir) if args.out_dir else default_out_dir()
         counts = freeze_tables(out_dir, since=args.since)
-        print(f"[audit-freeze] dir: {out_dir}")
+        logger.info("[audit-freeze] dir: %s", out_dir)
         for table, n in counts.items():
-            print(f"  {table}: {n}")
+            logger.info("  %s: %d", table, n)
 
     if args.rotate_after_days > 0:
         result = rotate_old_freezes(rotate_after_days=args.rotate_after_days)
-        print(
-            f"[audit-freeze] rotate (>{args.rotate_after_days} days): "
-            f"archived={result['archived']} deleted={result['deleted']} "
-            f"skipped={result['skipped']}",
+        logger.info(
+            "[audit-freeze] rotate (>%d days): archived=%d deleted=%d skipped=%d",
+            args.rotate_after_days,
+            result["archived"], result["deleted"], result["skipped"],
         )
     return 0
 

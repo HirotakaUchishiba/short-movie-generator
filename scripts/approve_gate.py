@@ -90,13 +90,14 @@ def reject(ts: str, *, reason: str | None = None) -> None:
 def _print_awaiting() -> int:
     rows = list_awaiting()
     if not rows:
-        print("[approve_gate] 承認待ちなし")
+        logger.info("[approve_gate] 承認待ちなし")
         return 0
-    print(f"[approve_gate] 承認待ち {len(rows)} 件:")
+    logger.info("[approve_gate] 承認待ち %d 件:", len(rows))
     for r in rows:
         cost = r.get("total_cost_usd")
         cost_str = f"${cost:.2f}" if cost is not None else "-"
-        print(f"  {r['ts']}  cost={cost_str}  created={r.get('created_at') or '-'}")
+        logger.info("  %s  cost=%s  created=%s",
+                    r["ts"], cost_str, r.get("created_at") or "-")
     return 0
 
 
@@ -127,12 +128,12 @@ def main() -> int:
     try:
         if args.reject:
             reject(args.ts, reason=args.reason)
-            print(f"[approve_gate] rejected: ts={args.ts}")
+            logger.info("[approve_gate] rejected: ts=%s", args.ts)
         else:
             result = approve_and_publish(args.ts, privacy=args.privacy)
-            print(
-                f"[approve_gate] published: ts={args.ts} "
-                f"video_id={result.get('video_id')} url={result.get('url')}",
+            logger.info(
+                "[approve_gate] published: ts=%s video_id=%s url=%s",
+                args.ts, result.get("video_id"), result.get("url"),
             )
     except ValueError as e:
         logger.error(str(e))
