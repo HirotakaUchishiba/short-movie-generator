@@ -313,6 +313,41 @@ def _run_audio_phase(
     return audio_sha
 
 
+def _run_whisper_phase(
+    *,
+    audio_path: str,
+    audio_sha: str,
+    use_cache: bool,
+    on_progress: ProgressCallback | None,
+    cancel_token: CancelToken | None,
+) -> dict:
+    """whisper phase: 音声 → transcript (text/segments/words/duration)。
+
+    cache key は audio_sha 単一 (= 同じ音声なら言語 / モデルが同じ前提で
+    完全に同じ transcript)。faster-whisper か OpenAI Whisper API のいずれかが
+    transcribe() の内部で選択される (OPENAI_API_KEY の有無)。
+    """
+    _emit(on_progress, "phase_start", {"phase": "whisper"})
+    cached = _cache.get_json("transcript", audio_sha) if use_cache else None
+    if cached is not None:
+        transcript = cached
+        from_cache = True
+    else:
+        transcript = transcribe(audio_path, language=config.LANGUAGE)
+        if use_cache:
+            _cache.put_json("transcript", audio_sha, transcript)
+        from_cache = False
+    _emit(on_progress, "phase_complete", {
+        "phase": "whisper",
+        "segments": len(transcript["segments"]),
+        "words": len(transcript["words"]),
+        "duration_sec": transcript["duration"],
+        "from_cache": from_cache,
+    })
+    _check_cancel(cancel_token)
+    return transcript
+
+
 def _run_save_phase(
     screenplay: dict,
     *,
@@ -497,24 +532,13 @@ def run(
             )
 
             # ─── Phase: whisper (cache: audio_sha) ───
-            _emit(on_progress, "phase_start", {"phase": "whisper"})
-            cached = _cache.get_json("transcript", audio_sha) if use_cache else None
-            if cached is not None:
-                transcript = cached
-                from_cache = True
-            else:
-                transcript = transcribe(audio_path, language=config.LANGUAGE)
-                if use_cache:
-                    _cache.put_json("transcript", audio_sha, transcript)
-                from_cache = False
-            _emit(on_progress, "phase_complete", {
-                "phase": "whisper",
-                "segments": len(transcript["segments"]),
-                "words": len(transcript["words"]),
-                "duration_sec": transcript["duration"],
-                "from_cache": from_cache,
-            })
-            _check_cancel(cancel_token)
+            transcript = _run_whisper_phase(
+                audio_path=audio_path,
+                audio_sha=audio_sha,
+                use_cache=use_cache,
+                on_progress=on_progress,
+                cancel_token=cancel_token,
+            )
 
             # ─── Phase: acoustic (cache: audio_sha + segments_sig) ──
             _emit(on_progress, "phase_start", {"phase": "acoustic"})
