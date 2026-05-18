@@ -99,7 +99,40 @@ def load_analyze_phases() -> pd.DataFrame:
     return pd.DataFrame([dict(r) for r in rows])
 
 
+def _load_unpersisted_posts() -> list[dict]:
+    """metadata.json.published_posts[].analytics_persisted=false を全 project から抽出。
+
+    publish は成功したが analytics DB 登録は失敗した状態 (= 計画書 §3.9 の
+    DB-SNS 不整合)。dashboard で能動的に見える化し reconcile_publish.py で
+    自動 retry できることを運用者に伝える。
+    """
+    from pathlib import Path
+
+    import config
+    from scripts.reconcile_publish import _scan_unpersisted_posts
+
+    rows: list[dict] = []
+    for meta_path, post, _ in _scan_unpersisted_posts(Path(config.TEMP_DIR)):
+        rows.append({
+            "ts": meta_path.parent.name,
+            "platform": post.get("platform", "?"),
+            "url": post.get("url") or "(no url)",
+            "warning": post.get("analytics_warning") or "",
+        })
+    return rows
+
+
 def overview_tab(perf: pd.DataFrame) -> None:
+    unpersisted = _load_unpersisted_posts()
+    if unpersisted:
+        st.warning(
+            f"⚠️ analytics DB 未登録の published_posts が {len(unpersisted)} 件あります。"
+            "  `python3 scripts/reconcile_publish.py` で自動 retry できます "
+            "(= 計画書 §3.9)。"
+        )
+        with st.expander(f"未同期 publish {len(unpersisted)} 件の詳細"):
+            st.dataframe(pd.DataFrame(unpersisted), use_container_width=True)
+
     col1, col2, col3, col4 = st.columns(4)
     col1.metric("登録台本数", int(perf["screenplay_id"].nunique()) if not perf.empty else 0)
     col2.metric("生成動画数", int(perf["video_id"].nunique()) if not perf.empty else 0)
