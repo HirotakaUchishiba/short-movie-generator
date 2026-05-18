@@ -387,6 +387,61 @@ def _run_acoustic_phase(
     return phrase_features
 
 
+def _run_claude_phase(
+    *,
+    frame_paths: list[str],
+    transcript: dict,
+    phrase_features: list[dict],
+    video_path: str,
+    extra_instructions: str | None,
+    frame_interval_sec: float,
+    known_furigana: dict[str, str],
+    on_progress: ProgressCallback | None,
+    cancel_token: CancelToken | None,
+) -> dict:
+    """claude phase: visual_intents / locations / characters catalog 付きで
+    Claude を呼び、abstract screenplay を生成する。
+
+    catalog ロードは SSOT (= part_registry_loader / loc_mod / cmeta_mod 経由)
+    なので yaml drift しない。Claude 課金は parse 失敗でも発生済みなので、
+    `ScreenplayParseError` の `usage` も emit してから re-raise する。
+    cache 対象外 (= 毎回呼ぶ)。
+    """
+    intent_catalog = load_intent_catalog()
+    location_catalog = loc_mod.build_location_catalog()
+    character_catalog = cmeta_mod.build_character_catalog()
+    _emit(on_progress, "phase_start", {
+        "phase": "claude",
+        "frame_count": len(frame_paths),
+        "known_furigana_count": len(known_furigana),
+        "intent_catalog_size": len(intent_catalog),
+        "location_catalog_size": len(location_catalog),
+        "character_catalog_size": len(character_catalog),
+    })
+    try:
+        screenplay, claude_usage = build_screenplay(
+            frame_paths=frame_paths,
+            transcript=transcript,
+            phrase_features=phrase_features,
+            source_video_path=video_path,
+            extra_instructions=extra_instructions,
+            frame_interval_sec=frame_interval_sec,
+            known_furigana=known_furigana,
+            atomic_menu=atomic_assets.build_prompt_menu(),
+            intent_catalog=intent_catalog or None,
+            location_catalog=location_catalog or None,
+            character_catalog=character_catalog or None,
+        )
+    except ScreenplayParseError as e:
+        if e.usage:
+            _emit(on_progress, "claude_usage", e.usage)
+        raise
+    _emit(on_progress, "claude_usage", claude_usage)
+    _emit(on_progress, "phase_complete", {"phase": "claude"})
+    _check_cancel(cancel_token)
+    return screenplay
+
+
 def _run_save_phase(
     screenplay: dict,
     *,
@@ -625,49 +680,17 @@ def run(
             _check_cancel(cancel_token)
 
         # ─── Phase: claude (cache 対象外、毎回呼ぶ) ──────
-        # Step 1: visual_intents.yaml を catalog として Claude に渡し、
-        # per-scene annotation を要求する。catalog ロードは SSOT
-        # (= part_registry_loader 経由) なので、yaml drift しない。
-        # あわせて locations/ カタログを渡し、per-scene location_ref /
-        # camera_distance を Claude に選定させる (= analyze が identity の
-        # 必須入力を SSOT として産出する)。
-        # さらに characters/ カタログを渡し、speaker_profiles の検出 +
-        # featured_characters / speaker_to_ref の casting 提案を要求する
-        # (= 提案は best-effort、人間が Stage 1 UI で訂正する)。
-        intent_catalog = load_intent_catalog()
-        location_catalog = loc_mod.build_location_catalog()
-        character_catalog = cmeta_mod.build_character_catalog()
-        _emit(on_progress, "phase_start", {
-            "phase": "claude",
-            "frame_count": len(frame_paths),
-            "known_furigana_count": len(known_furigana),
-            "intent_catalog_size": len(intent_catalog),
-            "location_catalog_size": len(location_catalog),
-            "character_catalog_size": len(character_catalog),
-        })
-        try:
-            screenplay, claude_usage = build_screenplay(
-                frame_paths=frame_paths,
-                transcript=transcript,
-                phrase_features=phrase_features,
-                source_video_path=video_path,
-                extra_instructions=options.instructions,
-                frame_interval_sec=frame_interval_sec,
-                known_furigana=known_furigana,
-                atomic_menu=atomic_assets.build_prompt_menu(),
-                intent_catalog=intent_catalog or None,
-                location_catalog=location_catalog or None,
-                character_catalog=character_catalog or None,
-            )
-        except ScreenplayParseError as e:
-            # Claude 課金は発生済みなので、parse 失敗でも usage を emit して
-            # recorder に記録させてから re-raise する。
-            if e.usage:
-                _emit(on_progress, "claude_usage", e.usage)
-            raise
-        _emit(on_progress, "claude_usage", claude_usage)
-        _emit(on_progress, "phase_complete", {"phase": "claude"})
-        _check_cancel(cancel_token)
+        screenplay = _run_claude_phase(
+            frame_paths=frame_paths,
+            transcript=transcript,
+            phrase_features=phrase_features,
+            video_path=video_path,
+            extra_instructions=options.instructions,
+            frame_interval_sec=frame_interval_sec,
+            known_furigana=known_furigana,
+            on_progress=on_progress,
+            cancel_token=cancel_token,
+        )
 
         # ─── Phase: rewrite (= Gemini で line.text + caption を言い換え) ─
         # 設計 doc: docs/plannings/2026-05-17_gemini-dialogue-rewrite.md
