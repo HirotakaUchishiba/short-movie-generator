@@ -7,6 +7,10 @@ import type {
   AnalyzeJobDetail,
 } from "../../types";
 import { freshUid } from "../../uid";
+import {
+  ScriptEditContext,
+  type ScriptEditContextValue,
+} from "./ScriptEditContext";
 
 const EMOTIONS = [
   "驚き",
@@ -283,194 +287,211 @@ export default function ScriptEditPanel({
     );
   }
 
+  const contextValue: ScriptEditContextValue = {
+    ts,
+    jobId,
+    job,
+    abstract,
+    setAbstract,
+    diagnostics: liveDiagnostics,
+    characterRefs,
+    locationIds,
+    dirty,
+    setDirty,
+  };
+
   return (
-    <div className="space-y-4">
-      {message && (
-        <div
-          className={`rounded p-2 text-xs whitespace-pre-wrap ${
-            status === "error"
-              ? "bg-rose-900/30 text-rose-200 border border-rose-500/40"
-              : "bg-emerald-900/30 text-emerald-200 border border-emerald-500/40"
-          }`}
-        >
-          {message}
-        </div>
-      )}
+    <ScriptEditContext.Provider value={contextValue}>
+      <div className="space-y-4">
+        {message && (
+          <div
+            className={`rounded p-2 text-xs whitespace-pre-wrap ${
+              status === "error"
+                ? "bg-rose-900/30 text-rose-200 border border-rose-500/40"
+                : "bg-emerald-900/30 text-emerald-200 border border-emerald-500/40"
+            }`}
+          >
+            {message}
+          </div>
+        )}
 
-      {/* completeness バナー (compose 不整合があれば赤、無ければ緑) */}
-      {liveDiagnostics && (
-        <CompletenessBanner
-          diag={liveDiagnostics}
-          captionEmpty={!abstract.caption.trim()}
-          featuredEmpty={
-            !Array.isArray(abstract.featured_characters) ||
-            abstract.featured_characters.length === 0
-          }
-        />
-      )}
+        {/* completeness バナー (compose 不整合があれば赤、無ければ緑) */}
+        {liveDiagnostics && (
+          <CompletenessBanner
+            diag={liveDiagnostics}
+            captionEmpty={!abstract.caption.trim()}
+            featuredEmpty={
+              !Array.isArray(abstract.featured_characters) ||
+              abstract.featured_characters.length === 0
+            }
+          />
+        )}
 
-      {/* ① 台本作成 (caption + シーン境界 + lines + シーン override) */}
-      <div className="card space-y-3">
-        <div className="flex items-baseline justify-between">
-          <h3 className="font-semibold">📝 台本作成</h3>
-          <span className="text-xs text-slate-500">
-            {sceneCount} シーン · {lineCount} セリフ
-          </span>
-        </div>
+        {/* ① 台本作成 (caption + シーン境界 + lines + シーン override) */}
+        <div className="card space-y-3">
+          <div className="flex items-baseline justify-between">
+            <h3 className="font-semibold">📝 台本作成</h3>
+            <span className="text-xs text-slate-500">
+              {sceneCount} シーン · {lineCount} セリフ
+            </span>
+          </div>
 
-        {/* 全シーン一括適用 (= 17 シーンクリック地獄の解消) */}
-        <BulkApplyBar onApply={applyToAllScenes} />
+          {/* 全シーン一括適用 (= 17 シーンクリック地獄の解消) */}
+          <BulkApplyBar onApply={applyToAllScenes} />
 
-        <label className="block">
-          <span className="text-xs text-slate-400">caption (SNS 投稿文)</span>
-          <textarea
-            className="input font-mono mt-1 text-base leading-relaxed"
-            rows={6}
-            value={abstract.caption}
-            onChange={(e) => {
-              setAbstract({ ...abstract, caption: e.target.value });
+          <label className="block">
+            <span className="text-xs text-slate-400">caption (SNS 投稿文)</span>
+            <textarea
+              className="input font-mono mt-1 text-base leading-relaxed"
+              rows={6}
+              value={abstract.caption}
+              onChange={(e) => {
+                setAbstract({ ...abstract, caption: e.target.value });
+                setDirty(true);
+              }}
+            />
+          </label>
+
+          {/* 👥 動画全体の登場人物 (caption 直下) */}
+          <FeaturedCharactersSection
+            allRefs={characterRefs}
+            selected={
+              Array.isArray(abstract.featured_characters)
+                ? abstract.featured_characters
+                : []
+            }
+            isExplicit={Array.isArray(abstract.featured_characters)}
+            analyzeSuggested={false}
+            onChange={(next) => {
+              setAbstract({ ...abstract, featured_characters: next });
+              setDirty(true);
+            }}
+            onClearExplicit={() => {
+              const copy = { ...abstract };
+              delete copy.featured_characters;
+              setAbstract(copy);
               setDirty(true);
             }}
           />
-        </label>
 
-        {/* 👥 動画全体の登場人物 (caption 直下) */}
-        <FeaturedCharactersSection
-          allRefs={characterRefs}
-          selected={
-            Array.isArray(abstract.featured_characters)
-              ? abstract.featured_characters
-              : []
-          }
-          isExplicit={Array.isArray(abstract.featured_characters)}
-          analyzeSuggested={false}
-          onChange={(next) => {
-            setAbstract({ ...abstract, featured_characters: next });
-            setDirty(true);
-          }}
-          onClearExplicit={() => {
-            const copy = { ...abstract };
-            delete copy.featured_characters;
-            setAbstract(copy);
-            setDirty(true);
-          }}
-        />
+          <p className="text-[11px] text-slate-500 leading-relaxed">
+            ※ 各シーンの先頭セリフの <strong>▲</strong> / 末尾セリフの{" "}
+            <strong>▼</strong> を押すと隣のシーンへ移動できます (順序保持のため
+            ±1 シーンのみ)。 テキスト・順序は不変なので ElevenLabs
+            の追加課金は発生しません。
+            {boundaryWorking && (
+              <span className="ml-2 text-amber-400">境界更新中…</span>
+            )}
+          </p>
 
-        <p className="text-[11px] text-slate-500 leading-relaxed">
-          ※ 各シーンの先頭セリフの <strong>▲</strong> / 末尾セリフの{" "}
-          <strong>▼</strong> を押すと隣のシーンへ移動できます (順序保持のため ±1
-          シーンのみ)。 テキスト・順序は不変なので ElevenLabs
-          の追加課金は発生しません。
-          {boundaryWorking && (
-            <span className="ml-2 text-amber-400">境界更新中…</span>
-          )}
-        </p>
+          <div className="space-y-5">
+            {abstract.scenes.map((scene, sIdx) => (
+              <SceneEditor
+                key={scene._uid ?? sIdx}
+                sIdx={sIdx}
+                scene={scene}
+                featuredRefs={
+                  Array.isArray(abstract.featured_characters)
+                    ? abstract.featured_characters
+                    : []
+                }
+                allScenes={abstract.scenes}
+                locationIds={locationIds}
+                analyzeSuggested={false}
+                flatStartIdx={flatStartByScene[sIdx] ?? 0}
+                sceneCount={sceneCount}
+                boundaryWorking={boundaryWorking}
+                ttsReady={ttsReady}
+                onSceneChange={(updater) => {
+                  // immutable update: scenes 配列も新規作成して元の参照を破壊しない
+                  const nextScenes = [...abstract.scenes];
+                  nextScenes[sIdx] = updater(nextScenes[sIdx]);
+                  setAbstract({ ...abstract, scenes: nextScenes });
+                  setDirty(true);
+                }}
+                onSceneSpeakerBulkApply={(oldRef, newRef) => {
+                  // 全 scene の line.speaker が oldRef なら newRef に置換
+                  // (= 旧 speaker_to_ref bulk edit の代替)
+                  const nextScenes = abstract.scenes.map((sc) => ({
+                    ...sc,
+                    lines: (sc.lines ?? []).map((ln) =>
+                      ln.speaker === oldRef ? { ...ln, speaker: newRef } : ln,
+                    ),
+                  }));
+                  setAbstract({ ...abstract, scenes: nextScenes });
+                  setDirty(true);
+                }}
+                onMoveLine={(flatIdx, fromScene, toScene) => {
+                  void moveLineToScene(flatIdx, fromScene, toScene);
+                }}
+                onAddSceneAfter={() => addScene(sIdx)}
+                onDeleteScene={() => deleteScene(sIdx)}
+              />
+            ))}
+          </div>
 
-        <div className="space-y-5">
-          {abstract.scenes.map((scene, sIdx) => (
-            <SceneEditor
-              key={scene._uid ?? sIdx}
-              sIdx={sIdx}
-              scene={scene}
-              featuredRefs={
-                Array.isArray(abstract.featured_characters)
-                  ? abstract.featured_characters
-                  : []
-              }
-              allScenes={abstract.scenes}
-              locationIds={locationIds}
-              analyzeSuggested={false}
-              flatStartIdx={flatStartByScene[sIdx] ?? 0}
-              sceneCount={sceneCount}
-              boundaryWorking={boundaryWorking}
-              ttsReady={ttsReady}
-              onSceneChange={(updater) => {
-                // immutable update: scenes 配列も新規作成して元の参照を破壊しない
-                const nextScenes = [...abstract.scenes];
-                nextScenes[sIdx] = updater(nextScenes[sIdx]);
-                setAbstract({ ...abstract, scenes: nextScenes });
-                setDirty(true);
-              }}
-              onSceneSpeakerBulkApply={(oldRef, newRef) => {
-                // 全 scene の line.speaker が oldRef なら newRef に置換
-                // (= 旧 speaker_to_ref bulk edit の代替)
-                const nextScenes = abstract.scenes.map((sc) => ({
-                  ...sc,
-                  lines: (sc.lines ?? []).map((ln) =>
-                    ln.speaker === oldRef ? { ...ln, speaker: newRef } : ln,
-                  ),
-                }));
-                setAbstract({ ...abstract, scenes: nextScenes });
-                setDirty(true);
-              }}
-              onMoveLine={(flatIdx, fromScene, toScene) => {
-                void moveLineToScene(flatIdx, fromScene, toScene);
-              }}
-              onAddSceneAfter={() => addScene(sIdx)}
-              onDeleteScene={() => deleteScene(sIdx)}
-            />
-          ))}
-        </div>
-
-        {/* 末尾にシーン追加 */}
-        <button
-          className="btn-ghost text-xs"
-          onClick={() => addScene()}
-          title="末尾に新規シーンを追加"
-        >
-          + シーンを末尾に追加
-        </button>
-
-        <div className="flex items-center gap-3 pt-1 border-t border-slate-700">
+          {/* 末尾にシーン追加 */}
           <button
-            className="btn-secondary"
-            disabled={!dirty || status === "saving" || !abstract.caption.trim()}
-            onClick={onSaveAbstract}
-            title={
-              !abstract.caption.trim()
-                ? "caption が空のままでは保存できません"
-                : undefined
-            }
+            className="btn-ghost text-xs"
+            onClick={() => addScene()}
+            title="末尾に新規シーンを追加"
           >
-            {status === "saving" ? "保存中…" : "💾 台本作成を保存"}
+            + シーンを末尾に追加
           </button>
-          {dirty && (
-            <span className="text-xs text-amber-400">
-              未保存の編集があります
-            </span>
-          )}
-          <span className="text-xs text-slate-500 ml-auto">
-            ※ caption / lines の編集はここで保存。シーン override は再合成時に
-            反映 (保存不要)。
-          </span>
-        </div>
-      </div>
 
-      {/* ② 参考動画 (default 閉) */}
-      <details className="card">
-        <summary className="cursor-pointer text-sm text-slate-400 select-none">
-          📹 参考動画 + analyze ジョブ情報
-        </summary>
-        <div className="mt-3 flex flex-wrap gap-4 items-start">
-          <video
-            src={referenceVideoAssetUrl(job.video_sha256)}
-            controls
-            className="w-64 max-w-full bg-black rounded"
-          />
-          <dl className="text-xs text-slate-400 space-y-1">
-            <Row label="job id" value={job.id} mono />
-            <Row label="status" value={job.status} />
-            <Row
-              label="video sha256"
-              value={`${job.video_sha256.slice(0, 16)}…`}
-              mono
-            />
-            <Row label="cost (実)" value={fmtCost(job.actual_cost_usd)} />
-            <Row label="finished at" value={job.finished_at ?? "—"} />
-          </dl>
+          <div className="flex items-center gap-3 pt-1 border-t border-slate-700">
+            <button
+              className="btn-secondary"
+              disabled={
+                !dirty || status === "saving" || !abstract.caption.trim()
+              }
+              onClick={onSaveAbstract}
+              title={
+                !abstract.caption.trim()
+                  ? "caption が空のままでは保存できません"
+                  : undefined
+              }
+            >
+              {status === "saving" ? "保存中…" : "💾 台本作成を保存"}
+            </button>
+            {dirty && (
+              <span className="text-xs text-amber-400">
+                未保存の編集があります
+              </span>
+            )}
+            <span className="text-xs text-slate-500 ml-auto">
+              ※ caption / lines の編集はここで保存。シーン override は再合成時に
+              反映 (保存不要)。
+            </span>
+          </div>
         </div>
-      </details>
-    </div>
+
+        {/* ② 参考動画 (default 閉) */}
+        <details className="card">
+          <summary className="cursor-pointer text-sm text-slate-400 select-none">
+            📹 参考動画 + analyze ジョブ情報
+          </summary>
+          <div className="mt-3 flex flex-wrap gap-4 items-start">
+            <video
+              src={referenceVideoAssetUrl(job.video_sha256)}
+              controls
+              className="w-64 max-w-full bg-black rounded"
+            />
+            <dl className="text-xs text-slate-400 space-y-1">
+              <Row label="job id" value={job.id} mono />
+              <Row label="status" value={job.status} />
+              <Row
+                label="video sha256"
+                value={`${job.video_sha256.slice(0, 16)}…`}
+                mono
+              />
+              <Row label="cost (実)" value={fmtCost(job.actual_cost_usd)} />
+              <Row label="finished at" value={job.finished_at ?? "—"} />
+            </dl>
+          </div>
+        </details>
+      </div>
+    </ScriptEditContext.Provider>
   );
 }
 
