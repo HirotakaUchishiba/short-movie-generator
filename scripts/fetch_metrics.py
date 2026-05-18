@@ -7,7 +7,6 @@
     python3 scripts/fetch_metrics.py --post-id youtube:abc123
 """
 import argparse
-import logging
 import sys
 from pathlib import Path
 
@@ -15,12 +14,11 @@ SCRIPT_DIR = Path(__file__).resolve().parent
 ROOT = SCRIPT_DIR.parent
 sys.path.insert(0, str(ROOT))
 
-import log_setup  # noqa: E402
 from analytics import db  # noqa: E402
 from platform_clients import instagram, tiktok, youtube  # noqa: E402
+from scripts._cli_base import get_logger  # noqa: E402
 
-log_setup.setup()
-logger = logging.getLogger(__name__)
+logger = get_logger(__name__)
 
 PLATFORM_CLIENTS = {
     "youtube": youtube.fetch_metrics_for_post,
