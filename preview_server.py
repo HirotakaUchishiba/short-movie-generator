@@ -82,6 +82,7 @@ from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
+from routes.analyze import analyze_bp  # noqa: E402
 from routes.projects import projects_bp  # noqa: E402
 from routes.screenplay import screenplay_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
@@ -96,6 +97,7 @@ app.register_blueprint(stages_bp)
 app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
 app.register_blueprint(screenplay_bp)
+app.register_blueprint(analyze_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -590,16 +592,7 @@ def _job_to_dict(j) -> dict:
     }
 
 
-@app.route("/api/screenplay/analyze/<job_id>", methods=["GET"])
-def api_analyze_job_detail(job_id):
-    if not _JOB_ID_RE.match(job_id):
-        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
-    try:
-        j = analyze_job.get_job(job_id)
-    except KeyError:
-        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
-    phases = analyze_job.get_phases(job_id)
-    return jsonify({**_job_to_dict(j), "phases": phases})
+# GET /api/screenplay/analyze/<job_id> は routes/analyze.py に移管済 (§3.1.2-b)。
 
 
 @app.route("/api/screenplay/analyze/<job_id>/events", methods=["GET"])
@@ -641,22 +634,8 @@ def api_analyze_job_events(job_id):
     })
 
 
-@app.route("/api/screenplay/analyze/<job_id>/confirm", methods=["POST"])
-def api_confirm_analyze_job(job_id):
-    """awaiting_confirm 状態のジョブを running に遷移させて Claude 続行。"""
-    if not _JOB_ID_RE.match(job_id):
-        return api_error("ANALYZE_INVALID_JOB_ID", "invalid job_id", 400)
-    try:
-        analyze_runner.confirm(job_id)
-    except KeyError:
-        return api_error("ANALYZE_JOB_NOT_FOUND", "job not found", 404)
-    except ValueError as e:
-        # ValueError は「既に running / 既に terminal」等の状態遷移エラー
-        # (= dryrun 二重クリックのケース) で 409 を返す
-        return api_error(
-            "ANALYZE_JOB_INVALID_STATE", str(e), 409,
-        )
-    return jsonify({"ok": True}), 200
+# POST /api/screenplay/analyze/<job_id>/confirm は routes/analyze.py に移管済
+# (§3.1.2-b)。
 
 
 @app.route("/api/projects/<ts>/abstract", methods=["GET"])
