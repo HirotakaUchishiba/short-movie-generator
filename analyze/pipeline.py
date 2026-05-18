@@ -348,6 +348,45 @@ def _run_whisper_phase(
     return transcript
 
 
+def _run_acoustic_phase(
+    *,
+    audio_path: str,
+    audio_sha: str,
+    transcript: dict,
+    use_cache: bool,
+    on_progress: ProgressCallback | None,
+    cancel_token: CancelToken | None,
+) -> list[dict]:
+    """acoustic phase: 各 segment ごとに pitch / rms / wpm を抽出する。
+
+    cache key は audio_sha + segments_sig (= 同じ音声 + 同じ segment 境界なら
+    完全に同じ feature)。librosa による分析を seg ごとに走らせるため、長い
+    音声では cache hit のメリットが大きい。
+    """
+    _emit(on_progress, "phase_start", {"phase": "acoustic"})
+    ac_key = _cache.acoustic_key(audio_sha, transcript)
+    cached_ac = _cache.get_json("acoustic", ac_key) if use_cache else None
+    if cached_ac is not None:
+        phrase_features = cached_ac.get("features", [])
+        from_cache = True
+    else:
+        phrase_features = []
+        for seg in transcript["segments"]:
+            feat = extract_phrase_features(audio_path, seg["start"], seg["end"])
+            feat["wpm"] = wpm_from_text(seg["text"], seg["end"] - seg["start"])
+            phrase_features.append(feat)
+        if use_cache:
+            _cache.put_json("acoustic", ac_key, {"features": phrase_features})
+        from_cache = False
+    _emit(on_progress, "phase_complete", {
+        "phase": "acoustic",
+        "count": len(phrase_features),
+        "from_cache": from_cache,
+    })
+    _check_cancel(cancel_token)
+    return phrase_features
+
+
 def _run_save_phase(
     screenplay: dict,
     *,
@@ -541,26 +580,14 @@ def run(
             )
 
             # ─── Phase: acoustic (cache: audio_sha + segments_sig) ──
-            _emit(on_progress, "phase_start", {"phase": "acoustic"})
-            ac_key = _cache.acoustic_key(audio_sha, transcript)
-            cached_ac = _cache.get_json("acoustic", ac_key) if use_cache else None
-            if cached_ac is not None:
-                phrase_features = cached_ac.get("features", [])
-                from_cache = True
-            else:
-                for seg in transcript["segments"]:
-                    feat = extract_phrase_features(audio_path, seg["start"], seg["end"])
-                    feat["wpm"] = wpm_from_text(seg["text"], seg["end"] - seg["start"])
-                    phrase_features.append(feat)
-                if use_cache:
-                    _cache.put_json("acoustic", ac_key, {"features": phrase_features})
-                from_cache = False
-            _emit(on_progress, "phase_complete", {
-                "phase": "acoustic",
-                "count": len(phrase_features),
-                "from_cache": from_cache,
-            })
-            _check_cancel(cancel_token)
+            phrase_features = _run_acoustic_phase(
+                audio_path=audio_path,
+                audio_sha=audio_sha,
+                transcript=transcript,
+                use_cache=use_cache,
+                on_progress=on_progress,
+                cancel_token=cancel_token,
+            )
         else:
             logger.warning("動画に音声ストリームがありません。silent modeで分析します")
             for skipped in ("audio", "whisper", "acoustic"):
