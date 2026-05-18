@@ -16,6 +16,7 @@ from flask import Blueprint, abort, jsonify, request
 
 from analyze import suggestion_store
 from analyze.suggestion_yaml import render_yaml_snippet
+from routes._helpers import api_error
 
 logger = logging.getLogger(__name__)
 
@@ -100,9 +101,9 @@ def mark_reviewing(suggestion_id: str):
     except KeyError:
         abort(404, f"suggestion not found: {suggestion_id}")
     except ValueError as e:
-        return (
-            jsonify({"ok": False, "error": str(e)}),
-            409,
+        return api_error(
+            "INTENT_SUGGESTION_STATE_CONFLICT", str(e), 409,
+            suggestion_id=suggestion_id,
         )
     return jsonify({"ok": True, "record": _record_to_dict(rec)})
 
@@ -127,9 +128,9 @@ def dismiss(suggestion_id: str):
     except KeyError:
         abort(404, f"suggestion not found: {suggestion_id}")
     except ValueError as e:
-        return (
-            jsonify({"ok": False, "error": str(e)}),
-            409,
+        return api_error(
+            "INTENT_SUGGESTION_STATE_CONFLICT", str(e), 409,
+            suggestion_id=suggestion_id,
         )
     return jsonify({"ok": True, "record": _record_to_dict(rec)})
 
@@ -152,9 +153,9 @@ def accept(suggestion_id: str):
     except KeyError:
         abort(404, f"suggestion not found: {suggestion_id}")
     except ValueError as e:
-        return (
-            jsonify({"ok": False, "error": str(e)}),
-            409,
+        return api_error(
+            "INTENT_SUGGESTION_STATE_CONFLICT", str(e), 409,
+            suggestion_id=suggestion_id,
         )
     snippet = render_yaml_snippet(rec)
     return jsonify(
