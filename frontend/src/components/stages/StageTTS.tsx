@@ -13,8 +13,7 @@ import {
 } from "../../tts-cost";
 import { BulkRegenBar } from "./BulkRegenBar";
 import { MergedTTSPlayer } from "./MergedTTSPlayer";
-import { ModelSelector, SilenceControl, SpeedControl } from "./TtsControls";
-import { modelMeta } from "./tts-utils";
+import { PricingBanner } from "./PricingBanner";
 // シーン境界編集は Stage 1 (ScriptEditPanel) に移動済み。Stage 2 では扱わない。
 
 export default function StageTTS() {
@@ -57,66 +56,9 @@ export default function StageTTS() {
 // コスト計算 (= lineCost / sceneCost / screenplayCost / formatUsd / formatJpy)
 // は ../../tts-cost.ts に抽出済み (= §5-c)。
 
-// ─────────────────────────────────────────────────────────
-// 価格バナー
-// ─────────────────────────────────────────────────────────
-
-function PricingBanner({
-  pricing,
-  totalCost,
-}: {
-  pricing: TtsPricing;
-  totalCost: CostBreakdown;
-}) {
-  const meta = modelMeta(pricing.model);
-  return (
-    <div className="card border-emerald-700/40 bg-emerald-900/10">
-      <div className="flex flex-wrap items-stretch gap-4">
-        <div
-          className={`rounded-md border px-4 py-3 flex flex-col justify-center min-w-[280px] ${meta.color}`}
-        >
-          <div className="text-[10px] uppercase tracking-wider opacity-70">
-            使用中のモデル
-          </div>
-          <ModelSelector pricing={pricing} />
-          <div className="flex gap-2 mt-1.5 text-[11px]">
-            <span className="badge bg-black/30">
-              文字単価 ×{pricing.credit_multiplier}
-            </span>
-            <span className="badge bg-black/30">{meta.contextLabel}</span>
-            <span className="badge bg-black/30">{meta.qualityLabel}</span>
-          </div>
-        </div>
-        <div className="flex-1 flex items-center justify-end gap-4 flex-wrap">
-          <Stat label="全文字数" value={`${totalCost.chars} 字`} />
-          <Stat
-            label="credits"
-            value={`${totalCost.credits.toLocaleString()}`}
-          />
-          <Stat label="全シーン1回生成" value={formatUsd(totalCost.usd, 3)} />
-          <Stat label="(円換算)" value={formatJpy(totalCost.jpy)} />
-        </div>
-      </div>
-      <SpeedControl key={pricing.global_speed} pricing={pricing} />
-      <SilenceControl
-        key={`${pricing.trim_silences}|${pricing.max_silence_ms}`}
-        pricing={pricing}
-      />
-    </div>
-  );
-}
-
+// PricingBanner (+ Stat) は ./PricingBanner.tsx に移管済 (= §3.1.3)。
 // SpeedControl / SilenceControl / ModelSelector は ./TtsControls.tsx に移管済。
-// modelMeta は ./tts-utils.ts に移管済 (= §3.1.3)。
-
-function Stat({ label, value }: { label: string; value: string }) {
-  return (
-    <div>
-      <div className="text-xs text-slate-500">{label}</div>
-      <div className="font-semibold">{value}</div>
-    </div>
-  );
-}
+// modelMeta は ./tts-utils.ts に移管済。
 
 // BulkRegenBar は ./BulkRegenBar.tsx に移管済 (= §3.1.3)。
 
