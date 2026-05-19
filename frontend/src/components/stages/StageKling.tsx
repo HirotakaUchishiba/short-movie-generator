@@ -18,23 +18,8 @@ import type {
   Scene,
 } from "../../types";
 import { useCostMedianRate } from "../../useCostMedianRate";
-
-// Kling は audio_duration を 5/10s クリップに切り上げて課金する (= 課金 unit 確定ロジック、単価ではない)。
-// tolerance 1.2 倍 = 5.0s clip で 6.0s まで吸収 (超過分は slow_mo extension)。
-const KLING_DURATION_TOLERANCE_RATIO = 1.2;
-
-function klingBilledDuration(audioDurSec: number): number {
-  const fiveSecMax = 5 * KLING_DURATION_TOLERANCE_RATIO;
-  return audioDurSec <= fiveSecMax ? 5 : 10;
-}
-
-function klingSceneCost(
-  audioDurSec: number,
-  rate: CostMedianRate | null,
-): number | null {
-  if (!rate || rate.usd_per_unit == null) return null;
-  return klingBilledDuration(audioDurSec) * rate.usd_per_unit;
-}
+import { BulkKlingRegenBar } from "./BulkKlingRegenBar";
+import { formatKlingCost, klingSceneCost } from "./kling-utils";
 
 export default function StageKling() {
   const ctx = useShellCtx();
@@ -195,72 +180,8 @@ function KlingResultsView() {
   );
 }
 
-function _formatCost(usd: number | null): string {
-  return usd == null ? "履歴不足" : `$${usd.toFixed(2)}`;
-}
-
-function BulkKlingRegenBar({ totalCost }: { totalCost: number | null }) {
-  const ctx = useShellCtx();
-  const ts = ctx.detail.timestamp;
-  const [confirming, setConfirming] = useState(false);
-  const running = ctx.jobStatus?.status === "running";
-
-  const onResetToScan = async () => {
-    setConfirming(false);
-    try {
-      await api.klingCache.decisionsBulk(ts, "all-fresh");
-      await ctx.regen({ stage: "kling" });
-    } catch (e) {
-      console.error("[StageKling] kling cache all-fresh decisions failed:", e);
-    }
-  };
-
-  return (
-    <div className="card border-rose-700/40 bg-rose-900/10 mb-4">
-      <div className="flex items-center justify-between gap-3">
-        <div>
-          <h3 className="font-semibold">全シーン Kling動画を一括再生成</h3>
-          <p className="text-xs text-slate-400 mt-1">
-            cache 採用も新規生成も含め、全シーンを破棄して新規生成します。
-          </p>
-        </div>
-        <div className="flex items-center gap-3">
-          <span className="text-xs text-slate-400">
-            合計コスト:{" "}
-            <span className="text-rose-300 font-mono">
-              {_formatCost(totalCost)}
-            </span>
-          </span>
-          {!confirming ? (
-            <button
-              className="btn-secondary"
-              disabled={running}
-              onClick={() => setConfirming(true)}
-            >
-              全シーン一括再生成
-            </button>
-          ) : (
-            <>
-              <button
-                className="btn-ghost"
-                onClick={() => setConfirming(false)}
-              >
-                キャンセル
-              </button>
-              <button
-                className="btn-danger"
-                disabled={running}
-                onClick={onResetToScan}
-              >
-                本当に {_formatCost(totalCost)} 使う
-              </button>
-            </>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
+// BulkKlingRegenBar は ./BulkKlingRegenBar.tsx に移管済 (= §3.1.3)。
+// klingBilledDuration / klingSceneCost / formatKlingCost は ./kling-utils.ts。
 
 function KlingResultCard({
   scene,
@@ -461,7 +382,7 @@ function KlingResultCard({
                 className="btn-secondary text-xs"
                 onClick={() => setConfirming(true)}
               >
-                再生成 ({_formatCost(cost)})
+                再生成 ({formatKlingCost(cost)})
               </button>
             ) : (
               <>
@@ -476,7 +397,9 @@ function KlingResultCard({
                   disabled={saving}
                   onClick={onRegen}
                 >
-                  {saving ? "実行中..." : `本当に ${_formatCost(cost)} 使う`}
+                  {saving
+                    ? "実行中..."
+                    : `本当に ${formatKlingCost(cost)} 使う`}
                 </button>
               </>
             )}
