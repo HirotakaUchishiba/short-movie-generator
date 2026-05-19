@@ -11,6 +11,7 @@ import {
   sceneCost,
   screenplayCost,
 } from "../../tts-cost";
+import { modelMeta } from "./tts-utils";
 // シーン境界編集は Stage 1 (ScriptEditPanel) に移動済み。Stage 2 では扱わない。
 
 export default function StageTTS() {
@@ -287,46 +288,7 @@ function ModelSelector({ pricing }: { pricing: TtsPricing }) {
   );
 }
 
-function modelMeta(model: string): {
-  color: string;
-  contextLabel: string;
-  qualityLabel: string;
-} {
-  switch (model) {
-    case "eleven_v3":
-      return {
-        color: "border-amber-500 bg-amber-500/15 text-amber-100",
-        contextLabel: "文脈✗",
-        qualityLabel: "alpha",
-      };
-    case "eleven_multilingual_v2":
-      return {
-        color: "border-emerald-500 bg-emerald-500/15 text-emerald-100",
-        contextLabel: "文脈✓",
-        qualityLabel: "日本語◎",
-      };
-    case "eleven_turbo_v2_5":
-    case "eleven_turbo_v2":
-      return {
-        color: "border-sky-500 bg-sky-500/15 text-sky-100",
-        contextLabel: "文脈✓",
-        qualityLabel: "高速・低品質",
-      };
-    case "eleven_flash_v2_5":
-    case "eleven_flash_v2":
-      return {
-        color: "border-violet-500 bg-violet-500/15 text-violet-100",
-        contextLabel: "文脈✓",
-        qualityLabel: "爆速・低品質",
-      };
-    default:
-      return {
-        color: "border-slate-500 bg-slate-500/15 text-slate-100",
-        contextLabel: "文脈?",
-        qualityLabel: "?",
-      };
-  }
-}
+// modelMeta は ./tts-utils.ts に移管済 (= §3.1.3)。
 
 function Stat({ label, value }: { label: string; value: string }) {
   return (
