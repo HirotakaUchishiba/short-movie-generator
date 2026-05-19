@@ -8,6 +8,7 @@ import {
   replaceLine,
   replaceScene,
 } from "../../utils/screenplayPath";
+import { TimeField } from "./TimeField";
 
 export default function StageOverlay() {
   const ctx = useShellCtx();
@@ -628,40 +629,7 @@ function ManualChunksEditor({
   );
 }
 
-function TimeField({
-  label,
-  value,
-  onChange,
-  onSnap,
-}: {
-  label: string;
-  value: number | undefined;
-  onChange: (v: number | undefined) => void;
-  onSnap: () => void;
-}) {
-  return (
-    <div className="flex items-center gap-1">
-      <span className="text-[10px] text-slate-500 w-8">{label}</span>
-      <input
-        type="number"
-        step="0.05"
-        className="input text-[11px] py-0.5 w-20"
-        placeholder="auto"
-        value={value ?? ""}
-        onChange={(e) =>
-          onChange(e.target.value === "" ? undefined : Number(e.target.value))
-        }
-      />
-      <button
-        className="btn-ghost text-[10px]"
-        onClick={onSnap}
-        title={`動画の現在の再生位置を ${label} に反映 (シーン内相対秒)`}
-      >
-        ⏱→{label}
-      </button>
-    </div>
-  );
-}
+// TimeField は ./TimeField.tsx に移管済 (= §3.1.3)。
 
 // 動画preview に重ねて表示する字幕Y位置のガイド帯。
 // 現在の subtitle_y_from_bottom 値で「ここに字幕が入る」を視覚化する。
