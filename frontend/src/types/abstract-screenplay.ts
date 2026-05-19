@@ -4,7 +4,7 @@
 // 別物。caption + scenes[].lines[] + シーンごとの設定。compose で完全
 // screenplay に展開される。
 
-import type { CameraDistance } from "../types";
+import type { CameraDistance } from "./locations";
 
 export interface AbstractLine {
   text: string;
