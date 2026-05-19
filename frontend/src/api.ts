@@ -438,26 +438,15 @@ export const api = {
       `/api/projects/${ts}/publish-history`,
     ),
 
-  // ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
-  cost: {
-    pricebook: () => http<CostPricebookResponse>("/api/cost/pricebook"),
-    medianRate: (stage: CostStage, model: string) =>
-      http<CostMedianRate>(
-        `/api/cost/median/${stage}?model=${encodeURIComponent(model)}`,
-      ),
-    estimate: (stage: CostStage, params: Record<string, string | number>) => {
-      const q = new URLSearchParams();
-      Object.entries(params).forEach(([k, v]) => q.set(k, String(v)));
-      return http<CostEstimate>(`/api/cost/estimate/${stage}?${q.toString()}`);
-    },
-    projectReport: (ts: string) =>
-      http<CostProjectReport>(`/api/cost/report/project/${ts}`),
-    overallReport: (since?: string) => {
-      const q = since ? `?since=${encodeURIComponent(since)}` : "";
-      return http<CostOverallReport>(`/api/cost/report${q}`);
-    },
-  },
+  // cost: 実体は ./api/cost.ts (= §3.1.3 で分離)。bgCache と同じ pattern で
+  // placeholder 予約 → 下で makeCostApi(http) を代入する。
+  cost: undefined as unknown as ReturnType<typeof makeCostApi>,
 };
+
+// ─── Cost Tracking (実コスト履歴ベースの動的見積もり + レポート) ──────────
+import { makeCostApi } from "./api/cost";
+
+api.cost = makeCostApi(http);
 
 // ─── stage cache API factory (= 単一 stage 分の cache 操作を生成) ──────────
 // 実体は ./api/stage-cache.ts に移管 (= §3.1.3)。http / API_BASE を inject。
