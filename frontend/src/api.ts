@@ -460,86 +460,20 @@ export const api = {
 };
 
 // ─── stage cache API factory (= 単一 stage 分の cache 操作を生成) ──────────
+// 実体は ./api/stage-cache.ts に移管 (= §3.1.3)。http / API_BASE を inject。
+import { makeStageCacheApi } from "./api/stage-cache";
 
-interface StageCacheApi<TMeta, TEntry> {
-  scanCache: (ts: string) => Promise<DecisionsResponse<TMeta>>;
-  decisions: (ts: string) => Promise<DecisionsResponse<TMeta>>;
-  useCache: (
-    ts: string,
-    sceneIdx: number,
-    key: string,
-  ) => Promise<{ ok: true; decision: "cache"; key: string }>;
-  queueFresh: (
-    ts: string,
-    sceneIdx: number,
-  ) => Promise<{ ok: true; decision: "fresh" }>;
-  sceneRescan: (
-    ts: string,
-    sceneIdx: number,
-  ) => Promise<{ ok: true; scene_decision: SceneDecision<TMeta> }>;
-  decisionsBulk: (
-    ts: string,
-    action: "all-cache" | "all-fresh",
-  ) => Promise<{
-    ok: true;
-    summary: { adopted: number; queued_fresh: number; errors: unknown[] };
-    scene_decisions: Record<string, SceneDecision<TMeta>>;
-  }>;
-  generateRemaining: (
-    ts: string,
-  ) => Promise<{ job_id: string; fresh_scenes: number[] }>;
-  entries: () => Promise<{ entries: TEntry[] }>;
-  blacklist: (key: string, reason: string) => Promise<{ ok: true }>;
-  delete: (key: string) => Promise<{ ok: true; deleted: string }>;
-  previewUrl: (key: string) => string;
-}
-
-function makeStageCacheApi<TMeta, TEntry>(
-  stage: "bg" | "kling",
-  previewExt: "png" | "mp4",
-): StageCacheApi<TMeta, TEntry> {
-  const stageBase = (ts: string) => `/api/projects/${ts}/stages/${stage}`;
-  const cacheBase = `/api/${stage}-cache`;
-  return {
-    scanCache: (ts) =>
-      http<DecisionsResponse<TMeta>>(`${stageBase(ts)}/scan-cache`, {
-        method: "POST",
-      }),
-    decisions: (ts) =>
-      http<DecisionsResponse<TMeta>>(`${stageBase(ts)}/decisions`),
-    useCache: (ts, sceneIdx, key) =>
-      http(`${stageBase(ts)}/scenes/${sceneIdx}/use-cache`, {
-        method: "POST",
-        body: JSON.stringify({ key }),
-      }),
-    queueFresh: (ts, sceneIdx) =>
-      http(`${stageBase(ts)}/scenes/${sceneIdx}/queue-fresh`, {
-        method: "POST",
-      }),
-    sceneRescan: (ts, sceneIdx) =>
-      http(`${stageBase(ts)}/scenes/${sceneIdx}/rescan`, { method: "POST" }),
-    decisionsBulk: (ts, action) =>
-      http(`${stageBase(ts)}/decisions/bulk`, {
-        method: "POST",
-        body: JSON.stringify({ action }),
-      }),
-    generateRemaining: (ts) =>
-      http(`${stageBase(ts)}/generate-remaining`, { method: "POST" }),
-    entries: () => http<{ entries: TEntry[] }>(`${cacheBase}/entries`),
-    blacklist: (key, reason) =>
-      http(`${cacheBase}/${key}/blacklist`, {
-        method: "POST",
-        body: JSON.stringify({ reason }),
-      }),
-    delete: (key) => http(`${cacheBase}/${key}`, { method: "DELETE" }),
-    previewUrl: (key) => `${API_BASE}${cacheBase}/${key}/preview.${previewExt}`,
-  };
-}
-
-api.bgCache = makeStageCacheApi<BgCandidateMeta, BgCacheEntry>("bg", "png");
+api.bgCache = makeStageCacheApi<BgCandidateMeta, BgCacheEntry>(
+  "bg",
+  "png",
+  http,
+  API_BASE,
+);
 api.klingCache = makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>(
   "kling",
   "mp4",
+  http,
+  API_BASE,
 );
 
 // 旧 API 互換 (= 既存のテスト / コードが klingCachePreviewUrl を import している)
