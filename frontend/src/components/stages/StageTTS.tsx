@@ -1,6 +1,6 @@
 import { useEffect, useMemo, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
-import { ttsMergedAssetUrl, api } from "../../api";
+import { api } from "../../api";
 import type { CostMedianRate, Line, Scene, TtsPricing } from "../../types";
 import { useCostMedianRate } from "../../useCostMedianRate";
 import {
@@ -11,6 +11,7 @@ import {
   sceneCost,
   screenplayCost,
 } from "../../tts-cost";
+import { MergedTTSPlayer } from "./MergedTTSPlayer";
 import { ModelSelector, SilenceControl, SpeedControl } from "./TtsControls";
 import { modelMeta } from "./tts-utils";
 // シーン境界編集は Stage 1 (ScriptEditPanel) に移動済み。Stage 2 では扱わない。
@@ -352,31 +353,7 @@ function TtsSourcePreview() {
 // 全シーンTTSをマージしたプレビュー
 // ─────────────────────────────────────────────────────────
 
-function MergedTTSPlayer() {
-  const ctx = useShellCtx();
-  const v = ctx.detail.progress.stages.tts.regen_count;
-  return (
-    <div className="card border-emerald-700/40 bg-slate-800/60 mt-4">
-      <div className="flex items-center justify-between gap-4">
-        <div>
-          <h3 className="font-semibold">全シーンTTS (one-shot)</h3>
-          <p className="text-xs text-slate-400 mt-1">
-            screenplay全体を1 API call
-            で生成した結果。シーン間が連続したプロソディで再生されます。
-          </p>
-        </div>
-        <span className="text-xs text-slate-500">バージョン: regen×{v}</span>
-      </div>
-      <audio
-        key={`merged-tts-${v}`}
-        src={ttsMergedAssetUrl(ctx.detail.timestamp, v)}
-        controls
-        preload="metadata"
-        className="w-full mt-3 h-10"
-      />
-    </div>
-  );
-}
+// MergedTTSPlayer は ./MergedTTSPlayer.tsx に移管済 (= §3.1.3)。
 
 // ─────────────────────────────────────────────────────────
 // シーンカード
