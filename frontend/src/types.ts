@@ -264,105 +264,10 @@ export interface JobStatus {
   error: string | null;
 }
 
-// ─── Analyze pipeline (参考動画から台本JSON生成) ─────────
-
-export interface AnalyzeOptions {
-  fps?: number;
-}
-
-export interface ReferenceVideo {
-  sha256: string;
-  original_name: string;
-  size_bytes: number;
-  duration_sec: number | null;
-  uploaded_at: string;
-  last_used_at: string | null;
-}
-
-export interface ReferenceVideoUploadResult extends ReferenceVideo {
-  deduplicated: boolean;
-}
-
-export type AnalyzeStatus =
-  | "pending"
-  | "dryrunning"
-  | "awaiting_confirm"
-  | "running"
-  | "completed"
-  | "failed"
-  | "cancelled";
-
-export type AnalyzePhase =
-  | "frames"
-  | "audio"
-  | "whisper"
-  | "acoustic"
-  | "claude"
-  | "save";
-
-export interface AnalyzePhaseRecord {
-  phase: AnalyzePhase;
-  status: "pending" | "running" | "completed" | "failed" | "skipped";
-  started_at: string | null;
-  finished_at: string | null;
-  duration_ms: number | null;
-  cost_usd: number | null;
-  error: string | null;
-}
-
-export interface AnalyzeJob {
-  id: string;
-  video_sha256: string;
-  options: AnalyzeOptions;
-  status: AnalyzeStatus;
-  current_phase: AnalyzePhase | null;
-  error: string | null;
-  estimated_cost_usd: number | null;
-  actual_cost_usd: number | null;
-  screenplay_path: string | null;
-  style_name: string | null;
-  created_at: string;
-  started_at: string | null;
-  finished_at: string | null;
-  cancellation_requested: boolean;
-}
-
-export interface AnalyzeJobDetail extends AnalyzeJob {
-  phases: AnalyzePhaseRecord[];
-}
-
-export interface DryrunCompleteEvent {
-  frame_count: number;
-  input_tokens: number;
-  output_tokens: number;
-  cost_usd: number | null;
-  cost_jpy: number | null;
-  confidence: "history" | "insufficient" | "partial";
-  sample_size: number;
-  token_breakdown?: Record<string, number>;
-  breakdown?: Record<string, unknown>;
-}
-
-// ─── Location / CharacterMeta ─────────
-
-export type CameraDistance = "close-up" | "medium-close" | "medium" | "wide";
-
-// グローバルなロケ集 (locations/<id>.json)。
-export interface Location {
-  id: string;
-  decor: string;
-  lighting: string;
-  color_palette: string;
-  props: string;
-  camera_distance: CameraDistance;
-}
-
-// グローバルなキャラ voice メタ (characters/<id>.json)。<id> は衣装込みの
-// 焼き込みキャラ ID。
-export interface CharacterMeta {
-  id: string;
-  voice_overrides?: Record<string, unknown>;
-}
+// ─── Analyze pipeline / Location / CharacterMeta ─────────
+// 関連型は ./types/analyze.ts / ./types/locations.ts に移管済 (= §3.1.3)。
+export * from "./types/analyze";
+export * from "./types/locations";
 
 // ─── 抽象台本 (Stage 1「素材」セクション編集用) ─────────
 // 関連型は ./types/abstract-screenplay.ts に移管済 (= §3.1.3)。
