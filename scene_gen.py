@@ -1457,7 +1457,19 @@ def _generate_single_voice_tts(
     """
 
     native_speed, _atempo = _split_global_speed()
-    voice_id = config.ELEVENLABS_VOICE_ID
+    # single-voice でも speaker 1 人ならそのキャラの voice.json を引く
+    # (= per-character 経路と同じ 2 段 fallback)。dispatcher が 2+ speaker を
+    # per-character に回すため、ここは 0 or 1 人。0 人 (= speaker 完全 absent)
+    # のときだけ config 既定にフォールバックする。
+    import per_character_tts as pct
+    speakers = pct.collect_unique_speakers(screenplay)
+    if speakers:
+        voice_id, voice_overrides = pct.resolve_voice_for_speaker(speakers[0])
+        vs = pct.build_voice_settings(voice_overrides, native_speed)
+        vs["voice_id"] = voice_id
+    else:
+        vs = _full_screenplay_voice_settings()
+        voice_id = vs["voice_id"]
     cache_key = f"{full_text}|v={voice_id}|s={native_speed:.3f}"
     text_hash = hashlib.sha256(cache_key.encode("utf-8")).hexdigest()[:12]
 
@@ -1487,7 +1499,6 @@ def _generate_single_voice_tts(
             if os.path.exists(f):
                 os.remove(f)
 
-        vs = _full_screenplay_voice_settings()
         # atomic write: 途中失敗で truncated tts_full.mp3 が残ると後段が詰まる
         # ので、まず .tmp に書き出して完全性を確認してから本パスに rename する。
         # generate_speech_with_timestamps は output_path から拡張子を切り捨てて

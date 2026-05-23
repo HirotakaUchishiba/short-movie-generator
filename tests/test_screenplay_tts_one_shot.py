@@ -417,3 +417,85 @@ def test_split_global_speed_clamps_extremes() -> None:
     assert abs(atempo - (0.5 / 0.7)) < 0.001
 
 
+def _capture_voice_id_api(captured: dict):
+    """generate_speech_with_timestamps の mock。voice settings を captured に控える。"""
+    def fake_api(*args, **kwargs):
+        captured.update({
+            "voice_id": kwargs["voice_id"],
+            "stability": kwargs["stability"],
+        })
+        out = kwargs["output_path"]
+        open(out, "wb").write(b"fake")
+        with open(out.rsplit(".", 1)[0] + ".json", "w") as f:
+            json.dump([{"char": "や", "start": 0.0, "end": 0.1}], f)
+    return fake_api
+
+
+def _install_audio_build_mocks(monkeypatch) -> None:
+    """_build_audios_from_full が呼ぶ ffmpeg helper 群を no-op に差し替える。"""
+    monkeypatch.setattr(scene_gen, "_extract_audio_segment",
+                         lambda *a, **kw: open(a[3], "wb").write(b"x"))
+    monkeypatch.setattr(scene_gen, "_get_duration", lambda p: 0.3)
+    monkeypatch.setattr(scene_gen, "_apply_atempo_inplace", lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_apply_silenceremove_inplace",
+                         lambda *a, **kw: None)
+    monkeypatch.setattr(scene_gen, "_detect_all_silences", lambda *a, **kw: [])
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_aac",
+                         lambda paths, out: open(out, "wb").write(b"x"))
+    monkeypatch.setattr(scene_gen, "_concat_audios_to_mp3",
+                         lambda paths, out: open(out, "wb").write(b"x"))
+
+
+def test_single_voice_uses_character_voice_when_one_speaker(temp_dir, monkeypatch) -> None:
+    """single-voice 経路 (1 speaker) は そのキャラの voice.json voice_id を使う。
+
+    回帰: 以前は speaker に関わらず config.ELEVENLABS_VOICE_ID 固定だったため、
+    f1 以外の単独キャラ動画でキャラと声が噛み合わなかった。
+    """
+    monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setattr(scene_gen.config, "ELEVENLABS_VOICE_ID", "GLOBAL_DEFAULT")
+    monkeypatch.setattr(scene_gen.artifact_integrity, "is_valid_audio",
+                         lambda p, **kw: True)
+    import per_character_tts
+    monkeypatch.setattr(
+        per_character_tts, "resolve_voice_for_speaker",
+        lambda base: (f"VOICE_{base}", {"stability": 0.33}),
+    )
+
+    sp = {
+        "scenes": [
+            {"duration": 3.0, "background_prompt": "bg",
+             "lines": [{"text": "やばい", "start": 0.0, "speaker": "m1"}]},
+        ],
+    }
+    captured: dict = {}
+    monkeypatch.setattr(scene_gen.elevenlabs_client,
+                        "generate_speech_with_timestamps",
+                        _capture_voice_id_api(captured))
+    _install_audio_build_mocks(monkeypatch)
+
+    scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
+
+    assert captured["voice_id"] == "VOICE_m1"  # config 既定ではなくキャラ voice
+    assert captured["stability"] == 0.33       # キャラ overrides も反映
+
+
+def test_single_voice_uses_global_default_when_no_speaker(temp_dir, monkeypatch) -> None:
+    """speaker 完全 absent (0 人) のときは config.ELEVENLABS_VOICE_ID にフォールバック。"""
+    monkeypatch.setattr(scene_gen.config, "ELEVENLABS_API_KEY", "test-key")
+    monkeypatch.setattr(scene_gen.config, "ELEVENLABS_VOICE_ID", "GLOBAL_DEFAULT")
+    monkeypatch.setattr(scene_gen.artifact_integrity, "is_valid_audio",
+                         lambda p, **kw: True)
+
+    sp = _minimal_screenplay()  # speaker フィールド無し
+    captured: dict = {}
+    monkeypatch.setattr(scene_gen.elevenlabs_client,
+                        "generate_speech_with_timestamps",
+                        _capture_voice_id_api(captured))
+    _install_audio_build_mocks(monkeypatch)
+
+    scene_gen.generate_screenplay_tts_one_shot(sp, temp_dir)
+
+    assert captured["voice_id"] == "GLOBAL_DEFAULT"
+
+
