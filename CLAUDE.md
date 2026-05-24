@@ -343,6 +343,8 @@ config.ELEVENLABS_VOICE_ID              ← グローバル既定
 
 `voice_overrides` (= stability / similarity_boost / style) も同じ階層で character → config の順に merge される。
 
+この解決は per-character (2+ speaker) / single-voice (1 speaker) の **両経路** で使われる。single-voice で speaker が完全 absent (= 0 人) のときだけ config 既定にフォールバックする。
+
 ### per-line 表現の切替
 
 `voice_id` を line 単位で切り替える機能は未対応 (= 同 base のキャラは常に同 voice)。per-line で voice 表現を細かく制御したい場合は **inline tag だけ** で行う:
