@@ -72,6 +72,42 @@ export function resolveLineSpeaker(
   return { resolved: undefined, implicit: false };
 }
 
+/**
+ * featured_characters の base が 1:1 で置換されたとき (= 旧 base 1 つ削除 + 新
+ * base 1 つ追加) に、その旧 base を speaker に持つ全 line を新 resolved id へ
+ * 追従させた scenes を返す。複数置換 / 追加のみ / 削除のみ / 変化なしは
+ * `abstract.scenes` をそのまま返す (= 連動しない、安全側)。
+ *
+ * 詳細は `docs/plannings/2026-05-25_cast-follow-and-location-preview.md` §3.1。
+ */
+export function applyFeaturedSpeakerFollow(
+  abstract: AbstractScreenplay,
+  newFeatured: string[],
+): AbstractScreenplay["scenes"] {
+  const oldFeatured = Array.isArray(abstract.featured_characters)
+    ? abstract.featured_characters
+    : [];
+  const oldBases = new Set(oldFeatured.map((r) => splitRef(r).base));
+  const newBases = new Set(newFeatured.map((r) => splitRef(r).base));
+  const removed = [...oldBases].filter((b) => !newBases.has(b));
+  const added = [...newBases].filter((b) => !oldBases.has(b));
+  if (removed.length !== 1 || added.length !== 1) {
+    return abstract.scenes;
+  }
+  const fromBase = removed[0];
+  const toBase = added[0];
+  // 新 featured の中で base が toBase の resolved id (= 衣装込み新 ref)。
+  const toRef = newFeatured.find((r) => splitRef(r).base === toBase) ?? toBase;
+  return abstract.scenes.map((sc) => ({
+    ...sc,
+    lines: (sc.lines ?? []).map((ln) =>
+      typeof ln.speaker === "string" && splitRef(ln.speaker).base === fromBase
+        ? { ...ln, speaker: toRef }
+        : ln,
+    ),
+  }));
+}
+
 /** 全 scene を走査して line.speaker のユニーク集合を返す (= bulk-apply / implicit
  *  active 判定に使う)。 */
 export function collectAllLineSpeakers(
