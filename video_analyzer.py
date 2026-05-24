@@ -163,6 +163,57 @@ class ScreenplayParseError(RuntimeError):
         self.usage: dict = dict(usage or {})
 
 
+def _normalize_action_and_intent(parsed: dict) -> None:
+    """analyze 出力の action_id / visual_intent_id を validator と同基準で正規化する。
+
+    location_ref と同様、analyze が SSOT として valid な annotation を産出する
+    責務を負う。action_id は actions/ 未定義なら drop、visual_intent_id は未定義
+    or start_emotion と valid_start_emotions が不整合なら drop する。共に optional
+    なので、欠落は compose / clip_library の cold path に委ねられる
+    (= validate_abstract の fail-fast を防ぐ)。
+    """
+    import atomic_assets
+    from screenplay_validator import (
+        load_visual_intent_valid_emotions,
+        resolve_scene_start_emotion,
+    )
+
+    available_actions = set(atomic_assets.list_action_ids())
+    intent_emos = load_visual_intent_valid_emotions()
+    for s_idx, scene in enumerate(parsed.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        aid = scene.get("action_id")
+        if isinstance(aid, str) and available_actions and aid not in available_actions:
+            logger.info(
+                "[action] scene %d: action_id '%s' を drop (actions/ 未定義)",
+                s_idx, aid,
+            )
+            scene.pop("action_id", None)
+        ann = scene.get("annotation")
+        if not isinstance(ann, dict):
+            continue
+        vi = ann.get("visual_intent_id")
+        if not (isinstance(vi, str) and vi):
+            continue
+        if vi not in intent_emos:
+            logger.info(
+                "[intent] scene %d: visual_intent_id '%s' を drop (未定義)",
+                s_idx, vi,
+            )
+            ann.pop("visual_intent_id", None)
+            continue
+        start_emo = resolve_scene_start_emotion(scene)
+        allowed = intent_emos.get(vi) or frozenset()
+        if start_emo and allowed and start_emo not in allowed:
+            logger.info(
+                "[intent] scene %d: visual_intent_id '%s' を drop "
+                "(start_emotion '%s' は valid_start_emotions %s に不整合)",
+                s_idx, vi, start_emo, sorted(allowed),
+            )
+            ann.pop("visual_intent_id", None)
+
+
 def build_screenplay(
     *,
     frame_paths: list[str],
@@ -470,6 +521,12 @@ def build_screenplay(
             cam = scene.get("camera_distance")
             if not (isinstance(cam, str) and cam in valid_cams):
                 scene.pop("camera_distance", None)
+
+    # ── action_id / visual_intent_id の正規化 (= intent_catalog 提供時のみ。
+    # validator と同基準で不整合を drop し、annotation 付与経路の出力を valid に保つ。
+    # catalog 無し = 旧経路は annotation を付与しないため正規化も不要) ──
+    if intent_catalog:
+        _normalize_action_and_intent(parsed)
 
     # ── speaker_profiles / speaker_to_ref を撤廃 (= 2026-05-17 schema 撤廃) ──
     # 旧出力との後方互換のため、Claude が誤って出した場合は単に drop する。

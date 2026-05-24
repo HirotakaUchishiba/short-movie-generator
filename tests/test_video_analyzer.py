@@ -188,7 +188,7 @@ def test_build_screenplay_normalizes_valid_annotation(tmp_path) -> None:
                 "motion_intensity": "low",
                 "rationale": "subject talks calmly facing camera",
             },
-            "lines": [{"text": "やばい", "start": 0.0, "end": 1.0, "emotion": "驚き"}],
+            "lines": [{"text": "やばい", "start": 0.0, "end": 1.0, "emotion": "中立"}],
         }],
     }
     result, _u = _build_with_catalog(tmp_path, body, _make_catalog())
