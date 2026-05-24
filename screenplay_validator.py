@@ -539,7 +539,7 @@ def _check_part_registry(screenplay: dict) -> list[str]:
 
     errors: list[str] = []
     intent_ids = _registry.list_ids("visual_intents")
-    intent_valid_emotions = _load_visual_intent_valid_emotions()
+    intent_valid_emotions = load_visual_intent_valid_emotions()
 
     for s_idx, scene in enumerate(screenplay.get("scenes", []) or []):
         ann = scene.get("annotation") or {}
@@ -557,7 +557,7 @@ def _check_part_registry(screenplay: dict) -> list[str]:
         # valid_start_emotions 制約 (= id 不正は上で reject 済み)
         valid_emos = intent_valid_emotions.get(vi)
         if valid_emos:
-            start_emo = _resolve_scene_start_emotion(scene)
+            start_emo = resolve_scene_start_emotion(scene)
             if start_emo is not None and start_emo not in valid_emos:
                 allowed = ", ".join(sorted(valid_emos))
                 errors.append(
@@ -569,7 +569,7 @@ def _check_part_registry(screenplay: dict) -> list[str]:
     return errors
 
 
-def _load_visual_intent_valid_emotions() -> dict[str, frozenset[str]]:
+def load_visual_intent_valid_emotions() -> dict[str, frozenset[str]]:
     """visual_intents.yaml の id → valid_start_emotions(frozenset) map を返す。"""
 
     out: dict[str, frozenset[str]] = {}
@@ -583,7 +583,7 @@ def _load_visual_intent_valid_emotions() -> dict[str, frozenset[str]]:
     return out
 
 
-def _resolve_scene_start_emotion(scene: dict) -> str | None:
+def resolve_scene_start_emotion(scene: dict) -> str | None:
     """scene から start_emotion を解決する (= identity / lines[0].emotion の順)。"""
 
     ident = scene.get("identity")
