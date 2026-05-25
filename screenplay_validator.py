@@ -601,6 +601,52 @@ def resolve_scene_start_emotion(scene: dict) -> str | None:
     return None
 
 
+def normalize_abstract_annotations(abstract: dict) -> None:
+    """abstract の action_id / visual_intent_id を validator と同基準で正規化する (in-place)。
+
+    visual_intent_id (= annotation) は analyze が SSOT として産出し UI からは編集
+    できないが、emotion は Stage 1 で編集できる。emotion 編集で start_emotion が
+    visual_intent の valid_start_emotions と不整合になると ``validate_abstract`` が
+    fail-fast するため、analyze だけでなく保存経路 (= PUT abstract) でも同じ正規化を
+    通し、不整合な annotation を drop する (= drop された scene は compose /
+    clip_library の cold path に流れる)。action_id は actions/ 未定義なら drop。
+    """
+    available_actions = set(atomic_assets.list_action_ids())
+    intent_emos = load_visual_intent_valid_emotions()
+    for s_idx, scene in enumerate(abstract.get("scenes") or []):
+        if not isinstance(scene, dict):
+            continue
+        aid = scene.get("action_id")
+        if isinstance(aid, str) and available_actions and aid not in available_actions:
+            logger.info(
+                "[normalize] scene %d: action_id '%s' を drop (actions/ 未定義)",
+                s_idx, aid,
+            )
+            scene.pop("action_id", None)
+        ann = scene.get("annotation")
+        if not isinstance(ann, dict):
+            continue
+        vi = ann.get("visual_intent_id")
+        if not (isinstance(vi, str) and vi):
+            continue
+        if vi not in intent_emos:
+            logger.info(
+                "[normalize] scene %d: visual_intent_id '%s' を drop (未定義)",
+                s_idx, vi,
+            )
+            ann.pop("visual_intent_id", None)
+            continue
+        start_emo = resolve_scene_start_emotion(scene)
+        allowed = intent_emos.get(vi) or frozenset()
+        if start_emo and allowed and start_emo not in allowed:
+            logger.info(
+                "[normalize] scene %d: visual_intent_id '%s' を drop "
+                "(start_emotion '%s' は valid_start_emotions %s に不整合)",
+                s_idx, vi, start_emo, sorted(allowed),
+            )
+            ann.pop("visual_intent_id", None)
+
+
 def _check_composed_required(screenplay: dict) -> list[str]:
     """composed 形式 (= Stage 2 以降が読む形) で必須のフィールドをチェック。
 

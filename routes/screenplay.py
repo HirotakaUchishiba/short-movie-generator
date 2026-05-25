@@ -296,7 +296,11 @@ def api_put_project_abstract(ts):
             "abstract.scenes must be non-empty array",
             400,
         )
-    from screenplay_validator import validate_abstract
+    from screenplay_validator import (
+        normalize_abstract_annotations,
+        validate_abstract,
+    )
+    normalize_abstract_annotations(abstract)
     errors = validate_abstract(abstract, strict=False)
     if errors:
         return api_error(
