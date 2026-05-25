@@ -196,7 +196,13 @@ def compose_screenplay(abstract: dict) -> dict:
     for cid in char_ids:
         try:
             meta = cmeta_mod.load_character_meta(cid)
-            voice_by_id[cid] = dict(meta.voice_overrides)
+            ov = dict(meta.voice_overrides)
+            # voice_id は meta.voice_id に一元化済 (= from_dict がトップレベル /
+            # voice_overrides 内のどちらからも昇格)。line の voice_overrides にも
+            # 載せ、TTS 解決 (resolve_voice_for_speaker) と同じ voice_id を指す。
+            if meta.voice_id:
+                ov["voice_id"] = meta.voice_id
+            voice_by_id[cid] = ov
         except Exception as e:
             logger.warning("character meta 読み込み失敗 %s: %s", cid, e)
             voice_by_id[cid] = {}
