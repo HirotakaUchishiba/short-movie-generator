@@ -218,6 +218,55 @@ def test_put_abstract_accepts_abstract_form_without_background_prompt(client, is
     assert r.status_code == 200, r.get_json()
 
 
+def test_put_abstract_drops_incompatible_visual_intent(client, isolated_env):
+    """emotion 編集で visual_intent_id と start_emotion が不整合になっても、
+    保存時に normalize が intent を drop して 200 で通る (= analyze と同基準)。
+
+    talking_head_animated の valid_start_emotions に 満足 は含まれないため、
+    旧挙動では ANALYZE_ABSTRACT_VALIDATION_FAILED で 400 になっていた。
+    """
+    ts, ts_path = _make_project(isolated_env)
+    edited = {
+        "caption": "x",
+        "scenes": [
+            {
+                "duration": 3,
+                "annotation": {"visual_intent_id": "talking_head_animated"},
+                "lines": [
+                    {"text": "やったね", "start": 0, "end": 1, "emotion": "満足"},
+                ],
+            },
+        ],
+    }
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": edited})
+    assert r.status_code == 200, r.get_json()
+    with open(ts_path + "/screenplay.json") as f:
+        saved = json.load(f)
+    assert "visual_intent_id" not in (saved["scenes"][0].get("annotation") or {})
+
+
+def test_put_abstract_keeps_compatible_visual_intent(client, isolated_env):
+    """整合する emotion (= 驚き) なら visual_intent_id は保持される (= 過剰 drop しない)。"""
+    ts, ts_path = _make_project(isolated_env)
+    edited = {
+        "caption": "x",
+        "scenes": [
+            {
+                "duration": 3,
+                "annotation": {"visual_intent_id": "talking_head_animated"},
+                "lines": [
+                    {"text": "えっ", "start": 0, "end": 1, "emotion": "驚き"},
+                ],
+            },
+        ],
+    }
+    r = client.put(f"/api/projects/{ts}/abstract", json={"abstract": edited})
+    assert r.status_code == 200, r.get_json()
+    with open(ts_path + "/screenplay.json") as f:
+        saved = json.load(f)
+    assert saved["scenes"][0]["annotation"]["visual_intent_id"] == "talking_head_animated"
+
+
 # ─── GET abstract response shape ───────────────────────────
 
 
