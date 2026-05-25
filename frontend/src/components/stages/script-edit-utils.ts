@@ -72,11 +72,31 @@ export function resolveLineSpeaker(
   return { resolved: undefined, implicit: false };
 }
 
+/** scene の line.speaker のうち base が `predicate` を満たすものを `toRef` に
+ *  置換した scenes を返す (= イミュータブル)。 */
+function rewriteSpeakers(
+  scenes: AbstractScreenplay["scenes"],
+  predicate: (base: string) => boolean,
+  toRef: string,
+): AbstractScreenplay["scenes"] {
+  return scenes.map((sc) => ({
+    ...sc,
+    lines: (sc.lines ?? []).map((ln) =>
+      typeof ln.speaker === "string" && predicate(splitRef(ln.speaker).base)
+        ? { ...ln, speaker: toRef }
+        : ln,
+    ),
+  }));
+}
+
 /**
- * featured_characters の base が 1:1 で置換されたとき (= 旧 base 1 つ削除 + 新
- * base 1 つ追加) に、その旧 base を speaker に持つ全 line を新 resolved id へ
- * 追従させた scenes を返す。複数置換 / 追加のみ / 削除のみ / 変化なしは
- * `abstract.scenes` をそのまま返す (= 連動しない、安全側)。
+ * featured_characters の変更に line.speaker を追従させた scenes を返す:
+ *   1. featured が 1 人だけになったら、featured に無い base の speaker を全て
+ *      その 1 人へ寄せる (= 「複数話者 → 1 人」削除も 1:1 置換も両方カバー)。
+ *   2. featured が 2 人以上で base が 1:1 置換 (削除 1 + 追加 1) なら、旧 base を
+ *      speaker に持つ line を新 resolved id へ置換。
+ *   それ以外 (複数置換 / 追加のみで 2 人以上残る / 変化なし) は連動しない
+ *   (= 対応が曖昧なので per-line SpeakerPicker に委ねる、安全側)。
  *
  * 詳細は `docs/plannings/2026-05-25_cast-follow-and-location-preview.md` §3.1。
  */
@@ -91,21 +111,32 @@ export function applyFeaturedSpeakerFollow(
   const newBases = new Set(newFeatured.map((r) => splitRef(r).base));
   const removed = [...oldBases].filter((b) => !newBases.has(b));
   const added = [...newBases].filter((b) => !oldBases.has(b));
-  if (removed.length !== 1 || added.length !== 1) {
+  if (removed.length === 0 && added.length === 0) {
     return abstract.scenes;
   }
-  const fromBase = removed[0];
-  const toBase = added[0];
-  // 新 featured の中で base が toBase の resolved id (= 衣装込み新 ref)。
-  const toRef = newFeatured.find((r) => splitRef(r).base === toBase) ?? toBase;
-  return abstract.scenes.map((sc) => ({
-    ...sc,
-    lines: (sc.lines ?? []).map((ln) =>
-      typeof ln.speaker === "string" && splitRef(ln.speaker).base === fromBase
-        ? { ...ln, speaker: toRef }
-        : ln,
-    ),
-  }));
+
+  // 1. featured が 1 人だけ → featured に無い base の speaker を残った 1 人へ寄せる。
+  if (newBases.size === 1) {
+    const onlyBase = [...newBases][0];
+    const onlyRef =
+      newFeatured.find((r) => splitRef(r).base === onlyBase) ?? onlyBase;
+    return rewriteSpeakers(
+      abstract.scenes,
+      (base) => base !== onlyBase,
+      onlyRef,
+    );
+  }
+
+  // 2. featured 2 人以上 + base 1:1 置換 → 旧 base を新 base へ。
+  if (removed.length === 1 && added.length === 1) {
+    const fromBase = removed[0];
+    const toBase = added[0];
+    const toRef =
+      newFeatured.find((r) => splitRef(r).base === toBase) ?? toBase;
+    return rewriteSpeakers(abstract.scenes, (base) => base === fromBase, toRef);
+  }
+
+  return abstract.scenes;
 }
 
 /** 全 scene を走査して line.speaker のユニーク集合を返す (= bulk-apply / implicit
