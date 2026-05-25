@@ -1,7 +1,7 @@
 # 登場人物変更への声の追従 + 背景プレビューピッカー 設計書
 
 最終更新: 2026-05-25
-ステータス: ドラフト (= レビュー待ち)
+ステータス: Phase 1 実装済み
 
 ## 1. 背景と目的
 
@@ -40,8 +40,8 @@
 
 - **背景の featured 連動・一括設定** (= ユーザー要望により対象外。背景は登場
   人物と無関係で、`location_ref` は scene 個別のまま)
-- **featured の単純追加 / 単純削除での line.speaker 変更** (= 1:1 置換のみ自動。
-  下記「3.1 連動の範囲」参照)
+- **featured の単純追加 / 複数同時置換での line.speaker 変更** (= featured が
+  2 人以上残る曖昧なケースは連動しない。下記「3.1 連動の範囲」参照)
 - analyze デフォルト選択ロジックの変更 (= alphabetical casting は維持)
 - `SpeakerPicker` per-line 編集の廃止 (= 残す。連動は上乗せ)
 - 新規バックエンド API (= 既存の PUT abstract / preview 配信で足りる)
@@ -68,18 +68,23 @@ frontend/src/components/stages/
 
 ### 3.1 featured → line.speaker 連動 (声の追従)
 
-- **責務**: featured の変更前後を比較し、base が **1:1 で置換**された場合に、
-  旧 base を使う全 `line.speaker` を新 base へ書き換える。
-- **判定**: 旧 featured と新 featured の base 集合の差分を取る。
-  - `removed = 旧 - 新`、`added = 新 - 旧`
-  - `len(removed) == 1 and len(added) == 1` → **1:1 置換**とみなし、
-    `removed[0]` を speaker に持つ全 line を `added[0]` に置換 (= 既存
-    `onBulkApply(removed, added)` 相当)。
-  - それ以外 (= 複数置換 / 追加のみ / 削除のみ) → **line.speaker は変更しない**
-    (= 既存の per-line 編集 + 「人物 0 人」warning で人間が気付く)。
-- **wardrobe の扱い**: featured は base 単位 (= 同 base の衣装入れ替え) なので、
-  base が同一で wardrobe だけ変わった置換 (例: `f1__office` → `f1__casual`) は
-  speaker の base が一致するため、resolved id の wardrobe も追従させる。
+- **責務**: featured の変更前後を比較し、対応が一意に決まる場合に
+  `line.speaker` を書き換える (= `applyFeaturedSpeakerFollow`)。
+- **判定**: 旧 featured と新 featured の base 集合の差分を取る
+  (`removed = 旧 - 新` / `added = 新 - 旧`)。連動するのは次の 2 ケース:
+  1. **featured が 1 人だけ** (`newBases.size === 1`) → featured に無い base を
+     speaker に持つ全 line を、その 1 人の resolved id へ寄せる。
+     これで「複数話者 → 1 人へ削除」(例: `[f1__office, m3] → [m3]` で残った
+     `f1__office` を `m3` に) と「1 人 → 別 1 人へ置換」の両方をカバーする。
+     ← 当初の実バグ (= featured を 1 人に絞っても消えた話者が残り、その声が
+     出てしまう) の根治。
+  2. **featured 2 人以上 + base 1:1 置換** (`removed 1 / added 1`) → `removed[0]`
+     を speaker に持つ全 line を `added[0]` の resolved id へ置換。
+  - それ以外 (= 複数同時置換 / 追加のみで 2 人以上 / 複数削除で 2 人以上残る /
+    変化なし) → **line.speaker は変更しない** (= 対応が曖昧なので per-line
+    `SpeakerPicker` 編集 + 「人物 0 人」warning で人間が気付く、安全側)。
+- **wardrobe の扱い**: 追従先は featured 内の resolved id (= wardrobe 込み) を
+  そのまま使う。例: `f1__office` → `m3__suit` なら speaker も `m3__suit` に。
 - 連動後は通常の保存 (`PUT abstract`) → 再 compose → TTS 生成時に新 speaker の
   `voice.json` が引かれる (= `2026-05-24` の TTS タイミング設計のまま、声が追従)。
 
@@ -96,9 +101,9 @@ frontend/src/components/stages/
 
 ## 4. テスト方針
 
-- **単体 (frontend)**: featured を 1:1 置換 (`f1`→`m3`) したとき、全 scene の
-  `line.speaker=f1` が `m3` に書き換わること。複数置換 / 追加のみ / 削除のみでは
-  line.speaker が変わらないこと。
+- **単体 (frontend)**: featured が 1 人になったら全 line がその 1 人へ寄ること
+  (= 複数話者削除 + 1 人への置換)、featured 2 人以上での 1:1 置換は対象 base のみ
+  追従すること、複数同時置換 / 追加のみ / 複数削除で 2 人以上残る場合は不変なこと。
 - **レンダリング**: `LocationThumbPicker` が preview ありはサムネ、無しは生成
   ボタンを出すこと。
 - **手動**: Stage 1 で featured を別キャラに置換 → 話者表示が追従し、「人物 0 人」
@@ -117,16 +122,17 @@ frontend/src/components/stages/
 
 ### Phase 2 (将来)
 
-- [ ] 複数 base 置換時の対応付け UI (= 確認ダイアログでマッピング)
-- [ ] featured 単純削除時に残った line.speaker の扱い (= None 降格 or 明示警告)
+- [ ] 複数 base 同時置換時の対応付け UI (= 確認ダイアログでマッピング)
+- [x] featured が 1 人に減った時の残 line.speaker 寄せ (= 2026-05-25 連動拡張で対応)
 
 ## 6. リスクと対策
 
-- **1:1 置換の誤検出**: 複数同時編集を 1:1 と誤認しないよう、diff が厳密に
-  `removed 1 / added 1` のときだけ連動。それ以外は触らない (= 安全側)。
-- **連動が個別調整を上書き**: 1:1 置換は「旧 base の全 line」を対象にするため、
-  per-line で別話者に分けていたケースを潰し得る。複数話者シーンでは置換でなく
-  per-line (`SpeakerPicker`) を使う運用とし、Phase 2 で確認ダイアログを検討。
+- **連動の誤発火**: 複数同時編集を誤って連動しないよう、連動は「featured 1 人」
+  または「2 人以上 + 厳密に removed 1 / added 1」のときだけ。それ以外は触らない。
+- **連動が個別調整を上書き**: featured 1 人化 / 1:1 置換は対象 base の「全 line」を
+  まとめて書き換えるため、per-line で別話者に分けていたケースを潰し得る。複数
+  話者を保ちたいシーンでは featured を 2 人以上に保ち per-line (`SpeakerPicker`) で
+  調整する運用とし、Phase 2 で複数同時置換の確認ダイアログを検討。
 - **preview 未生成 location**: プレースホルダ + 生成ボタンで段階対応。
 
 ## 7. 参考資料
