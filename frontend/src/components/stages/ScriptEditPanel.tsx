@@ -12,6 +12,7 @@ import {
   type ScriptEditContextValue,
 } from "./ScriptEditContext";
 import {
+  applyFeaturedSpeakerFollow,
   CAMERA_DISTANCE_OPTIONS,
   collectAllLineSpeakers,
   collectRawSpeakerResidue,
@@ -381,7 +382,13 @@ export default function ScriptEditPanel({
             isExplicit={Array.isArray(abstract.featured_characters)}
             analyzeSuggested={false}
             onChange={(next) => {
-              setAbstract({ ...abstract, featured_characters: next });
+              // featured の base 1:1 置換時は line.speaker も追従させる (= 声の連動)。
+              const scenes = applyFeaturedSpeakerFollow(abstract, next);
+              setAbstract({
+                ...abstract,
+                featured_characters: next,
+                scenes,
+              });
               setDirty(true);
             }}
             onClearExplicit={() => {

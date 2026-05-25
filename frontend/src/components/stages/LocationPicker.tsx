@@ -2,8 +2,12 @@
 //
 // シーンの背景 (= location_ref) を選ぶ。analyze が pre-fill した値を初期表示し、
 // ユーザが訂正できる。空選択で `(未設定)` (= completeness banner で警告)。
+//
+// 2026-05-25: 中身を <select> から LocationThumbPicker (= preview.png のサムネ
+// グリッド) に差し替え (callsite は不変)。
 
 import type { AbstractScreenplay } from "../../types";
+import { LocationThumbPicker } from "./LocationThumbPicker";
 
 export function LocationPicker({
   scene,
@@ -18,15 +22,13 @@ export function LocationPicker({
     ) => AbstractScreenplay["scenes"][number],
   ) => void;
 }) {
-  const value = scene.location_ref ?? "";
   return (
-    <label className="flex items-center gap-1">
-      <span className="text-slate-500 shrink-0">🏠 背景</span>
-      <select
-        className="select text-xs flex-1"
-        value={value}
-        onChange={(e) => {
-          const v = e.target.value;
+    <div className="space-y-1">
+      <span className="text-xs text-slate-500">🏠 背景</span>
+      <LocationThumbPicker
+        locationIds={locationIds}
+        value={scene.location_ref}
+        onChange={(v) =>
           onSceneChange((s) => {
             const next = { ...s };
             if (v) {
@@ -35,16 +37,9 @@ export function LocationPicker({
               delete (next as Record<string, unknown>).location_ref;
             }
             return next;
-          });
-        }}
-      >
-        <option value="">(未設定)</option>
-        {locationIds.map((id) => (
-          <option key={id} value={id}>
-            {id}
-          </option>
-        ))}
-      </select>
-    </label>
+          })
+        }
+      />
+    </div>
   );
 }
