@@ -74,12 +74,18 @@ class CharacterMeta:
 
     @classmethod
     def from_dict(cls, d: dict) -> "CharacterMeta":
-        raw_vid = d.get("voice_id")
+        overrides = dict(d.get("voice_overrides") or {})
+        # voice_id はトップレベルを正とするが、voice_overrides の中に書かれて
+        # いる揺れも昇格して拾う (= 手書き / 旧データのスキーマブレを吸収する)。
+        # voice_overrides に残すと build_voice_settings が拾わないとはいえ無駄な
+        # key になるため pop して取り除く。
+        nested_vid = overrides.pop("voice_id", None)
+        raw_vid = d.get("voice_id") or nested_vid
         voice_id = raw_vid if isinstance(raw_vid, str) and raw_vid else None
         return cls(
             id=d.get("id", ""),
             voice_id=voice_id,
-            voice_overrides=dict(d.get("voice_overrides") or {}),
+            voice_overrides=overrides,
             appearance=dict(d.get("appearance") or {}),
         )
 

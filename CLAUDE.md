@@ -182,11 +182,12 @@ screenplay の `character_refs` / `featured_characters` には **解決済み ID
 ```json
 {
   "id": "f1",
-  "voice_overrides": { "voice_id": "...", "stability": 0.4, "style": 0.3 }
+  "voice_id": "...",
+  "voice_overrides": { "stability": 0.4, "style": 0.3 }
 }
 ```
 
-`id` は base ID のみ (`__wardrobe` を含めない)。compose で resolved ID から base に剥がして読む。
+`id` は base ID のみ (`__wardrobe` を含めない)。compose で resolved ID から base に剥がして読む。`voice_id` は **トップレベル** に置く (= f1/m1 等の実データと同形)。`voice_overrides` の中に誤って書いた場合も `CharacterMeta.from_dict` が昇格して拾う (= スキーマブレを吸収。トップレベルがあればそちらを優先)。
 
 完全 screenplay (= compose 済み snapshot) のスキーマ:
 

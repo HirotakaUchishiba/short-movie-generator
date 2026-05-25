@@ -154,6 +154,42 @@ class TestResolveVoiceForSpeaker:
         assert vid == "config_default_voice"
         assert ov == {}
 
+    def test_promotes_voice_id_nested_in_overrides(
+        self, isolated_chars: Path, monkeypatch: pytest.MonkeyPatch,
+    ) -> None:
+        """voice_id が voice_overrides の中に書かれていても昇格して読む。
+
+        実バグ: m3 の voice.json が voice_id を voice_overrides 内に持っており、
+        トップレベルしか見ない from_dict では None になり config 既定 (= 偶然
+        f1 と同じ id) にフォールバックして f1 の声が出ていた。昇格後は
+        overrides から voice_id を除去する (= settings に紛れさせない)。
+        """
+        monkeypatch.setattr(
+            "config.ELEVENLABS_VOICE_ID", "config_default_voice",
+        )
+        _write_voice_json(isolated_chars, "m3", {
+            "id": "m3",
+            "voice_overrides": {"voice_id": "nested_voice_xyz", "stability": 0.5},
+        })
+        vid, ov = pct.resolve_voice_for_speaker("m3")
+        assert vid == "nested_voice_xyz"
+        assert "voice_id" not in ov
+        assert ov == {"stability": 0.5}
+
+    def test_top_level_voice_id_wins_over_nested(
+        self, isolated_chars: Path,
+    ) -> None:
+        """トップレベルと voice_overrides 内の両方にあればトップレベル優先。"""
+        _write_voice_json(isolated_chars, "f1", {
+            "id": "f1",
+            "voice_id": "top_level_win",
+            "voice_overrides": {"voice_id": "nested_lose", "stability": 0.6},
+        })
+        vid, ov = pct.resolve_voice_for_speaker("f1")
+        assert vid == "top_level_win"
+        assert "voice_id" not in ov
+        assert ov == {"stability": 0.6}
+
 
 class TestBuildVoiceSettings:
     def test_defaults_from_config(
