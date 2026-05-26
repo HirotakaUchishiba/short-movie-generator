@@ -19,8 +19,11 @@ from qa.validators.base import ValidationResult
 from qa.validators.character_drift import check_character_drift
 from qa.validators.lipsync_quality import check_lipsync_quality
 from qa.validators.story_pacing import check_story_pacing
+from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
 from qa.validators.subtitle_overlap import check_subtitle_overlap
 from qa.validators.subtitle_readability import check_subtitle_readability
+from qa.validators.subtitle_render import check_subtitle_render
+from qa.validators.subtitle_timing import check_subtitle_timing
 
 logger = logging.getLogger(__name__)
 
@@ -43,6 +46,9 @@ VALIDATORS_BY_STAGE: dict[str, list[tuple[str, ValidatorFn]]] = {
     ],
     "overlay": [
         ("subtitle_readability", check_subtitle_readability),
+        ("subtitle_timing", check_subtitle_timing),
+        ("subtitle_audio_sync", check_subtitle_audio_sync),
+        ("subtitle_render", check_subtitle_render),
     ],
 }
 

@@ -13,7 +13,8 @@ QA_VALIDATORS_ENABLED = os.getenv("QA_VALIDATORS_ENABLED", "1") in ("1", "true",
 
 # 個別 validator を無効化する。 ":" / "," 区切りで複数指定可。
 # 例: "lipsync_quality,character_drift" → ML 依存の重量級 2 つだけ skip
-_blacklist_raw = os.getenv("QA_VALIDATOR_BLACKLIST", "")
+_blacklist_raw = os.getenv(
+    "QA_VALIDATOR_BLACKLIST", "subtitle_audio_sync,subtitle_render")
 QA_VALIDATOR_BLACKLIST: tuple[str, ...] = tuple(
     s.strip() for s in _blacklist_raw.replace(":", ",").split(",")
     if s.strip()
@@ -66,3 +67,16 @@ BANDIT_AXES: tuple[str, ...] = (
 PRODUCTION_HUMAN_GATE_ENABLED = os.getenv(
     "PRODUCTION_HUMAN_GATE_ENABLED", "1",
 ) in ("1", "true", "True")
+
+# ───────────── Phase 2: subtitle_timing validator ─────────────
+# 字幕表示窓 (= line.end - line.start) と char_ts 実発話長の許容比率。
+# 1.0 が理想。保守的に「半分未満 / 2 倍超」で fail (= 直近 qa_failures から
+# baseline する前提の暫定値)。
+SUBTITLE_TIMING_DRIFT_RATIO_MIN = float(
+    os.getenv("SUBTITLE_TIMING_DRIFT_RATIO_MIN", "0.5"))
+SUBTITLE_TIMING_DRIFT_RATIO_MAX = float(
+    os.getenv("SUBTITLE_TIMING_DRIFT_RATIO_MAX", "2.0"))
+
+# subtitle_audio_sync (Whisper 出口実測) の字幕↔transcript 文字一致率の下限。
+SUBTITLE_AUDIO_SYNC_MATCH_MIN = float(
+    os.getenv("SUBTITLE_AUDIO_SYNC_MATCH_MIN", "0.6"))

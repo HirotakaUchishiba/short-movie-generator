@@ -45,6 +45,8 @@ QA_FAILURE_TAG_DEFS: tuple[QaFailureTagDef, ...] = (
     {"tag": "subtitle_off_screen", "label": "字幕が画面外", "axis": "subtitle"},
     {"tag": "subtitle_too_long",
      "label": "字幕が長すぎる", "axis": "subtitle"},
+    {"tag": "subtitle_timing_off",
+     "label": "字幕と音声のタイミングずれ", "axis": "subtitle"},
     # story
     {"tag": "story_pacing_off", "label": "テンポが悪い", "axis": "story"},
     {"tag": "story_hook_weak", "label": "hook が弱い", "axis": "story"},
