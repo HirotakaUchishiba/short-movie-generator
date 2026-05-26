@@ -69,6 +69,11 @@ def api_save_screenplay(ts):
                 old_sp = staged_pipeline.load_project_abstract(project_path)
             except FileNotFoundError:
                 old_sp = {}
+            # Stage 6 等は compose 済み screenplay を PUT してくる。snapshot は
+            # abstract が SSOT なので、diff 判定・保存の前に abstract へ正規化する
+            # (= 派生フィールド除去 + identity→root)。これをしないと compose 済み
+            # vs abstract の差を breaking 誤判定し、全承認が飛ぶ + 背景未設定化する。
+            sp = staged_pipeline._strip_composed_fields(sp)
             classification = classify_abstract_diff(old_sp, sp)
             if classification == "unchanged":
                 return jsonify({"ok": True, "classification": "unchanged"})

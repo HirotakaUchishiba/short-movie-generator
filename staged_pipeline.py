@@ -177,6 +177,36 @@ def load_project_screenplay(ts_path: str) -> dict:
     return _hydrate_tts_meta(composed, meta)
 
 
+def _strip_composed_fields(screenplay: dict) -> dict:
+    """compose が生成する派生フィールドを除去し、identity の hard match キーを
+    scene root の flat に戻して abstract 形式へ正規化する (= compose の逆)。
+
+    snapshot は abstract であるべきだが、Stage 6 の字幕保存 (PUT /screenplay) 等が
+    compose 済み screenplay 全体を送ってくるため、保存時にここで正規化する。これを
+    しないと snapshot が compose 済みのまま残り、frontend の背景未設定誤判定や
+    classify_abstract_diff の breaking 誤分類 (= 全承認 revoke) を招く。line の
+    派生 (voice_overrides) は compose が冪等に再 merge するため残す。
+    """
+    out = dict(screenplay)
+    new_scenes = []
+    for sc in screenplay.get("scenes") or []:
+        if not isinstance(sc, dict):
+            new_scenes.append(sc)
+            continue
+        s = dict(sc)
+        ident = s.get("identity") if isinstance(s.get("identity"), dict) else {}
+        if ident.get("location_ref") and not s.get("location_ref"):
+            s["location_ref"] = ident["location_ref"]
+        if ident.get("camera_distance") and not s.get("camera_distance"):
+            s["camera_distance"] = ident["camera_distance"]
+        for k in ("identity", "background_prompt", "animation_prompt",
+                  "characters", "lipsync"):
+            s.pop(k, None)
+        new_scenes.append(s)
+    out["scenes"] = new_scenes
+    return out
+
+
 def save_project_screenplay(ts_path: str, screenplay: dict) -> None:
     """project の snapshot を atomic に上書き保存する。snapshot は完全 abstract で、
     TTS 派生 timing (= scene.duration / line.start / line.end) は含めない
@@ -184,7 +214,7 @@ def save_project_screenplay(ts_path: str, screenplay: dict) -> None:
 
     metadata.json の screenplay_sha256 もここで更新する。
     """
-    cleaned = _strip_tts_derived(screenplay)
+    cleaned = _strip_tts_derived(_strip_composed_fields(screenplay))
     os.makedirs(ts_path, exist_ok=True)
     raw = json.dumps(cleaned, ensure_ascii=False, indent=2)
     p = project_screenplay_path(ts_path)
