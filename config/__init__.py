@@ -658,7 +658,10 @@ BREATH_DEFAULT_DURATION = 0.25
 SCENE_TTS_TAIL_BUFFER = 0.3
 SCENE_TTS_NATURAL_GAP = 0.3
 
-ACTION_FRONTLOAD_RATIO = 0.7
+# 主要動作をクリップのこの割合までに終える指示 (残りは静止保持で末尾トリム用)。
+# 0.7 だと末尾静止 30% が、動画が TTS より短い時の slow_mo 延長で目立つフリーズに
+# なりシーン切替が不自然。0.85 にして末尾静止を短く保ち、切替を自然にする。
+ACTION_FRONTLOAD_RATIO = 0.85
 ACTION_IDLE_THRESHOLD = 0.005
 ACTION_IDLE_MIN_DURATION = 0.3
 
