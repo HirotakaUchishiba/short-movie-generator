@@ -187,13 +187,17 @@ def snap_line_boundaries_to_silence(
         return best
 
     def silence_with_end_near(t: float) -> tuple[float, float] | None:
+        # abs_start の snap 専用。char_ts より「前」で終わる無音だけを候補にする
+        # (= 子音オンセット直前から始める)。char_ts より後ろの無音終了に snap
+        # すると発声の頭が削れて頭切れになるため、前進方向は候補にしない。
         best: tuple[float, float] | None = None
         best_dist = snap_tolerance_sec + 1.0
         for s_start, s_end in sorted_sils:
-            d = abs(s_end - t)
-            if d <= snap_tolerance_sec and d < best_dist:
-                best = (s_start, s_end)
-                best_dist = d
+            if s_end <= t:
+                d = t - s_end
+                if d <= snap_tolerance_sec and d < best_dist:
+                    best = (s_start, s_end)
+                    best_dist = d
             if s_start > t + snap_tolerance_sec:
                 break
         return best
