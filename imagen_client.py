@@ -52,7 +52,10 @@ def generate_image(prompt: str, output_path: str, aspect_ratio: str = "9:16",
         instruction = (
             "Generate a vertical portrait image (taller than wide, 9:16 ratio) "
             "using the attached reference image(s) as the character appearance. "
-            "Preserve the characters' faces and clothing from the references. "
+            "Preserve each character's facial structure exactly as in the "
+            "references: identical eye shape and spacing, eyebrows, nose, mouth, "
+            "face shape, hairstyle, skin texture and apparent age. Do not add or "
+            "remove wrinkles, do not redesign the eyes, and keep the same clothing. "
             f"Scene: {prompt}"
         )
         contents = ref_parts + [instruction]

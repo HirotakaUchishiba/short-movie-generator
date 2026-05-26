@@ -220,8 +220,10 @@ def test_build_background_prompt_injects_emotion_visual_cues() -> None:
     prompt = scene_gen._build_background_prompt(scene)
     cue = scene_gen.config.EMOTION_VISUAL_CUES["焦り"]
     assert cue["lighting"] in prompt
-    assert cue["facial"] in prompt
     assert cue["tone"] in prompt
+    # facial (表情) は reference 画像に任せ、Imagen の顔再解釈による別人化を避けるため
+    # bg prompt には注入しない (= STAGE_CUE_CATEGORIES["bg"] から除外)
+    assert cue["facial"] not in prompt
 
 
 def test_build_background_prompt_excludes_audio_dynamics(tmp_path, monkeypatch) -> None:

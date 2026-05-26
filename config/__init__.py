@@ -104,10 +104,13 @@ EMOTION_EN: dict[str, str] = {
 
 
 # Stage 別に出力する dom_cues カテゴリ。
-# Imagen (静止画) は照明・表情・トーンに絞り、hair/posture は reference 画像に
-# 任せて再解釈による崩壊を抑える。Kling (動画) は動き・視線・体勢など動的要素。
+# Imagen (静止画) は照明・トーンに絞り、顔の細部 (= 表情含む) は reference 画像に
+# 任せて再解釈による崩壊を抑える。emotion 由来の facial cue を bg prompt に注入
+# すると、シーンごとに Imagen が目・しわ・肌質を作り直して同一キャラが別人化
+# (老け顔・別の目) するため bg からは除く。表情変化は Kling (動画) 側の facial
+# cue が担当する。Kling は動き・視線・体勢など動的要素も含む。
 STAGE_CUE_CATEGORIES: dict[str, tuple[str, ...]] = {
-    "bg": ("lighting", "facial", "tone"),
+    "bg": ("lighting", "tone"),
     "kling": ("motion", "facial", "tone", "eye_gaze", "body_posture", "camera"),
 }
 
