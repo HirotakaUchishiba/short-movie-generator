@@ -103,6 +103,12 @@ _SCENE_SAFE_KEYS = frozenset({
     "annotation",
 })
 
+# line 内で変更されても overlay 再合成だけで足りる (= TTS/動画に影響しない) key。
+# subtitles は字幕 chunk の手動編集なので overlay のみ revoke で良い。
+_LINE_SAFE_KEYS = frozenset({
+    "subtitles",
+})
+
 
 def _diff_keys(old: dict, new: dict) -> set[str]:
     """dict 同士の浅い差分 key 集合 (= 値が違う or 片方にしかない key)。"""
@@ -111,6 +117,24 @@ def _diff_keys(old: dict, new: dict) -> set[str]:
         if old.get(k) != new.get(k):
             keys.add(k)
     return keys
+
+
+def _lines_diff_is_subtitle_only(old_lines, new_lines) -> bool:
+    """2 scene の lines 差分が subtitles (= 字幕 chunk) のみかを判定する。
+
+    line 数が違う / text・speaker・emotion 等が変われば False (= breaking)。
+    subtitles だけの変更なら True (= overlay だけ revoke すれば足りる)。
+    """
+    old_lines = old_lines or []
+    new_lines = new_lines or []
+    if len(old_lines) != len(new_lines):
+        return False
+    for ol, nl in zip(old_lines, new_lines):
+        if not isinstance(ol, dict) or not isinstance(nl, dict):
+            return False
+        if not _diff_keys(ol, nl).issubset(_LINE_SAFE_KEYS):
+            return False
+    return True
 
 
 def classify_abstract_diff(old: dict, new: dict) -> str:
@@ -148,7 +172,13 @@ def classify_abstract_diff(old: dict, new: dict) -> str:
         if not isinstance(old_s, dict) or not isinstance(new_s, dict):
             return "breaking"
         scene_diff = _diff_keys(old_s, new_s)
-        if not scene_diff.issubset(_SCENE_SAFE_KEYS):
+        # "lines" の変更は中身を見る: subtitles (字幕 chunk) だけなら safe_only。
+        non_lines = scene_diff - {"lines"}
+        if not non_lines.issubset(_SCENE_SAFE_KEYS):
+            return "breaking"
+        if "lines" in scene_diff and not _lines_diff_is_subtitle_only(
+            old_s.get("lines"), new_s.get("lines"),
+        ):
             return "breaking"
 
     return "safe_only"
