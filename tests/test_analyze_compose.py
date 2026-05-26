@@ -428,6 +428,23 @@ def test_compose_preserves_line_voice_overrides(isolated_dirs):
     assert line0["voice_overrides"]["stability"] == 0.9
 
 
+def test_compose_is_idempotent_on_composed_snapshot(isolated_dirs):
+    """compose 済み screenplay (identity あり・root location_ref 無し) を再 compose
+    しても fail せず、identity から location_ref/camera_distance を復元する。
+
+    字幕保存 (PUT screenplay) 等で compose 済み screenplay が snapshot に保存され、
+    Stage 2 以降の load で再 compose されるケースを壊さない (= 冪等性)。
+    """
+    _seed(isolated_dirs)
+    composed = compose_screenplay(_abstract_minimal())
+    assert composed["scenes"][0].get("location_ref") is None  # root には残らない
+    cam = composed["scenes"][0]["identity"]["camera_distance"]
+    recomposed = compose_screenplay(composed)
+    ident = recomposed["scenes"][0]["identity"]
+    assert ident["location_ref"] == "home_office"
+    assert ident["camera_distance"] == cam
+
+
 # ─── Step 2: identity 派生 ───────────────────
 
 

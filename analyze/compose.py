@@ -225,7 +225,11 @@ def compose_screenplay(abstract: dict) -> dict:
     for i, src in enumerate(abstract.get("scenes") or []):
         scene_anim = src.get("animation_style") or DEFAULT_ANIMATION_STYLE
         scene_chars = _resolve_scene_characters(src, char_ids)
-        location_ref = src.get("location_ref") or ""
+        # snapshot が compose 済み (= identity に畳込み済み・root location_ref 無し)
+        # でも再 compose できるよう identity から fallback する (= compose 冪等化)。
+        # 字幕保存等で compose 済み screenplay が PUT されても壊れない。
+        _ident = src.get("identity") if isinstance(src.get("identity"), dict) else {}
+        location_ref = src.get("location_ref") or _ident.get("location_ref") or ""
 
         # ── pass-through 起点: src scene を shallow copy ──
         # 旧 alias / action_id / その他 abstract 由来 key を
@@ -253,8 +257,9 @@ def compose_screenplay(abstract: dict) -> dict:
         # flat を注入し、生成後に pop する。
         scene["character_refs"] = list(scene_chars)
         scene["location_ref"] = location_ref
-        if src.get("camera_distance"):
-            scene["camera_distance"] = src["camera_distance"]
+        cam = src.get("camera_distance") or _ident.get("camera_distance")
+        if cam:
+            scene["camera_distance"] = cam
         scene["identity"] = _derive_identity(scene, src)
 
         scene["background_prompt"] = _compose_background(scene, location_ref)
