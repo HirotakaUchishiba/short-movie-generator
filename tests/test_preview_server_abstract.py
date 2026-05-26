@@ -398,3 +398,24 @@ def test_classify_abstract_diff_helper_breaking_scene_field():
     a = {"caption": "x", "scenes": [{"duration": 3, "lines": [], "location_ref": "a"}]}
     b = {"caption": "x", "scenes": [{"duration": 3, "lines": [], "location_ref": "b"}]}
     assert classify_abstract_diff(a, b) == "breaking"
+
+
+def test_classify_abstract_diff_helper_subtitle_only_is_safe():
+    """字幕 chunk (subtitles) だけの変更は overlay のみ revoke = safe_only。"""
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": [
+        {"text": "やあ", "emotion": "中立"},
+    ]}]}
+    b = {"caption": "x", "scenes": [{"duration": 3, "lines": [
+        {"text": "やあ", "emotion": "中立",
+         "subtitles": [{"text": "や"}, {"text": "あ"}]},
+    ]}]}
+    assert classify_abstract_diff(a, b) == "safe_only"
+
+
+def test_classify_abstract_diff_helper_line_text_change_is_breaking():
+    """line.text の変更は TTS 再合成が要るので breaking (subtitles 以外の line 変更)。"""
+    from routes._helpers import classify_abstract_diff
+    a = {"caption": "x", "scenes": [{"duration": 3, "lines": [{"text": "やあ"}]}]}
+    b = {"caption": "x", "scenes": [{"duration": 3, "lines": [{"text": "こんにちは"}]}]}
+    assert classify_abstract_diff(a, b) == "breaking"
