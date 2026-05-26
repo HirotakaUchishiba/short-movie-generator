@@ -73,7 +73,14 @@ def api_save_screenplay(ts):
             # abstract が SSOT なので、diff 判定・保存の前に abstract へ正規化する
             # (= 派生フィールド除去 + identity→root)。これをしないと compose 済み
             # vs abstract の差を breaking 誤判定し、全承認が飛ぶ + 背景未設定化する。
-            sp = staged_pipeline._strip_composed_fields(sp)
+            # old/new とも compose 派生 (identity 等) + TTS 派生 (line.start/end /
+            # scene.duration) を除去して完全に abstract 化してから比較する。frontend
+            # が送る compose 済み screenplay は line.start/end を含み、これが残ると
+            # classify が「line が変わった」と breaking 誤判定 → 全承認 revoke する。
+            old_sp = staged_pipeline._strip_tts_derived(
+                staged_pipeline._strip_composed_fields(old_sp))
+            sp = staged_pipeline._strip_tts_derived(
+                staged_pipeline._strip_composed_fields(sp))
             classification = classify_abstract_diff(old_sp, sp)
             if classification == "unchanged":
                 return jsonify({"ok": True, "classification": "unchanged"})

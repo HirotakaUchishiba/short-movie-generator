@@ -419,3 +419,25 @@ def test_classify_abstract_diff_helper_line_text_change_is_breaking():
     a = {"caption": "x", "scenes": [{"duration": 3, "lines": [{"text": "やあ"}]}]}
     b = {"caption": "x", "scenes": [{"duration": 3, "lines": [{"text": "こんにちは"}]}]}
     assert classify_abstract_diff(a, b) == "breaking"
+
+
+def test_put_screenplay_composed_subtitle_only_is_safe(client, isolated_env):
+    """frontend が送る compose 済み screenplay (line.start/end + subtitles) を PUT
+    しても、字幕のみ変更なら safe_only。classify 前に TTS 派生 (start/end) も除去
+    して比較するため、line.start/end が breaking 誤判定を起こさない (= 焼き直しで
+    scene 承認が飛ぶ不具合の回帰防止)。"""
+    import progress_store
+    ts, ts_path = _make_project(isolated_env)
+    _approve_through_overlay(ts_path)
+    sp = json.loads(json.dumps(
+        client.get(f"/api/projects/{ts}/abstract").get_json()["abstract"]))
+    l0 = sp["scenes"][0]["lines"][0]
+    l0["start"] = 0.0          # compose 済み相当の TTS 派生 timing
+    l0["end"] = 1.5
+    l0["subtitles"] = [{"text": "や"}, {"text": "ばい"}]
+    r = client.put(f"/api/projects/{ts}/screenplay", json={"screenplay": sp})
+    assert r.status_code == 200, r.get_json()
+    assert r.get_json()["classification"] == "safe_only"
+    for stage in ("tts", "bg", "kling", "scene"):
+        assert progress_store.is_approved(ts_path, stage), stage
+    assert not progress_store.is_approved(ts_path, "overlay")
