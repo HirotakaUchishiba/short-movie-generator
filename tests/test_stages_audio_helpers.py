@@ -183,6 +183,30 @@ def test_snap_line_boundaries_to_silence_snaps_to_nearest():
     assert out[0]["abs_end"] == pytest.approx(1.50)
 
 
+def test_snap_line_start_does_not_advance_past_char_ts():
+    """abs_start は char_ts より後ろ (前進) の無音終了に snap しない (= 頭切れ防止)。
+
+    line 開始 0.50 の「後ろ」0.55-0.68 に無音があっても、その終了 0.68 へ前進
+    すると発声の頭 (0.50-0.68) が切れる。前進は禁止し char_ts を保つ。
+    """
+    line_times = [{"abs_start": 0.50, "abs_end": 1.50}]
+    silences = [(0.55, 0.68)]
+    out = audio_helpers.snap_line_boundaries_to_silence(
+        line_times, silences, snap_tolerance_sec=0.2,
+    )
+    assert out[0]["abs_start"] == pytest.approx(0.50)
+
+
+def test_snap_line_start_retreats_to_preceding_silence_end():
+    """char_ts より前で終わる無音には後退 snap する (= 子音オンセット直前から)。"""
+    line_times = [{"abs_start": 0.50, "abs_end": 1.50}]
+    silences = [(0.30, 0.45)]
+    out = audio_helpers.snap_line_boundaries_to_silence(
+        line_times, silences, snap_tolerance_sec=0.2,
+    )
+    assert out[0]["abs_start"] == pytest.approx(0.45)
+
+
 def test_split_global_speed_unity_returns_no_correction():
     native, atempo = audio_helpers.split_global_speed(target=1.0)
     assert native == pytest.approx(1.0)
