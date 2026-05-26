@@ -113,6 +113,40 @@ parts:
         )
 
 
+class TestMotionHintMap:
+    def test_reads_motion_hint(self, isolated_registry: Path) -> None:
+        _write_yaml(
+            isolated_registry / "visual_intents.yaml",
+            """
+parts:
+  - id: talking_head_calm
+    motion_hint: subtle ambient motion
+  - id: gesture_pointing
+    motion_hint: pointing decisively
+""",
+        )
+        m = loader.motion_hint_map("visual_intents")
+        assert m["talking_head_calm"] == "subtle ambient motion"
+        assert m["gesture_pointing"] == "pointing decisively"
+
+    def test_missing_or_blank_hint_excluded(
+        self, isolated_registry: Path
+    ) -> None:
+        _write_yaml(
+            isolated_registry / "visual_intents.yaml",
+            """
+parts:
+  - id: has_hint
+    motion_hint: moves
+  - id: no_hint
+  - id: blank_hint
+    motion_hint: "   "
+""",
+        )
+        m = loader.motion_hint_map("visual_intents")
+        assert m == {"has_hint": "moves"}
+
+
 class TestResetCache:
     def test_reset_invalidates_all_categories(
         self, isolated_registry: Path

@@ -4,6 +4,10 @@
 # 各 entry は scene の annotation.visual_intent_id として screenplay から参照される。
 # `compatible_with` は cache lookup の degree match で「互換採用」される候補
 # (= clip_library._intent_compatible で参照)。
+# `motion_hint` は Kling animation_prompt に注入する短い動き directive
+# (= scene_gen._get_animation_prompt)。intent ごとに身振りを変え、全シーンが
+# 同じ動きになる単調さを防ぐ。placeholder を含めず、そのまま prompt に連結できる
+# 完結した英文フレーズにすること。
 #
 # Phase 1 では vocabulary の網羅性より「粒度の一貫性」を優先 (= 5 intent でスタート)。
 # 運用しながら追加する。
@@ -18,6 +22,7 @@ parts:
       A {character} {pose_modifier} in {location_decor},
       {start_emotion_addon}, talking calmly to camera,
       subtle ambient motion, lipsync friendly.
+    motion_hint: talking calmly to camera, subtle ambient motion, minimal body movement
     duration_buckets: [5, 10]
     valid_start_emotions: [中立, 喜び, 満足, 困惑]
     motion_intensity_bucket: low
@@ -33,6 +38,7 @@ parts:
       A {character} {pose_modifier} in {location_decor},
       {start_emotion_addon}, talking with expressive gestures,
       hands moving naturally, head tilts, engaging delivery.
+    motion_hint: talking with expressive hand gestures, hands moving naturally, occasional head tilts
     duration_buckets: [5, 10]
     valid_start_emotions: [中立, 喜び, 焦り, 困惑, 驚き]
     motion_intensity_bucket: medium
@@ -48,6 +54,7 @@ parts:
       A {character} in {location_decor},
       eyes widening in surprise, slight intake of breath,
       reaction shot, no speech.
+    motion_hint: eyes widening in surprise, slight intake of breath, a quick startled head movement
     duration_buckets: [5]
     valid_start_emotions: [中立, 困惑]
     motion_intensity_bucket: low
@@ -63,6 +70,7 @@ parts:
       A {character} in {location_decor},
       shoulders relaxing, exhaling with relief, slight smile,
       reaction shot, no speech.
+    motion_hint: shoulders relaxing, exhaling with relief, a slight smile spreading
     duration_buckets: [5]
     valid_start_emotions: [焦り, 困惑]
     motion_intensity_bucket: low
@@ -78,6 +86,7 @@ parts:
       A {character} {pose_modifier} in {location_decor},
       {start_emotion_addon}, talking and pointing toward something off-screen,
       hand raises decisively, lipsync friendly.
+    motion_hint: talking and pointing toward something off-screen, one hand raising decisively
     duration_buckets: [5]
     valid_start_emotions: [中立, 焦り, 喜び]
     motion_intensity_bucket: medium
