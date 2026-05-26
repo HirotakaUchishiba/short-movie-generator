@@ -223,6 +223,34 @@ def test_wrap_no_force_break_for_unbreakable_text(caplog) -> None:
     assert any("自然な break point" in rec.message for rec in caplog.records)
 
 
+def test_apply_overlays_specifies_mp4_muxer(tmp_path, monkeypatch) -> None:
+    """出力が .tmp 拡張子なので ffmpeg cmd に -f mp4 を含む (ffmpeg 8.1 は拡張子
+    から出力フォーマットを推測できず 'Unable to choose an output format' で失敗
+    するため)。"""
+    recorded: dict = {}
+
+    def fake_run(cmd, **kw):
+        recorded["cmd"] = list(cmd)
+        open(cmd[-1], "w").close()  # tmp 出力を作り os.replace を成功させる
+
+        class R:
+            returncode = 0
+            stderr = ""
+            stdout = ""
+
+        return R()
+
+    monkeypatch.setattr("subprocess.run", fake_run)
+    base = str(tmp_path / "merged.mp4")
+    open(base, "w").close()
+    out = str(tmp_path / "overlaid.mp4")
+    compositor._apply_overlays(base, _base_screenplay(), str(tmp_path), out)
+    cmd = recorded["cmd"]
+    assert "-f" in cmd
+    assert cmd[cmd.index("-f") + 1] == "mp4"
+    assert cmd[-1].endswith(".tmp")  # 一時ファイルへ書いてから replace
+
+
 def test_wrap_idempotent_on_already_short_text() -> None:
     text = "ABC"
     assert compositor._wrap_subtitle_text(text, max_chars=10) == text

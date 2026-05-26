@@ -637,6 +637,10 @@ def _apply_overlays(base_video: str, screenplay: dict, temp_dir: str,
            "-c:v", "libx264", "-preset", "medium", "-crf", "18",
            "-pix_fmt", "yuv420p",
            "-c:a", "aac", "-b:a", "192k",
+           # 出力が .tmp 拡張子なので muxer を明示する。ffmpeg 8.1 系は拡張子から
+           # 出力フォーマットを推測できず "Unable to choose an output format" で
+           # 失敗するため (= base_video の mp4 と揃える)。
+           "-f", "mp4",
            tmp_path]
 
     logger.info("テロップ焼き込み中")
