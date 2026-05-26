@@ -57,6 +57,11 @@ SUBTITLE_MAX_CHARS_PER_LINE = 17
 SUBTITLE_CHUNK_ENABLED = True
 SUBTITLE_CHUNK_MAX_CHARS = 12
 
+# chunk の表示時刻を「文字数比例」でなく TTS char-level timestamp (tts_full.json)
+# の実発話時刻ベースで配分する。実音声の非線形な発話分布に字幕が追従する。
+# char_ts 不在 / 複数話者 (per-voice) / 読込失敗時は文字数比例に自動 fallback。
+SUBTITLE_TIMING_FROM_CHAR_TS = True
+
 # TTS 関連の固定設定は config.tts から re-export (= §3.1.4-b 段階移行)。
 from config.tts import (  # noqa: F401, E402
     ELEVENLABS_VOICE_ID,

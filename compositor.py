@@ -456,6 +456,49 @@ def _allocate_chunk_timings(
     return timings
 
 
+def _allocate_chunk_timings_from_char_ts(
+    chunks: list[str], line_start: float, line_end: float,
+    char_start: int, pos_to_time: list,
+) -> list[tuple[float, float]] | None:
+    """chunks を char_ts の実発話時刻幅で line 表示窓 (line_start-line_end) に配分。
+
+    各 chunk の文字位置に対応する char_ts (= TTS 自身の forced alignment) の時刻幅で
+    重み付けする。char_ts 総長と表示窓長は snap / 実尺リスケールで一致しないため、
+    char_ts の相対位置を表示窓へ比率スケールして絶対時刻に変換する。char_ts が引け
+    ない chunk があれば None を返し、呼出側が文字数比例へ fallback する。
+    """
+    spans: list[tuple[float, float]] = []
+    cursor = char_start
+    n = len(pos_to_time)
+    for c in chunks:
+        end_char = cursor + len(c)
+        c_start = c_end = None
+        for i in range(cursor, min(end_char, n)):
+            if pos_to_time[i]:
+                c_start = pos_to_time[i]["start"]
+                break
+        for i in range(min(end_char, n) - 1, cursor - 1, -1):
+            if pos_to_time[i]:
+                c_end = pos_to_time[i]["end"]
+                break
+        if c_start is None or c_end is None:
+            return None
+        spans.append((c_start, c_end))
+        cursor = end_char
+    ts0, ts1 = spans[0][0], spans[-1][1]
+    ts_dur = ts1 - ts0
+    win_dur = line_end - line_start
+    if ts_dur <= 0 or win_dur <= 0:
+        return None
+    scale = win_dur / ts_dur
+    timings = [
+        (line_start + (cs - ts0) * scale, line_start + (ce - ts0) * scale)
+        for cs, ce in spans
+    ]
+    timings[-1] = (timings[-1][0], line_end)
+    return timings
+
+
 def _needs_overlay(screenplay: dict) -> bool:
     for sc in screenplay.get("scenes", []):
         for line in sc.get("lines") or []:
@@ -474,6 +517,8 @@ def _compute_line_chunks_and_timings(
     chunk_enabled: bool,
     chunk_max_chars: int,
     line_max_chars: int,
+    pos_to_time: list | None = None,
+    char_start: int | None = None,
 ) -> tuple[list[str], list[tuple[float, float]]]:
     """1 line を字幕 chunks + 各 chunk の (start, end) timing に変換する。
 
@@ -518,11 +563,54 @@ def _compute_line_chunks_and_timings(
 
     if chunk_enabled:
         chunks = _split_into_chunks(text, chunk_max_chars)
-        timings = _allocate_chunk_timings(chunks, abs_start, abs_end)
+        timings = None
+        if pos_to_time is not None and char_start is not None:
+            timings = _allocate_chunk_timings_from_char_ts(
+                chunks, abs_start, abs_end, char_start, pos_to_time)
+        if timings is None:  # char_ts 不在 / gap は文字数比例へ fallback
+            timings = _allocate_chunk_timings(chunks, abs_start, abs_end)
     else:
         chunks = [_wrap_subtitle_text(text, line_max_chars)]
         timings = [(abs_start, abs_end)]
     return chunks, timings
+
+
+def _load_char_timing(screenplay: dict, temp_dir: str) -> dict | None:
+    """単独話者の char_ts (tts_full.json) を読み、pos_to_time + 各 line の char_start を返す。
+
+    config OFF / per-voice (複数話者) / 読込失敗は None を返し、呼出側は従来の文字数
+    比例 chunk 配分に倒れる (= 後方互換)。per-voice は char_ts が speaker ごとに
+    tts_full.<base>.json に分かれ line.speaker 解決が要るため Phase 2 とし、ここでは
+    None (fallback) を返す。
+    """
+    if not getattr(config, "SUBTITLE_TIMING_FROM_CHAR_TS", True):
+        return None
+    speakers: set[str] = set()
+    for sc in screenplay.get("scenes") or []:
+        for ln in sc.get("lines") or []:
+            sp = ln.get("speaker")
+            if isinstance(sp, str) and sp:
+                speakers.add(sp.split("__")[0])
+    if len(speakers) > 1:
+        return None
+    path = os.path.join(temp_dir, "tts_full.json")
+    if not os.path.exists(path):
+        return None
+    try:
+        with open(path, encoding="utf-8") as f:
+            char_ts = json.load(f)
+    except (OSError, ValueError):
+        return None
+    from stages.text_mapping import (
+        build_position_to_time_map,
+        build_screenplay_text,
+    )
+    full_text, line_specs = build_screenplay_text(screenplay)
+    pos = build_position_to_time_map(full_text, char_ts)
+    starts = {
+        (s["scene_idx"], s["line_idx"]): s["char_start"] for s in line_specs
+    }
+    return {"pos_to_time": pos, "char_starts": starts}
 
 
 def _build_overlay_filter(screenplay: dict, temp_dir: str,
@@ -551,6 +639,7 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
     line_max_chars = int(getattr(config, "SUBTITLE_MAX_CHARS_PER_LINE", 17))
     chunk_enabled = bool(getattr(config, "SUBTITLE_CHUNK_ENABLED", True))
     chunk_max_chars = int(getattr(config, "SUBTITLE_CHUNK_MAX_CHARS", 8))
+    char_timing = _load_char_timing(screenplay, temp_dir)
 
     filters: list[str] = []
     cur_in = "0:v"
@@ -585,6 +674,9 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
                 offset=offset, duration=duration, scene_real=scene_real,
                 chunk_enabled=chunk_enabled, chunk_max_chars=chunk_max_chars,
                 line_max_chars=line_max_chars,
+                pos_to_time=(char_timing["pos_to_time"] if char_timing else None),
+                char_start=(char_timing["char_starts"].get((s_idx, l_idx))
+                            if char_timing else None),
             )
             if not chunks:
                 continue
