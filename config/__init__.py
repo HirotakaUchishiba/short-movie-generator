@@ -69,6 +69,7 @@ from config.tts import (  # noqa: F401, E402
     TTS_TRIM_LONG_SILENCES,
     TTS_MAX_SILENCE_MS,
     TTS_SILENCE_THRESHOLD_DB,
+    TTS_SNAP_TOLERANCE_SEC,
 )
 
 EMOTION_MOTION_ADDONS: dict[str, str] = {
