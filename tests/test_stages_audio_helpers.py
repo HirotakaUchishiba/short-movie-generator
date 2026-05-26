@@ -207,6 +207,25 @@ def test_snap_line_start_retreats_to_preceding_silence_end():
     assert out[0]["abs_start"] == pytest.approx(0.45)
 
 
+def test_snap_line_start_retreats_within_larger_tolerance():
+    """tolerance を広げると char_ts より少し離れた無音明けにも後退 snap する。
+
+    eleven_v3 の感情タグ ([happy] 等) は char_ts 上で時間を持つのに実音声では
+    発音されないため char_ts が実音声より ~0.3s 後ろにズレる。tolerance 0.2 では
+    届かず頭切れが残ったため 0.5 に拡大した (= config.TTS_SNAP_TOLERANCE_SEC)。
+    """
+    line_times = [{"abs_start": 0.333, "abs_end": 3.0}]
+    silences = [(0.0, 0.037)]
+    narrow = audio_helpers.snap_line_boundaries_to_silence(
+        line_times, silences, snap_tolerance_sec=0.2,
+    )
+    assert narrow[0]["abs_start"] == pytest.approx(0.333)  # 0.2 では届かない
+    wide = audio_helpers.snap_line_boundaries_to_silence(
+        line_times, silences, snap_tolerance_sec=0.5,
+    )
+    assert wide[0]["abs_start"] == pytest.approx(0.037)  # 0.5 で後退 snap
+
+
 def test_split_global_speed_unity_returns_no_correction():
     native, atempo = audio_helpers.split_global_speed(target=1.0)
     assert native == pytest.approx(1.0)

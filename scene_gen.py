@@ -1159,7 +1159,10 @@ def _build_audios_from_full(screenplay: dict, ts_path: str) -> None:
     # tts_full.mp3 の無音区間に line 境界を snap して語尾/文頭の食込みを防ぐ。
     threshold_db = float(getattr(config, "TTS_SILENCE_THRESHOLD_DB", -40))
     silences = _detect_all_silences(full_mp3, threshold_db, min_silence_sec=0.03)
-    line_times = _snap_line_boundaries_to_silence(line_times, silences)
+    line_times = _snap_line_boundaries_to_silence(
+        line_times, silences,
+        snap_tolerance_sec=float(getattr(config, "TTS_SNAP_TOLERANCE_SEC", 0.5)),
+    )
 
     by_scene: dict[int, list[dict]] = {}
     for lt in line_times:
@@ -1303,6 +1306,7 @@ def _build_audios_from_per_voice(
         )
         snap_by_voice[base] = _snap_line_boundaries_to_silence(
             line_times, silences,
+            snap_tolerance_sec=float(getattr(config, "TTS_SNAP_TOLERANCE_SEC", 0.5)),
         )
 
     if not snap_by_voice:

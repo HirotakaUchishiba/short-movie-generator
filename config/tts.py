@@ -24,3 +24,7 @@ TTS_NATIVE_SPEED_MAX = 1.2  # ElevenLabs公式上限
 TTS_TRIM_LONG_SILENCES = True
 TTS_MAX_SILENCE_MS = 250  # この長さまでの無音は残し、超過分はカット
 TTS_SILENCE_THRESHOLD_DB = -40.0  # この音量以下を無音と判定
+# char_ts (eleven_v3 の文字タイムスタンプ) は感情タグ [happy] 等の分だけ実音声
+# より後ろにズレる (実測で最大 ~0.4s)。line 境界を直前の無音明けへ後退 snap する
+# 際の探索許容幅。tag のズレを吸収できるよう広めに取る (= 0.2 では頭切れが残った)。
+TTS_SNAP_TOLERANCE_SEC = 0.5
