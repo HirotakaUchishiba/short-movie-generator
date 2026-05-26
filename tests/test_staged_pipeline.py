@@ -335,3 +335,49 @@ def test_regen_overlay_no_cascade(
     # 上流は全部維持 (cascade なし = 最終 stage)
     for s in ("script", "tts", "bg", "kling", "scene"):
         assert progress_store.is_approved(ts_path, s)
+
+
+def test_strip_composed_fields_restores_abstract():
+    """compose 済み screenplay (identity + 派生フィールドあり) を abstract に正規化。
+
+    Stage 6 字幕保存で compose 済み screenplay が PUT されても snapshot を abstract
+    に保ち、背景未設定誤判定 / breaking 誤分類を防ぐ。
+    """
+    composed = {
+        "caption": "x",
+        "scenes": [{
+            "identity": {
+                "location_ref": "home_office", "camera_distance": "medium",
+                "character_refs": ["f1"], "start_emotion": "中立",
+            },
+            "background_prompt": "bg...",
+            "animation_prompt": "anim...",
+            "characters": [{"name": "f1"}],
+            "lipsync": True,
+            "lines": [{"text": "やあ", "emotion": "中立",
+                       "subtitles": [{"text": "やあ"}]}],
+        }],
+    }
+    out = staged_pipeline._strip_composed_fields(composed)
+    sc = out["scenes"][0]
+    assert sc["location_ref"] == "home_office"
+    assert sc["camera_distance"] == "medium"
+    for k in ("identity", "background_prompt", "animation_prompt",
+              "characters", "lipsync"):
+        assert k not in sc
+    # lines (subtitles 含む) は保持
+    assert sc["lines"][0]["subtitles"] == [{"text": "やあ"}]
+
+
+def test_strip_composed_fields_keeps_root_when_already_abstract():
+    """既に abstract (root location_ref あり) なら root を優先しそのまま保つ。"""
+    abstract = {
+        "caption": "x",
+        "scenes": [{
+            "location_ref": "warm_cafe", "camera_distance": "wide",
+            "lines": [{"text": "ねえ", "emotion": "中立"}],
+        }],
+    }
+    out = staged_pipeline._strip_composed_fields(abstract)
+    assert out["scenes"][0]["location_ref"] == "warm_cafe"
+    assert out["scenes"][0]["camera_distance"] == "wide"
