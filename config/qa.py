@@ -13,7 +13,11 @@ QA_VALIDATORS_ENABLED = os.getenv("QA_VALIDATORS_ENABLED", "1") in ("1", "true",
 
 # 個別 validator を無効化する。 ":" / "," 区切りで複数指定可。
 # 例: "lipsync_quality,character_drift" → ML 依存の重量級 2 つだけ skip
-_blacklist_raw = os.getenv("QA_VALIDATOR_BLACKLIST", "")
+# 既定で重量級 (Whisper/OCR) の subtitle_audio_sync,subtitle_render を OFF にする。
+# 注: env で QA_VALIDATOR_BLACKLIST を設定するとこの既定は完全に上書きされる。
+# 別目的で BLACKLIST を使う場合は subtitle_audio_sync,subtitle_render も明示的に含めること。
+_blacklist_raw = os.getenv(
+    "QA_VALIDATOR_BLACKLIST", "subtitle_audio_sync,subtitle_render")
 QA_VALIDATOR_BLACKLIST: tuple[str, ...] = tuple(
     s.strip() for s in _blacklist_raw.replace(":", ",").split(",")
     if s.strip()
@@ -66,3 +70,28 @@ BANDIT_AXES: tuple[str, ...] = (
 PRODUCTION_HUMAN_GATE_ENABLED = os.getenv(
     "PRODUCTION_HUMAN_GATE_ENABLED", "1",
 ) in ("1", "true", "True")
+
+# ───────────── Phase 2: subtitle 系 validator のしきい値 ─────────────
+def _env_float(name: str, default: float) -> float:
+    """env から float を読む。不正値は警告して default にフォールバック
+    (= IMPROVEMENT_STRATEGY 同様に config import を落とさない)。"""
+    raw = os.getenv(name)
+    if raw is None:
+        return default
+    try:
+        return float(raw)
+    except ValueError:
+        _warnings.warn(
+            f"{name}={raw!r} is not a float; falling back to {default}",
+            RuntimeWarning, stacklevel=2)
+        return default
+
+
+# subtitle_timing: 表示窓 (line.end-line.start) と char_ts 実発話長の許容比率。
+# auto-timed line は line.start/end が char_ts snap 由来のため ratio≈1 になりやすく、
+# 本 validator は主に gross な崩壊を捕捉する安全網。偽陽性 abort を避けるため広く取る。
+SUBTITLE_TIMING_DRIFT_RATIO_MIN = _env_float("SUBTITLE_TIMING_DRIFT_RATIO_MIN", 0.34)
+SUBTITLE_TIMING_DRIFT_RATIO_MAX = _env_float("SUBTITLE_TIMING_DRIFT_RATIO_MAX", 3.0)
+
+# subtitle_audio_sync: 字幕テキストが Whisper transcript に含まれる ref カバレッジ下限。
+SUBTITLE_AUDIO_SYNC_MATCH_MIN = _env_float("SUBTITLE_AUDIO_SYNC_MATCH_MIN", 0.6)
