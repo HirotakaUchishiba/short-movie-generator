@@ -24,11 +24,14 @@ def test_save_and_load_round_trip(isolated_characters):
     # base id で load
     loaded = isolated_characters.load_character_meta("f1")
     assert loaded.id == "f1"
-    assert loaded.voice_overrides == {"voice_id": "v1", "stability": 0.4}
+    # from_dict は voice_overrides 内の voice_id を top-level に正規化し overrides から除く
+    assert loaded.voice_id == "v1"
+    assert loaded.voice_overrides == {"stability": 0.4}
     # resolved id (base + wardrobe) で load しても同じ meta が返る
     loaded2 = isolated_characters.load_character_meta("f1__office")
     assert loaded2.id == "f1"
-    assert loaded2.voice_overrides == {"voice_id": "v1", "stability": 0.4}
+    assert loaded2.voice_id == "v1"
+    assert loaded2.voice_overrides == {"stability": 0.4}
 
 
 def test_save_rejects_wardrobe_suffix(isolated_characters):
