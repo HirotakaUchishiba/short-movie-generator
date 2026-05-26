@@ -212,6 +212,59 @@ def test_get_animation_prompt_no_emotion_returns_base_only() -> None:
     assert prompt == "subject walks"
 
 
+def test_get_animation_prompt_injects_visual_intent_motion_hint() -> None:
+    """annotation.visual_intent_id の motion_hint が movement directive として注入される。"""
+    import part_registry_loader
+    scene = {
+        "animation_prompt": "subject speaks",
+        "annotation": {"visual_intent_id": "gesture_pointing"},
+        "lines": [{"text": "a", "start": 0}],
+    }
+    prompt = scene_gen._get_animation_prompt(scene)
+    hint = part_registry_loader.motion_hint_map()["gesture_pointing"]
+    assert f"movement: {hint}" in prompt
+
+
+def test_get_animation_prompt_distinct_intents_distinct_movement() -> None:
+    """intent が違えば movement directive も変わる (= 単調さ防止)。"""
+    import part_registry_loader
+    hints = part_registry_loader.motion_hint_map()
+
+    def _prompt_for(intent_id: str) -> str:
+        return scene_gen._get_animation_prompt({
+            "animation_prompt": "subject speaks",
+            "annotation": {"visual_intent_id": intent_id},
+            "lines": [{"text": "a", "start": 0}],
+        })
+
+    calm = _prompt_for("talking_head_calm")
+    animated = _prompt_for("talking_head_animated")
+    assert hints["talking_head_calm"] in calm
+    assert hints["talking_head_animated"] in animated
+    assert calm != animated
+
+
+def test_get_animation_prompt_no_intent_no_movement() -> None:
+    """visual_intent_id が無ければ movement directive は足さない (graceful)。"""
+    scene = {
+        "animation_prompt": "subject speaks",
+        "lines": [{"text": "a", "start": 0}],
+    }
+    prompt = scene_gen._get_animation_prompt(scene)
+    assert "movement:" not in prompt
+
+
+def test_get_animation_prompt_unknown_intent_no_movement() -> None:
+    """未定義 intent_id は motion_hint_map に無いので何も足さない (graceful)。"""
+    scene = {
+        "animation_prompt": "subject speaks",
+        "annotation": {"visual_intent_id": "no_such_intent"},
+        "lines": [{"text": "a", "start": 0}],
+    }
+    prompt = scene_gen._get_animation_prompt(scene)
+    assert "movement:" not in prompt
+
+
 def test_build_background_prompt_injects_emotion_visual_cues() -> None:
     scene = {
         "background_prompt": "オフィス",

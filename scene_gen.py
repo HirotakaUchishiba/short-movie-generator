@@ -18,6 +18,7 @@ import bg_cache
 import imagen_client
 import kling_cache
 import lipsync_client
+import part_registry_loader
 from cost_tracking import recorder as cost_recorder
 
 SCREENPLAY_TEXT_SEPARATOR = "  "  # 半角スペース×2: line間/scene間の区切り
@@ -190,6 +191,15 @@ def _get_animation_prompt(scene: dict, ts_path: str | None = None,
         base = f"gentle cinematic motion, {bg_prompt}"
 
     extras: list[str] = []
+
+    # visual_intent_id 由来の動き directive を先頭に注入し、intent ごとに身振りを
+    # 変えて全シーン同じ動作になる単調さを防ぐ。intent が null (= 低 confidence で
+    # cold path) や未定義なら何も足さない (= graceful)。
+    intent_id = (scene.get("annotation") or {}).get("visual_intent_id")
+    if isinstance(intent_id, str) and intent_id:
+        hint = part_registry_loader.motion_hint_map().get(intent_id)
+        if hint:
+            extras.append(f"movement: {hint}")
 
     arc_en = _emotion_arc_en(scene)
     if arc_en:

@@ -86,6 +86,22 @@ def compatible_with_map(category: str = "visual_intents") -> dict[str, frozenset
     return out
 
 
+def motion_hint_map(category: str = "visual_intents") -> dict[str, str]:
+    """category の各 entry の `motion_hint` を id → str で返す。
+
+    Kling animation_prompt に注入する intent 別の動き directive。intent ごとに
+    身振りを変え、全シーンが同じ動きになる単調さを防ぐ (= scene_gen が利用)。
+    motion_hint が無い / 空の entry は dict に含めない (= graceful)。
+    """
+
+    out: dict[str, str] = {}
+    for e in load_registry(category):
+        hint = e.get("motion_hint")
+        if isinstance(hint, str) and hint.strip():
+            out[e["id"]] = hint.strip()
+    return out
+
+
 def reset_cache() -> None:
     """テスト用: 全 consumer を強制再ロードする (= monkeypatch 後の同期点)。
 
