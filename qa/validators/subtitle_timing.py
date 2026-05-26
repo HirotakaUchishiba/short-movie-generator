@@ -1,10 +1,13 @@
 """Phase 2: 字幕表示窓と TTS char_ts 実発話長の乖離を検出する。
 
 字幕タイミングの **決定** は char_ts ベース (= `docs/plannings/2026-05-26_subtitle-char-ts-timing.md`)
-だが、本 validator は **検証** 側。line.start/end (= TTS stage の snap 結果) や手動
-`subtitles[]` の手打ちが、char_ts の実発話と乖離していないかを per-line で測る。
-検証対象は chunk 配分の出力でなく snap 結果・手打ち (= char_ts と独立な入力) なので
-トートロジーにならない。
+だが、本 validator は **検証** 側。line.start/end (= 表示窓) が char_ts の実発話長と
+gross に乖離していないかを per-line で測る安全網。
+
+注意 (cross-critique 反映): auto-timed line では line.start/end が char_ts snap 由来の
+ため ratio≈1 になりやすく、検出力は「snap 大崩れ / char_ts と表示窓の大乖離」など
+gross なケースに限られる (= しきい値も広めに取り、偽陽性 abort を避ける)。手動
+`subtitles[]` の手打ち start/end の精密検証は座標変換が要るため将来 Phase。
 
 座標系: line.start/end はシーン内相対秒、char_ts は tts_full 全文連結の絶対秒。
 そのため絶対時刻でなく **長さ (duration)** の比率を比べる (= 座標系非依存)。
@@ -99,6 +102,8 @@ def check_subtitle_timing(
             line = scenes[s_idx]["lines"][l_idx]
         except (IndexError, KeyError, TypeError):
             continue
+        if line.get("hidden"):
+            continue  # 字幕の無い hidden 行は対象外 (= 発話されるが焼かれない)
         win = _line_window(line)
         if win is None:
             continue  # start/end 未派生 (= Stage 1 抽象台本) は対象外

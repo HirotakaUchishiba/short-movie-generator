@@ -1,6 +1,6 @@
 """Phase 2: subtitle_audio_sync validator の単体テスト。
 
-whisper_client.transcribe をモックして文字一致率の判定を検証する。
+whisper_client.transcribe をモックして ref カバレッジ判定を検証する。
 """
 from __future__ import annotations
 
@@ -22,26 +22,37 @@ def test_returns_empty_without_screenplay(tmp_path):
     assert check_subtitle_audio_sync(str(tmp_path), screenplay=None) == []
 
 
-def test_high_match_passes(tmp_path):
+def test_full_coverage_passes(tmp_path):
     (tmp_path / "overlaid.mp4").write_bytes(b"x")
     with patch("whisper_client.transcribe",
                return_value={"text": "こんにちは、世界。", "words": []}):
         from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
         r = check_subtitle_audio_sync(str(tmp_path), screenplay=_sp())
-    assert len(r) == 1
-    assert r[0].passed
-    assert r[0].metrics["match_ratio"] > 0.9
+    assert len(r) == 1 and r[0].passed
+    assert r[0].metrics["coverage"] > 0.9
 
 
-def test_low_match_fails(tmp_path):
+def test_longer_transcript_still_passes(tmp_path):
+    # 字幕が完全発話されていれば transcript が長くても pass
+    # (= difflib 対称性バグの回帰防止)
     (tmp_path / "overlaid.mp4").write_bytes(b"x")
+    long_hyp = "こんにちは世界" + "それからとても長いナレーションが続きますよ" * 3
     with patch("whisper_client.transcribe",
-               return_value={"text": "まったく異なる発話内容ですよ", "words": []}):
+               return_value={"text": long_hyp, "words": []}):
         from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
         r = check_subtitle_audio_sync(str(tmp_path), screenplay=_sp())
-    assert len(r) == 1
-    assert not r[0].passed
-    assert r[0].tag == "subtitle_timing_off"
+    assert len(r) == 1 and r[0].passed
+    assert r[0].metrics["coverage"] > 0.9
+
+
+def test_missing_subtitle_text_fails(tmp_path):
+    (tmp_path / "overlaid.mp4").write_bytes(b"x")
+    with patch("whisper_client.transcribe",
+               return_value={"text": "まったく別個の発話素材", "words": []}):
+        from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
+        r = check_subtitle_audio_sync(str(tmp_path), screenplay=_sp())
+    assert len(r) == 1 and not r[0].passed
+    assert r[0].tag == "audio_mispronounce"
 
 
 def test_whisper_failure_is_skipped(tmp_path):
@@ -49,6 +60,13 @@ def test_whisper_failure_is_skipped(tmp_path):
     with patch("whisper_client.transcribe", side_effect=RuntimeError("boom")):
         from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
         r = check_subtitle_audio_sync(str(tmp_path), screenplay=_sp())
-    assert len(r) == 1
-    assert r[0].passed  # skipped_result は passed=True
+    assert len(r) == 1 and r[0].passed  # skipped_result は passed=True
     assert "whisper failed" in r[0].reason
+
+
+def test_non_dict_result_is_skipped(tmp_path):
+    (tmp_path / "overlaid.mp4").write_bytes(b"x")
+    with patch("whisper_client.transcribe", return_value=None):
+        from qa.validators.subtitle_audio_sync import check_subtitle_audio_sync
+        r = check_subtitle_audio_sync(str(tmp_path), screenplay=_sp())
+    assert len(r) == 1 and r[0].passed

@@ -54,9 +54,9 @@ def test_flags_window_far_shorter_than_speech(tmp_path):
 
 
 def test_flags_window_far_longer_than_speech(tmp_path):
-    sp = _sp(0.0, 6.0)  # window 6.0s
+    sp = _sp(0.0, 8.0)  # window 8.0s
     full_text, _ = build_screenplay_text(sp)
-    _write_char_ts(tmp_path, full_text, total_dur=2.0)  # speech 2.0s → ratio 3.0
+    _write_char_ts(tmp_path, full_text, total_dur=2.0)  # speech 2.0s → ratio 4.0
     from qa.validators.subtitle_timing import check_subtitle_timing
     results = check_subtitle_timing(str(tmp_path), screenplay=sp)
     assert len(results) == 1
@@ -111,3 +111,13 @@ def test_returns_empty_without_screenplay(tmp_path):
     _write_char_ts(tmp_path, "こんにちは", total_dur=2.0)
     from qa.validators.subtitle_timing import check_subtitle_timing
     assert check_subtitle_timing(str(tmp_path), screenplay=None) == []
+
+
+def test_skips_hidden_line(tmp_path):
+    # hidden 行は発話されるが字幕に焼かれないので timing 検査の対象外。
+    sp = {"scenes": [{"lines": [
+        {"text": "こんにちは", "start": 0.0, "end": 0.4, "hidden": True}]}]}
+    full_text, _ = build_screenplay_text(sp)
+    _write_char_ts(tmp_path, full_text, total_dur=2.0)  # ratio 0.2 だが hidden
+    from qa.validators.subtitle_timing import check_subtitle_timing
+    assert check_subtitle_timing(str(tmp_path), screenplay=sp) == []
