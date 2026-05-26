@@ -585,32 +585,55 @@ def _load_char_timing(screenplay: dict, temp_dir: str) -> dict | None:
     """
     if not getattr(config, "SUBTITLE_TIMING_FROM_CHAR_TS", True):
         return None
-    speakers: set[str] = set()
-    for sc in screenplay.get("scenes") or []:
-        for ln in sc.get("lines") or []:
-            sp = ln.get("speaker")
-            if isinstance(sp, str) and sp:
-                speakers.add(sp.split("__")[0])
-    if len(speakers) > 1:
-        return None
-    path = os.path.join(temp_dir, "tts_full.json")
-    if not os.path.exists(path):
-        return None
-    try:
-        with open(path, encoding="utf-8") as f:
-            char_ts = json.load(f)
-    except (OSError, ValueError):
-        return None
     from stages.text_mapping import (
         build_position_to_time_map,
         build_screenplay_text,
     )
+    # 各 line の speaker base を集計 (per-voice では base ごとに char_ts が分かれる)
+    speakers_by_line: dict[tuple[int, int], str | None] = {}
+    bases: set[str] = set()
+    for s_idx, sc in enumerate(screenplay.get("scenes") or []):
+        for l_idx, ln in enumerate(sc.get("lines") or []):
+            sp = ln.get("speaker")
+            base = sp.split("__")[0] if isinstance(sp, str) and sp else None
+            speakers_by_line[(s_idx, l_idx)] = base
+            if base:
+                bases.add(base)
+
     full_text, line_specs = build_screenplay_text(screenplay)
-    pos = build_position_to_time_map(full_text, char_ts)
+
+    def _load_pos(path: str) -> list | None:
+        if not os.path.exists(path):
+            return None
+        try:
+            with open(path, encoding="utf-8") as f:
+                return build_position_to_time_map(full_text, json.load(f))
+        except (OSError, ValueError):
+            return None
+
+    pos_by_base: dict[str | None, list] = {}
+    if len(bases) <= 1:
+        # 単独話者 (0 or 1 base): tts_full.json
+        pos = _load_pos(os.path.join(temp_dir, "tts_full.json"))
+        if pos is None:
+            return None
+        pos_by_base[next(iter(bases), None)] = pos
+    else:
+        # per-voice: 各 base の tts_full.<base>.json。一部でも欠ければ全体 fallback
+        for b in bases:
+            pos = _load_pos(os.path.join(temp_dir, f"tts_full.{b}.json"))
+            if pos is None:
+                return None
+            pos_by_base[b] = pos
+
     starts = {
         (s["scene_idx"], s["line_idx"]): s["char_start"] for s in line_specs
     }
-    return {"pos_to_time": pos, "char_starts": starts}
+    return {
+        "pos_by_base": pos_by_base,
+        "char_starts": starts,
+        "speakers_by_line": speakers_by_line,
+    }
 
 
 def _build_overlay_filter(screenplay: dict, temp_dir: str,
@@ -674,7 +697,10 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
                 offset=offset, duration=duration, scene_real=scene_real,
                 chunk_enabled=chunk_enabled, chunk_max_chars=chunk_max_chars,
                 line_max_chars=line_max_chars,
-                pos_to_time=(char_timing["pos_to_time"] if char_timing else None),
+                pos_to_time=(
+                    char_timing["pos_by_base"].get(
+                        char_timing["speakers_by_line"].get((s_idx, l_idx)))
+                    if char_timing else None),
                 char_start=(char_timing["char_starts"].get((s_idx, l_idx))
                             if char_timing else None),
             )

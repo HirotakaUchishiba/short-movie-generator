@@ -952,12 +952,33 @@ def test_allocate_chunk_timings_from_char_ts_gap_returns_none():
         ["ああ"], 0.0, 1.0, 0, [None, None]) is None
 
 
-def test_load_char_timing_none_for_multi_speaker(tmp_path):
-    """複数話者 (per-voice) は char_ts が speaker ごとに分かれるため None (= fallback)。"""
+def test_load_char_timing_per_voice_reads_base_files(tmp_path):
+    """複数話者は per-voice の tts_full.<base>.json を base ごとに読む。"""
+    import json as _j
     sp = {"scenes": [{"lines": [
-        {"text": "a", "speaker": "f1"}, {"text": "b", "speaker": "m1"},
+        {"text": "あ", "speaker": "f1"}, {"text": "い", "speaker": "m1__suit"},
     ]}]}
-    (tmp_path / "tts_full.json").write_text("[]")
+    (tmp_path / "tts_full.f1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 0.5},
+         {"char": "い", "start": 0.5, "end": 1.0}]))
+    (tmp_path / "tts_full.m1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 0.3},
+         {"char": "い", "start": 0.3, "end": 1.0}]))
+    ct = compositor._load_char_timing(sp, str(tmp_path))
+    assert ct is not None
+    assert set(ct["pos_by_base"].keys()) == {"f1", "m1"}
+    assert ct["speakers_by_line"][(0, 1)] == "m1"  # m1__suit → base m1
+
+
+def test_load_char_timing_none_when_per_voice_file_missing(tmp_path):
+    """複数話者で per-voice ファイルが一部でも欠ければ None (= 全体 fallback)。"""
+    import json as _j
+    sp = {"scenes": [{"lines": [
+        {"text": "あ", "speaker": "f1"}, {"text": "い", "speaker": "m1"},
+    ]}]}
+    (tmp_path / "tts_full.f1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 1.0}]))
+    # m1 のファイルが無い
     assert compositor._load_char_timing(sp, str(tmp_path)) is None
 
 

@@ -1,7 +1,7 @@
 # 字幕タイミングを TTS char_ts ベースにする設計
 
 最終更新: 2026-05-26
-ステータス: ドラフト (= レビュー待ち)
+ステータス: 実装済み (単独話者 + per-voice)
 
 ## 1. 背景と目的
 
@@ -23,14 +23,15 @@
 
 - chunk の auto 配分を char_ts 実時刻ベースにする (`compositor`)。
 - char_ts (tts_full 全体の絶対時刻) → line 表示窓への座標変換・比率スケール。
-- char_ts 不在 / 読込失敗時は従来の文字数比例に fallback (後方互換)。
+- per-voice (複数話者) は `line.speaker` の base ごとに `tts_full.<base>.json` を引く。
+- char_ts 不在 / 読込失敗 / per-voice ファイル欠落時は従来の文字数比例に fallback (後方互換)。
 
 やらないこと:
 
 - 手動 `subtitles[]` の start/end 明示指定の挙動変更 (= 引き続き優先。`_resolve_subtitle_timings` はそのまま)。
 - analyze の Whisper 出力の流用 (= 参考動画の別音声なので使えない。§6 参照)。
 - line 単位の start/end (snap 後) の算出ロジック変更 (= 前回の頭切れ修正 PR #351/#352 のまま)。
-- **per-voice (複数話者) の char_ts 解決は Phase 2** (今回は単独話者のみ char_ts 経路、複数話者は文字数比例 fallback)。
+- auto 分割 (`_split_into_chunks`) の分割位置自体を char_ts の無音境界に寄せる改善は Phase 2 (今回は各 chunk の表示時刻のみ char_ts ベース、分割位置は従来)。
 - Whisper / MFA 等の forced aligner 新規導入。
 
 ## 2. アーキテクチャ設計
@@ -85,16 +86,16 @@ config/                             ← SUBTITLE_TIMING_FROM_CHAR_TS フラグ
 
 ### Phase 1 (今回実装)
 
-- [ ] 1. `_allocate_chunk_timings_from_char_ts` 新規 + 単体テスト
-- [ ] 2. `_compute_line_chunks_and_timings` に `pos_to_time` / `char_start` を opt-in 追加 (無ければ従来配分)
-- [ ] 3. `_build_overlay_filter` で char_ts 読込 + position map 構築 + **単独話者**で配線
-- [ ] 4. `config.SUBTITLE_TIMING_FROM_CHAR_TS` フラグ + fallback
-- [ ] 5. 統合テスト
+- [x] 1. `_allocate_chunk_timings_from_char_ts` 新規 + 単体テスト
+- [x] 2. `_compute_line_chunks_and_timings` に `pos_to_time` / `char_start` を opt-in 追加 (無ければ従来配分)
+- [x] 3. `_build_overlay_filter` で char_ts 読込 (`_load_char_timing`) + 配線 (単独話者 / per-voice 両対応)
+- [x] 4. `config.SUBTITLE_TIMING_FROM_CHAR_TS` フラグ + fallback
+- [x] 5. 単体テスト (配分 / スケール / gap / per-voice 読込 / fallback)
 
 ### Phase 2 (将来)
 
-- [ ] per-voice (複数話者) の `line.speaker` → `tts_full.<base>.json` 解決
-- [ ] auto 分割 (`_split_into_chunks`) の分割位置自体を char_ts の無音境界に寄せる
+- [ ] auto 分割 (`_split_into_chunks`) の分割位置自体を char_ts の無音境界に寄せる (= 今回は各 chunk の表示時刻のみ、分割位置は従来)
+- [ ] 複数話者プロジェクトでの per-voice の実機検証 (= 現状は合成テストのみ)
 
 ## 6. analyze の Whisper を使わない理由
 
@@ -105,7 +106,7 @@ config/                             ← SUBTITLE_TIMING_FROM_CHAR_TS フラグ
 ## 7. リスクと対策
 
 - **char_ts 総長 ≠ line 表示窓長** (snap / 実尺リスケール): 比率スケールで吸収する (§3.2)。
-- **per-voice の speaker 解決**: Phase 1 は単独話者のみ char_ts 経路。複数話者は文字数比例 fallback で従来通り動かし、Phase 2 で対応する。
+- **per-voice の speaker 解決**: `line.speaker` の base ごとに `tts_full.<base>.json` を引く。一部でも欠ければ全体を文字数比例 fallback (= 安全側)。実機は複数話者プロジェクトで未検証 (合成テストのみ)。
 - **char_ts の gap** (一部文字に timestamp が無い): 該当 chunk は範囲内の有効 timestamp で補間し、無理なら文字数比例 fallback。
 - **退行リスク**: line 単位の start/end (snap 後) は変えず chunk 内配分のみ改善するため、影響は「分割された字幕」に限定。config フラグで即時 OFF 可能。
 
