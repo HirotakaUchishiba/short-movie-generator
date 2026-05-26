@@ -1,5 +1,7 @@
 import os
 
+import pytest
+
 import compositor
 
 
@@ -917,3 +919,70 @@ def test_manual_subtitles_empty_text_skipped(tmp_path) -> None:
     f = compositor._build_overlay_filter(sp, str(tmp_path))
     assert "between(t,1.000,2.000)" in f
     assert "between(t,0.000,1.000)" not in f
+
+
+def test_allocate_chunk_timings_from_char_ts_uses_real_durations():
+    """char_ts の時刻幅で chunk を配分する (文字数比例でなく実発話分布に従う)。"""
+    pos_to_time = [
+        {"start": 0.0, "end": 0.1}, {"start": 0.1, "end": 0.2},  # 2文字 = char_ts 幅 0.2
+        {"start": 0.2, "end": 0.5}, {"start": 0.5, "end": 0.7},
+        {"start": 0.7, "end": 1.0},  # 3文字 = char_ts 幅 0.8
+    ]
+    out = compositor._allocate_chunk_timings_from_char_ts(
+        ["ああ", "いいい"], 10.0, 11.0, 0, pos_to_time)
+    assert out is not None
+    # 文字数比例なら 0.4:0.6 だが char_ts なら 0.2:0.8 になる
+    assert out[0] == pytest.approx((10.0, 10.2))
+    assert out[1][0] == pytest.approx(10.2)
+    assert out[1][1] == pytest.approx(11.0)  # 末尾は表示窓末尾に揃える
+
+
+def test_allocate_chunk_timings_from_char_ts_scales_to_window():
+    """char_ts 総長 != 表示窓長 なら比率スケールする。"""
+    pos_to_time = [{"start": 0.0, "end": 0.5}, {"start": 0.5, "end": 1.0}]
+    out = compositor._allocate_chunk_timings_from_char_ts(
+        ["あ", "い"], 0.0, 2.0, 0, pos_to_time)  # 窓 2.0s / char_ts 1.0s → scale 2.0
+    assert out[0] == pytest.approx((0.0, 1.0))
+    assert out[1] == pytest.approx((1.0, 2.0))
+
+
+def test_allocate_chunk_timings_from_char_ts_gap_returns_none():
+    """char_ts が引けない (None) chunk があれば None を返し fallback させる。"""
+    assert compositor._allocate_chunk_timings_from_char_ts(
+        ["ああ"], 0.0, 1.0, 0, [None, None]) is None
+
+
+def test_load_char_timing_per_voice_reads_base_files(tmp_path):
+    """複数話者は per-voice の tts_full.<base>.json を base ごとに読む。"""
+    import json as _j
+    sp = {"scenes": [{"lines": [
+        {"text": "あ", "speaker": "f1"}, {"text": "い", "speaker": "m1__suit"},
+    ]}]}
+    (tmp_path / "tts_full.f1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 0.5},
+         {"char": "い", "start": 0.5, "end": 1.0}]))
+    (tmp_path / "tts_full.m1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 0.3},
+         {"char": "い", "start": 0.3, "end": 1.0}]))
+    ct = compositor._load_char_timing(sp, str(tmp_path))
+    assert ct is not None
+    assert set(ct["pos_by_base"].keys()) == {"f1", "m1"}
+    assert ct["speakers_by_line"][(0, 1)] == "m1"  # m1__suit → base m1
+
+
+def test_load_char_timing_none_when_per_voice_file_missing(tmp_path):
+    """複数話者で per-voice ファイルが一部でも欠ければ None (= 全体 fallback)。"""
+    import json as _j
+    sp = {"scenes": [{"lines": [
+        {"text": "あ", "speaker": "f1"}, {"text": "い", "speaker": "m1"},
+    ]}]}
+    (tmp_path / "tts_full.f1.json").write_text(_j.dumps(
+        [{"char": "あ", "start": 0.0, "end": 1.0}]))
+    # m1 のファイルが無い
+    assert compositor._load_char_timing(sp, str(tmp_path)) is None
+
+
+def test_load_char_timing_none_when_no_file(tmp_path):
+    """tts_full.json が無ければ None。"""
+    sp = {"scenes": [{"lines": [{"text": "a", "speaker": "f1"}]}]}
+    assert compositor._load_char_timing(sp, str(tmp_path)) is None
