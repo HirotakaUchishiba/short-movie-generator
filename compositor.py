@@ -550,8 +550,22 @@ def _compute_line_chunks_and_timings(
         if not resolver_items:
             return [], []
 
-        resolved = _resolve_subtitle_timings(
-            resolver_items, line_start_abs, line_end_abs)
+        # 全 chunk が start/end 未指定 (= 手動分割のみで手打ち time 無し) かつ
+        # char_ts があれば char_ts 実時刻で配分する (自動分割と同じ精度)。手打ち
+        # start/end が 1 つでもあれば従来の anchor 配分 (_resolve_subtitle_timings)
+        # を尊重する。
+        all_auto = all(
+            it.get("start") is None and it.get("end") is None
+            for it in resolver_items
+        )
+        resolved = None
+        if all_auto and pos_to_time is not None and char_start is not None:
+            resolved = _allocate_chunk_timings_from_char_ts(
+                [it["text"] for it in resolver_items],
+                line_start_abs, line_end_abs, char_start, pos_to_time)
+        if resolved is None:
+            resolved = _resolve_subtitle_timings(
+                resolver_items, line_start_abs, line_end_abs)
         return [it["text"] for it in resolver_items], resolved
 
     rel_start, rel_end = _line_window(line, next_line, duration, scene_real)

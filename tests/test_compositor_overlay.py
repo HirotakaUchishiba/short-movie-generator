@@ -982,6 +982,39 @@ def test_load_char_timing_none_when_per_voice_file_missing(tmp_path):
     assert compositor._load_char_timing(sp, str(tmp_path)) is None
 
 
+def test_compute_manual_subtitle_uses_char_ts_when_all_auto():
+    """手動分割 subtitles (全 chunk start/end 未指定) も char_ts 配分される。"""
+    line = {"text": "ああいいい", "start": 0.0, "end": 1.0,
+            "subtitles": [{"text": "ああ"}, {"text": "いいい"}]}
+    pos_to_time = [
+        {"start": 0.0, "end": 0.1}, {"start": 0.1, "end": 0.2},  # ああ = char_ts 0.2
+        {"start": 0.2, "end": 0.5}, {"start": 0.5, "end": 0.7},
+        {"start": 0.7, "end": 1.0},  # いいい = char_ts 0.8
+    ]
+    chunks, timings = compositor._compute_line_chunks_and_timings(
+        line=line, next_line=None, offset=0.0, duration=1.0, scene_real=None,
+        chunk_enabled=True, chunk_max_chars=12, line_max_chars=17,
+        pos_to_time=pos_to_time, char_start=0,
+    )
+    assert chunks == ["ああ", "いいい"]
+    # char_ts なら chunk0 末尾 ~0.2 (文字数比例なら 0.4)
+    assert timings[0][1] == pytest.approx(0.2, abs=0.05)
+
+
+def test_compute_manual_subtitle_keeps_anchor_when_time_given():
+    """手打ち start/end が 1 つでもあれば anchor 配分を尊重 (char_ts に倒さない)。"""
+    line = {"text": "ああいいい", "start": 0.0, "end": 1.0, "subtitles": [
+        {"text": "ああ", "end": 0.6}, {"text": "いいい"},
+    ]}
+    pos_to_time = [{"start": 0.0, "end": 0.1}] * 5
+    _chunks, timings = compositor._compute_line_chunks_and_timings(
+        line=line, next_line=None, offset=0.0, duration=1.0, scene_real=None,
+        chunk_enabled=True, chunk_max_chars=12, line_max_chars=17,
+        pos_to_time=pos_to_time, char_start=0,
+    )
+    assert timings[0][1] == pytest.approx(0.6)  # 手打ち end を尊重
+
+
 def test_load_char_timing_none_when_no_file(tmp_path):
     """tts_full.json が無ければ None。"""
     sp = {"scenes": [{"lines": [{"text": "a", "speaker": "f1"}]}]}
