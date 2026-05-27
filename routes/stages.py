@@ -191,7 +191,7 @@ def api_regen(ts):
     force = bool(data.get("force", True))
     # bg ステージの「キャッシュ無視」再生成: 該当 scene に内部 hint を立てる
     force_no_cache = bool(data.get("force_no_cache", False))
-    if stage not in {"tts", "bg", "kling", "scene", "overlay", "bgm"}:
+    if stage not in {"tts", "bg", "kling", "scene", "overlay", "bgm", "se"}:
         return api_error("STAGE_NOT_REGENERABLE", f"このstageは再生成不可: {stage}", 400, stage=stage)
     if is_analyze_pending(ts):
         return _analyze_stage_not_ready_response()
