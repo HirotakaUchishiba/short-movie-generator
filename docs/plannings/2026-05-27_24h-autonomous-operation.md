@@ -57,8 +57,8 @@
 
 - [x] Phase 7: `task_queue` (enqueue/next_pending/mark/list) + 単体テスト
 - [x] Phase 8: `autonomous_runner` (ループ + 失敗継続 + budget/kill 停止 + DI) + 単体テスト
-- [ ] Phase 9: 常駐 runbook + launchd plist 例 + STOP 手順
-- [ ] Phase 10: 開発タスク自律の `/goal` 統合 (= verification-automation Phase 4)
+- [x] Phase 9: 常駐 runbook (`scripts/run_autonomous_forever.sh`) + launchd 例 (`deploy/com.shortmovie.autonomous.example.plist`) + STOP 手順 (`AUTONOMOUS_STOP`)
+- [x] Phase 10: 開発タスク自律の `/goal` 統合 = `2026-05-27_autonomous-loop-runbook.md` (§2-5: /goal 完了条件雛形 + cross-critique + 権限方針) に集約済み
 
 ## 4. リスクと対策
 

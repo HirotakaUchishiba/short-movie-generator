@@ -1,0 +1,49 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN"
+  "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+<!--
+  macOS launchd で 24h 常駐させる例。パス / 予算 cap は環境に合わせて書き換える。
+
+  導入:
+    cp deploy/com.shortmovie.autonomous.example.plist ~/Library/LaunchAgents/com.shortmovie.autonomous.plist
+    # パスと EnvironmentVariables を編集してから:
+    launchctl load ~/Library/LaunchAgents/com.shortmovie.autonomous.plist
+  停止:
+    touch /ABS/PATH/short_movie_generator/AUTONOMOUS_STOP   # 安全停止 (サイクル境界で抜ける)
+    launchctl unload ~/Library/LaunchAgents/com.shortmovie.autonomous.plist
+-->
+<plist version="1.0">
+<dict>
+  <key>Label</key>
+  <string>com.shortmovie.autonomous</string>
+  <key>ProgramArguments</key>
+  <array>
+    <string>/bin/bash</string>
+    <string>/ABS/PATH/short_movie_generator/scripts/run_autonomous_forever.sh</string>
+    <string>300</string>
+  </array>
+  <key>WorkingDirectory</key>
+  <string>/ABS/PATH/short_movie_generator</string>
+  <key>RunAtLoad</key>
+  <true/>
+  <key>KeepAlive</key>
+  <true/>
+  <key>StandardOutPath</key>
+  <string>/tmp/autonomous_runner.out.log</string>
+  <key>StandardErrorPath</key>
+  <string>/tmp/autonomous_runner.err.log</string>
+  <key>EnvironmentVariables</key>
+  <dict>
+    <!-- 実 24h 稼働では必ず cap を設定する (= 無限課金防止)。0 は無制限。 -->
+    <key>DAILY_COST_CAP_USD</key>
+    <string>5.0</string>
+    <key>MONTHLY_COST_CAP_USD</key>
+    <string>50.0</string>
+    <key>DAILY_VIDEO_CAP</key>
+    <string>20</string>
+    <!-- 公開は二重ゲートで unlisted 強制のまま (= 誤公開防止)。 -->
+    <key>AUTO_LOOP_ALLOW_PUBLIC</key>
+    <string>0</string>
+  </dict>
+</dict>
+</plist>
