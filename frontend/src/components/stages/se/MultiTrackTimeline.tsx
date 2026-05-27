@@ -8,7 +8,7 @@ import { seThumbUrl } from "../../../asset-urls";
 // 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ移動 + 端ドラッグ trim) / BGM を縦に積む。
 // playhead は <video> の currentTime と同期。効果音のみ編集可能 (他は参照表示)。
 interface Props {
-  videoUrl: string;
+  videoRef: React.MutableRefObject<HTMLVideoElement | null>;
   peaks: number[];
   duration: number;
   items: SeItem[];
@@ -29,7 +29,6 @@ interface Props {
     clipEnd: number,
     newTime: number,
   ) => void;
-  onAddAtPlayhead: (time: number) => void;
   onDropSe: (seId: string, time: number) => void;
 }
 
@@ -46,7 +45,7 @@ function fmt(s: number): string {
 }
 
 export default function MultiTrackTimeline({
-  videoUrl,
+  videoRef,
   peaks,
   duration,
   items,
@@ -62,10 +61,8 @@ export default function MultiTrackTimeline({
   onSelect,
   onRemoveMany,
   onResize,
-  onAddAtPlayhead,
   onDropSe,
 }: Props) {
-  const videoRef = useRef<HTMLVideoElement>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
   const [playhead, setPlayhead] = useState(0);
   const [pxPerSec, setPxPerSec] = useState(90);
@@ -175,22 +172,7 @@ export default function MultiTrackTimeline({
 
   return (
     <div className="space-y-2">
-      <video
-        key={videoUrl}
-        ref={videoRef}
-        src={videoUrl}
-        controls
-        playsInline
-        className="w-full max-h-72 bg-black rounded"
-      />
       <div className="flex items-center gap-3 flex-wrap">
-        <button
-          type="button"
-          className="btn"
-          onClick={() => onAddAtPlayhead(videoRef.current?.currentTime ?? 0)}
-        >
-          ⊕ 再生位置に効果音を追加
-        </button>
         <label className="flex items-center gap-1">
           <span className="text-xs text-slate-400">ズーム</span>
           <input
