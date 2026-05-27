@@ -2,6 +2,9 @@ import { useEffect, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api } from "../../api";
 import type { SeTrack, SeItem } from "../../types";
+import WaveformTimeline from "./se/WaveformTimeline";
+import { addItemAt, moveItemTime, removeItemAt } from "./se/timeline-utils";
+import { bgmMixedAssetUrl } from "../../asset-urls";
 
 export default function StageSE() {
   const ctx = useShellCtx();
@@ -10,6 +13,10 @@ export default function StageSE() {
 
   const [tracks, setTracks] = useState<SeTrack[]>([]);
   const [items, setItems] = useState<SeItem[]>([]);
+  const [peaks, setPeaks] = useState<number[]>([]);
+  const [duration, setDuration] = useState(0);
+  const [thumbCount, setThumbCount] = useState(0);
+  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [pending, setPending] = useState<"save" | "auto" | "bake" | null>(null);
   const [error, setError] = useState<string | null>(null);
 
@@ -20,11 +27,41 @@ export default function StageSE() {
       .catch((e) => setError(String(e)));
   }, []);
 
-  // 既存の items を metadata.se (detail に含まれる場合) から復元する。
+  // 波形 + サムネは bgm_mixed ベースで bake では変わらないので bgm 承認時に 1 回取得。
+  useEffect(() => {
+    if (!bgmApproved) return;
+    api
+      .getSeWaveform(ts)
+      .then((r) => {
+        setPeaks(r.peaks);
+        setDuration(r.duration);
+      })
+      .catch(() => undefined);
+    api
+      .getSeThumbnails(ts)
+      .then((r) => setThumbCount(r.count))
+      .catch(() => undefined);
+  }, [ts, bgmApproved]);
+
+  // 既存 items を metadata.se から復元。
   useEffect(() => {
     const s = (ctx.detail as { se?: { items?: SeItem[] } }).se;
     if (s && Array.isArray(s.items)) setItems(s.items);
   }, [ctx.detail]);
+
+  // scene 境界 (= scene 開始秒) を screenplay の duration 累積で近似 (配置の目安)。
+  const sceneBoundaries = (() => {
+    const scenes =
+      (ctx.detail as { screenplay?: { scenes?: { duration?: number }[] } })
+        .screenplay?.scenes ?? [];
+    const out: number[] = [];
+    let acc = 0;
+    for (let i = 0; i < scenes.length - 1; i++) {
+      acc += scenes[i].duration ?? 0;
+      out.push(Math.round(acc * 1000) / 1000);
+    }
+    return out;
+  })();
 
   const onAuto = async () => {
     setPending("auto");
@@ -32,6 +69,7 @@ export default function StageSE() {
     try {
       const r = await api.autoSe(ts);
       setItems(r.se.items);
+      setSelectedIdx(null);
       await ctx.reload();
     } catch (e) {
       setError(String(e));
@@ -68,35 +106,19 @@ export default function StageSE() {
     }
   };
 
-  const updateItem = (idx: number, patch: Partial<SeItem>) => {
+  const selected = selectedIdx !== null ? (items[selectedIdx] ?? null) : null;
+  const updateSelected = (patch: Partial<SeItem>) => {
+    if (selectedIdx === null) return;
     setItems((prev) =>
-      prev.map((it, i) => (i === idx ? { ...it, ...patch } : it)),
+      prev.map((it, i) => (i === selectedIdx ? { ...it, ...patch } : it)),
     );
-  };
-
-  const removeItem = (idx: number) => {
-    setItems((prev) => prev.filter((_, i) => i !== idx));
-  };
-
-  const addItem = () => {
-    const first = tracks[0];
-    setItems((prev) => [
-      ...prev,
-      {
-        time: 0,
-        se_id: first ? first.id : "",
-        volume: 0.6,
-        source: "manual",
-        reason: "",
-      },
-    ]);
   };
 
   return (
     <StageGate
       stage="se"
       title="効果音"
-      description="字幕 + BGM 済みの動画に効果音を重ねる。emotion / リアクション / シーン境界から配置を自動導出し、UI で取捨・微調整できる。効果音なしでも reels は書き出される。再生成は ffmpeg のみで AI 課金は発生しない。"
+      description="字幕 + BGM 済みの動画に効果音を重ねる。波形・映像・効果音の区間をタイムラインで見ながら配置・移動できる。再生成は ffmpeg のみで AI 課金は発生しない。"
     >
       {!bgmApproved ? (
         <div className="card text-center text-slate-400">
@@ -109,7 +131,37 @@ export default function StageSE() {
               {error}
             </div>
           )}
+          {tracks.length === 0 && (
+            <div className="text-sm text-slate-400 mb-2">
+              assets/se/ に効果音が未配置です。data/se_catalog.json
+              に登録すると選べます。
+            </div>
+          )}
           <div className="card space-y-3">
+            <WaveformTimeline
+              videoUrl={bgmMixedAssetUrl(ts)}
+              peaks={peaks}
+              duration={duration}
+              items={items}
+              tracks={tracks}
+              ts={ts}
+              thumbCount={thumbCount}
+              sceneBoundaries={sceneBoundaries}
+              onMove={(idx, t) =>
+                setItems((prev) => moveItemTime(prev, idx, t))
+              }
+              onSelect={setSelectedIdx}
+              onAddAtPlayhead={(t) => {
+                const f = tracks[0];
+                if (!f) return;
+                setItems((prev) => {
+                  const next = addItemAt(prev, t, f.id, 0.6);
+                  setSelectedIdx(next.length - 1);
+                  return next;
+                });
+              }}
+            />
+
             <div className="flex gap-2">
               <button
                 className="btn"
@@ -118,94 +170,61 @@ export default function StageSE() {
               >
                 {pending === "auto" ? "生成中…" : "自動配置を生成"}
               </button>
-              <button
-                className="btn"
-                onClick={addItem}
-                disabled={pending !== null || tracks.length === 0}
-              >
-                + 手動で追加
-              </button>
             </div>
 
-            {tracks.length === 0 && (
-              <div className="text-sm text-slate-400">
-                assets/se/
-                に商用利用可の効果音が未配置です。data/se_catalog.json
-                に登録すると一覧に出ます。
-              </div>
-            )}
-
-            {items.length === 0 ? (
-              <div className="text-sm text-slate-400">
-                効果音は未設定です (= TTS + BGM のまま reels を書き出す)。
+            {selected ? (
+              <div className="border-t border-slate-700 pt-3 space-y-2">
+                <div className="flex flex-wrap items-center gap-2">
+                  <span className="text-sm text-slate-400">
+                    @{selected.time.toFixed(2)}s
+                  </span>
+                  <select
+                    className="input text-sm py-1"
+                    value={selected.se_id}
+                    onChange={(e) => updateSelected({ se_id: e.target.value })}
+                  >
+                    {tracks.map((t) => (
+                      <option key={t.id} value={t.id}>
+                        {t.title} ({t.category})
+                      </option>
+                    ))}
+                  </select>
+                  <label className="flex items-center gap-1">
+                    <span className="text-sm">
+                      音量 {selected.volume.toFixed(2)}
+                    </span>
+                    <input
+                      type="range"
+                      min={0}
+                      max={1}
+                      step={0.01}
+                      value={selected.volume}
+                      onChange={(e) =>
+                        updateSelected({ volume: Number(e.target.value) })
+                      }
+                    />
+                  </label>
+                  <button
+                    className="btn"
+                    onClick={() => {
+                      setItems((prev) => removeItemAt(prev, selectedIdx!));
+                      setSelectedIdx(null);
+                    }}
+                  >
+                    × 削除
+                  </button>
+                </div>
+                {selected.reason && (
+                  <div className="text-sm text-slate-400">
+                    {selected.reason}
+                  </div>
+                )}
               </div>
             ) : (
-              items.map((it, idx) => {
-                const t = tracks.find((x) => x.id === it.se_id);
-                return (
-                  <div
-                    key={idx}
-                    className="border-t border-slate-700 pt-2 space-y-1"
-                  >
-                    <div className="flex flex-wrap items-center gap-2">
-                      <label className="flex items-center gap-1">
-                        <span className="text-sm">秒</span>
-                        <input
-                          type="number"
-                          step="0.1"
-                          min={0}
-                          className="input text-xs py-1 w-20"
-                          value={it.time}
-                          onChange={(e) =>
-                            updateItem(idx, { time: Number(e.target.value) })
-                          }
-                        />
-                      </label>
-                      <select
-                        className="input text-xs py-1"
-                        value={it.se_id}
-                        onChange={(e) =>
-                          updateItem(idx, { se_id: e.target.value })
-                        }
-                      >
-                        {tracks.map((tr) => (
-                          <option key={tr.id} value={tr.id}>
-                            {tr.title} ({tr.category})
-                          </option>
-                        ))}
-                      </select>
-                      <label className="flex items-center gap-1">
-                        <span className="text-sm">
-                          音量 {it.volume.toFixed(2)}
-                        </span>
-                        <input
-                          type="range"
-                          min={0}
-                          max={1}
-                          step={0.01}
-                          value={it.volume}
-                          onChange={(e) =>
-                            updateItem(idx, { volume: Number(e.target.value) })
-                          }
-                        />
-                      </label>
-                      <button className="btn" onClick={() => removeItem(idx)}>
-                        × 削除
-                      </button>
-                    </div>
-                    <div className="flex items-center gap-2 text-sm text-slate-400">
-                      {it.reason && <span>{it.reason}</span>}
-                      {t && (
-                        <audio
-                          controls
-                          preload="none"
-                          src={`/asset/se/${encodeURIComponent(t.file)}`}
-                        />
-                      )}
-                    </div>
-                  </div>
-                );
-              })
+              <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
+                波形上の効果音をクリックすると編集できます。「⊕
+                再生位置に効果音を追加」で新規追加。
+              </div>
             )}
 
             <div className="flex gap-2 pt-2 border-t border-slate-700">

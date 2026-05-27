@@ -17,6 +17,7 @@ interface Props {
   sceneBoundaries: number[];
   onMove: (idx: number, newTime: number) => void;
   onSelect: (idx: number) => void;
+  onAddAtPlayhead: (time: number) => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -36,6 +37,7 @@ export default function WaveformTimeline({
   sceneBoundaries,
   onMove,
   onSelect,
+  onAddAtPlayhead,
 }: Props) {
   const containerRef = useRef<HTMLDivElement>(null);
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -136,6 +138,13 @@ export default function WaveformTimeline({
         </div>
       )}
       <div ref={containerRef} className="rounded bg-slate-900 px-1 py-1" />
+      <button
+        type="button"
+        className="btn"
+        onClick={() => onAddAtPlayhead(wsRef.current?.getCurrentTime() ?? 0)}
+      >
+        ⊕ 再生位置に効果音を追加
+      </button>
     </div>
   );
 }
