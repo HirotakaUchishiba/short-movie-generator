@@ -60,3 +60,46 @@ export function addItemAt(
 export function removeItemAt(items: SeItem[], idx: number): SeItem[] {
   return items.filter((_, i) => i !== idx);
 }
+
+export interface TimelineBlock {
+  start: number;
+  end: number;
+  label: string;
+}
+
+export interface SceneLike {
+  duration?: number;
+  label?: string;
+  lines?: { text?: string; start?: number; end?: number }[];
+}
+
+// scene を絶対秒の連続ブロックに (= 映像トラック)。start は duration の累積。
+export function computeSceneBlocks(scenes: SceneLike[]): TimelineBlock[] {
+  const out: TimelineBlock[] = [];
+  let acc = 0;
+  scenes.forEach((sc, i) => {
+    const dur = sc.duration ?? 0;
+    out.push({
+      start: round3(acc),
+      end: round3(acc + dur),
+      label: sc.label ?? `S${i + 1}`,
+    });
+    acc += dur;
+  });
+  return out;
+}
+
+// 各 line を絶対秒ブロックに (= 字幕トラック)。time は scene offset + 相対秒。
+export function computeSubtitleBlocks(scenes: SceneLike[]): TimelineBlock[] {
+  const out: TimelineBlock[] = [];
+  let acc = 0;
+  for (const sc of scenes) {
+    for (const line of sc.lines ?? []) {
+      const s = acc + (line.start ?? 0);
+      const e = acc + (line.end ?? line.start ?? 0);
+      out.push({ start: round3(s), end: round3(e), label: line.text ?? "" });
+    }
+    acc += sc.duration ?? 0;
+  }
+  return out;
+}

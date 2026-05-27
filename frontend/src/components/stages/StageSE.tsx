@@ -1,9 +1,16 @@
 import { useEffect, useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api } from "../../api";
-import type { SeTrack, SeItem } from "../../types";
-import WaveformTimeline from "./se/WaveformTimeline";
-import { addItemAt, moveItemTime, removeItemAt } from "./se/timeline-utils";
+import type { SeTrack, SeItem, BgmTrack } from "../../types";
+import MultiTrackTimeline from "./se/MultiTrackTimeline";
+import {
+  addItemAt,
+  moveItemTime,
+  removeItemAt,
+  computeSceneBlocks,
+  computeSubtitleBlocks,
+  type SceneLike,
+} from "./se/timeline-utils";
 import { bgmMixedAssetUrl } from "../../asset-urls";
 
 export default function StageSE() {
@@ -12,10 +19,12 @@ export default function StageSE() {
   const bgmApproved = !!ctx.detail.progress.stages.bgm.approved_at;
 
   const [tracks, setTracks] = useState<SeTrack[]>([]);
+  const [bgmTracks, setBgmTracks] = useState<BgmTrack[]>([]);
   const [items, setItems] = useState<SeItem[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [duration, setDuration] = useState(0);
   const [thumbCount, setThumbCount] = useState(0);
+  const [thumbInterval, setThumbInterval] = useState(1);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
   const [baking, setBaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -26,6 +35,10 @@ export default function StageSE() {
       .listSe()
       .then((r) => setTracks(r.se))
       .catch((e) => setError(String(e)));
+    api
+      .listBgm()
+      .then((r) => setBgmTracks(r.bgm))
+      .catch(() => undefined);
   }, []);
 
   // 波形 + サムネは bgm_mixed ベースで bake では変わらないので bgm 承認時に 1 回取得。
@@ -40,7 +53,10 @@ export default function StageSE() {
       .catch(() => undefined);
     api
       .getSeThumbnails(ts)
-      .then((r) => setThumbCount(r.count))
+      .then((r) => {
+        setThumbCount(r.count);
+        setThumbInterval(r.interval_sec || 1);
+      })
       .catch(() => undefined);
   }, [ts, bgmApproved]);
 
@@ -50,23 +66,20 @@ export default function StageSE() {
     if (s && Array.isArray(s.items)) setItems(s.items);
   }, [ctx.detail]);
 
-  // scene 境界 (= scene 開始秒) を screenplay の duration 累積で近似 (配置の目安)。
-  const sceneBoundaries = (() => {
-    const scenes =
-      (ctx.detail as { screenplay?: { scenes?: { duration?: number }[] } })
-        .screenplay?.scenes ?? [];
-    const out: number[] = [];
-    let acc = 0;
-    for (let i = 0; i < scenes.length - 1; i++) {
-      acc += scenes[i].duration ?? 0;
-      out.push(Math.round(acc * 1000) / 1000);
-    }
-    return out;
-  })();
+  const scenes: SceneLike[] =
+    (ctx.detail as { screenplay?: { scenes?: SceneLike[] } }).screenplay
+      ?.scenes ?? [];
+  const subtitleBlocks = computeSubtitleBlocks(scenes);
+  const sceneBlocks = computeSceneBlocks(scenes);
+
+  const bgmId = (ctx.detail as { bgm?: { id?: string } }).bgm?.id;
+  const bgmLabel =
+    bgmId && bgmId !== "none"
+      ? (bgmTracks.find((b) => b.id === bgmId)?.title ?? bgmId)
+      : null;
 
   // 編集操作で items を変えるたびに呼ぶ。debounce して setSe + reels 焼き直しを
-  // 自動実行する (= 効果音を重ねた / 消した時点で動画に即反映)。復元の useEffect は
-  // setItems を直接呼ぶのでこの経路を通らず、自動焼きは編集だけがトリガになる。
+  // 自動実行する (= 効果音を重ねた / 消した時点で動画に即反映)。
   const applyItems = (next: SeItem[]) => {
     setItems(next);
     if (bakeTimer.current) window.clearTimeout(bakeTimer.current);
@@ -110,7 +123,7 @@ export default function StageSE() {
     <StageGate
       stage="se"
       title="効果音"
-      description="字幕 + BGM 済みの動画に効果音を重ねる。波形・映像・効果音をタイムラインで見ながら配置・移動・削除でき、変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
+      description="字幕・映像・BGM・効果音をタイムラインで見ながら効果音を配置・移動・削除する。変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
     >
       {!bgmApproved ? (
         <div className="card text-center text-slate-400">
@@ -130,7 +143,7 @@ export default function StageSE() {
             </div>
           )}
           <div className="card space-y-3">
-            <WaveformTimeline
+            <MultiTrackTimeline
               videoUrl={bgmMixedAssetUrl(ts)}
               peaks={peaks}
               duration={duration}
@@ -138,7 +151,11 @@ export default function StageSE() {
               tracks={tracks}
               ts={ts}
               thumbCount={thumbCount}
-              sceneBoundaries={sceneBoundaries}
+              thumbInterval={thumbInterval}
+              subtitleBlocks={subtitleBlocks}
+              sceneBlocks={sceneBlocks}
+              bgmLabel={bgmLabel}
+              selectedIdx={selectedIdx}
               onMove={(idx, t) => applyItems(moveItemTime(items, idx, t))}
               onSelect={setSelectedIdx}
               onAddAtPlayhead={(t) => {
@@ -211,7 +228,7 @@ export default function StageSE() {
               </div>
             ) : (
               <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
-                波形上の効果音をクリックで編集。「⊕
+                効果音トラックのブロックをクリックで編集・ドラッグで移動。「⊕
                 再生位置に効果音を追加」で新規追加。
               </div>
             )}

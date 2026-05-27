@@ -4,6 +4,8 @@ import {
   moveItemTime,
   addItemAt,
   removeItemAt,
+  computeSceneBlocks,
+  computeSubtitleBlocks,
 } from "./timeline-utils";
 import type { SeItem, SeTrack } from "../../../types";
 
@@ -69,5 +71,27 @@ describe("addItemAt / removeItemAt", () => {
     const out = removeItemAt([mk(1, "a"), mk(2, "b")], 0);
     expect(out).toHaveLength(1);
     expect(out[0].se_id).toBe("b");
+  });
+});
+
+describe("computeSceneBlocks", () => {
+  it("accumulates scene durations into absolute blocks", () => {
+    const blocks = computeSceneBlocks([
+      { duration: 2, label: "A" },
+      { duration: 3 },
+    ]);
+    expect(blocks[0]).toEqual({ start: 0, end: 2, label: "A" });
+    expect(blocks[1]).toEqual({ start: 2, end: 5, label: "S2" });
+  });
+});
+
+describe("computeSubtitleBlocks", () => {
+  it("offsets line times by scene start", () => {
+    const blocks = computeSubtitleBlocks([
+      { duration: 2, lines: [{ text: "a", start: 0, end: 1 }] },
+      { duration: 3, lines: [{ text: "b", start: 0.5, end: 2 }] },
+    ]);
+    expect(blocks[0]).toEqual({ start: 0, end: 1, label: "a" });
+    expect(blocks[1]).toEqual({ start: 2.5, end: 4, label: "b" });
   });
 });
