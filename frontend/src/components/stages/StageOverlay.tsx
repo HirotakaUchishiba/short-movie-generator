@@ -54,8 +54,9 @@ export default function StageOverlay() {
   }
 
   // <video> の現在再生位置 (= 秒) を scene 内相対秒として返す。sceneOffsets は
-  // sp.scenes[].duration ベースなので、scene 実尺と sp.duration が乖離した
-  // project では snap がわずかにずれる可能性がある (= 既存挙動と同等)。
+  // sp.scenes[].duration 累積で、compositor の字幕 offset (= merged の tpad 後
+  // 位置 = duration 累積、_scene_offsets_merged) と一致するため、ここでのスナップ
+  // 位置と最終動画の焼き込み位置が揃う。
   const sceneRelNow = (sIdx: number): number | null => {
     const v = videoRef.current;
     if (!v) return null;

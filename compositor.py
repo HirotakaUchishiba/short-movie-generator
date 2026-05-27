@@ -41,14 +41,43 @@ def _scene_offsets(scenes: list[dict]) -> list[float]:
 
 
 def _scene_offsets_from_videos(scene_videos: list[str]) -> list[float]:
-    """各 scene_<S>.mp4 の実尺累積で offset を計算 (= 実測値ベース)。
+    """各 scene_<S>.mp4 の素の実尺累積で offset を計算 (= 実測値ベース)。
 
-    overlay の base 動画は scene_<S>.mp4 を順に concat したものなので、
-    字幕の絶対秒は実尺累積で計算しないと slow_mo 延長分だけズレる。
+    注意: _merge_scenes は各 scene を scene.duration まで tpad 拡張して concat
+    するため、merged.mp4 内の実位置とこの素の実尺累積は tail buffer 分だけ
+    乖離する。字幕 offset には _scene_offsets_merged を使うこと。本関数は素の
+    実尺が必要な箇所専用に残す。
     """
     offsets = [0.0]
     for v in scene_videos[:-1]:
         offsets.append(offsets[-1] + _get_duration(v))
+    return offsets
+
+
+def _merged_scene_length(vid_dur: float, target_dur: float) -> float:
+    """_merge_scenes が tpad 後に各 scene へ割り当てる実長 (= concat 後の占有秒)。
+
+    target_dur > vid_dur なら tpad で target_dur まで伸ばし、そうでなければ
+    vid_dur のまま。字幕 offset と merge を同じ長さ基準に揃える SSOT。
+    閾値 0.05 は _merge_scenes の tpad 条件と一致させる。
+    """
+    return target_dur if target_dur > vid_dur + 0.05 else vid_dur
+
+
+def _scene_offsets_merged(
+    scene_videos: list[str], scene_durations: list[float],
+) -> list[float]:
+    """merged.mp4 内の各 scene 開始位置 (= tpad 後の実累積) を返す。
+
+    _merge_scenes が各 scene を _merged_scene_length まで tpad 拡張して concat
+    するため、字幕の絶対秒もこの累積で計算する。scene_<S>.mp4 の素の実尺
+    (= TTS 音声長) 累積を使うと、duration との差 (= SCENE_TTS_TAIL_BUFFER 由来の
+    tpad 無音) が scene ごとに累積し、字幕が発話より先行してしまう。
+    """
+    offsets = [0.0]
+    for v, target in zip(scene_videos[:-1], scene_durations[:-1]):
+        offsets.append(
+            offsets[-1] + _merged_scene_length(_get_duration(v), float(target)))
     return offsets
 
 
@@ -667,8 +696,14 @@ def _build_overlay_filter(screenplay: dict, temp_dir: str,
         scene_videos is not None and len(scene_videos) == len(scenes)
     )
     if use_real_timeline:
-        offsets = _scene_offsets_from_videos(scene_videos)
-        real_durations = [_get_duration(v) for v in scene_videos]
+        # merged.mp4 は各 scene を scene.duration まで tpad して concat する。
+        # 字幕 offset もその tpad 後累積に揃える (= 素の実尺累積だと
+        # SCENE_TTS_TAIL_BUFFER 分だけ字幕が発話に先行し scene ごとに累積する)。
+        # line.start/end は TTS char_ts 由来 (= 音声基準で slow_mo の影響を
+        # 受けない) ため、ここで実尺リスケールはかけない (scene_real=None)。
+        scene_durations = [float(s["duration"]) for s in scenes]
+        offsets = _scene_offsets_merged(scene_videos, scene_durations)
+        real_durations = [None] * len(scenes)
     else:
         offsets = _scene_offsets(scenes)
         real_durations = [None] * len(scenes)

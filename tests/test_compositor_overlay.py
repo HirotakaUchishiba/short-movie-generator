@@ -101,6 +101,30 @@ def test_scene_offsets_from_videos_uses_real_durations(tmp_path, monkeypatch) ->
     assert compositor._scene_offsets_from_videos(paths) == [0.0, 2.6, 8.61]
 
 
+def test_merged_scene_length_tpad_vs_passthrough() -> None:
+    # target > vid (+0.05) → tpad で target まで伸びる
+    assert compositor._merged_scene_length(2.7, 3.0) == 3.0
+    # target <= vid → vid のまま (concat 実長)
+    assert compositor._merged_scene_length(4.0, 3.0) == 4.0
+    # 閾値 0.05 以内なら tpad しない (vid のまま)
+    assert compositor._merged_scene_length(3.0, 3.02) == 3.0
+
+
+def test_scene_offsets_merged_uses_tpad_target(tmp_path, monkeypatch) -> None:
+    """字幕 offset は merged の tpad 後位置 (= max(vid, duration) 累積)。
+    vid < duration (= SCENE_TTS_TAIL_BUFFER 分) でも duration 累積に揃い、
+    字幕が発話より先行する累積ドリフトを防ぐ。"""
+    durations = {"a.mp4": 2.7, "b.mp4": 4.7, "c.mp4": 5.0}
+    monkeypatch.setattr(compositor, "_get_duration",
+                        lambda p: durations[os.path.basename(p)])
+    paths = [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4"),
+             str(tmp_path / "c.mp4")]
+    # duration a=3.0(>2.7→tpad), b=5.0(>4.7→tpad)
+    offsets = compositor._scene_offsets_merged(paths, [3.0, 5.0, 5.5])
+    # 0, max(2.7,3.0)=3.0, 3.0+max(4.7,5.0)=8.0
+    assert offsets == [0.0, 3.0, 8.0]
+
+
 def test_line_window_rescales_with_real_duration() -> None:
     """scene_real_duration を渡すと line.start / end が比例で伸びる。"""
     line = {"text": "a", "start": 1.0, "end": 2.5}
@@ -125,9 +149,12 @@ def test_line_window_fallback_uses_real_duration_for_end() -> None:
     assert e == 7.5
 
 
-def test_build_overlay_uses_real_timeline_when_videos_provided(
+def test_build_overlay_uses_merged_timeline_when_videos_provided(
     tmp_path, monkeypatch,
 ) -> None:
+    """scene_videos 指定時、offset は merged の tpad 後位置 (= max(vid,duration)
+    累積)。line.start/end は TTS char_ts 基準なので実尺リスケールしない
+    (= frontend の sceneOffsets が scene.duration 累積なのと一致させる)。"""
     sp = {
         "scenes": [
             {"duration": 3.0, "background_prompt": "bg",
@@ -136,8 +163,7 @@ def test_build_overlay_uses_real_timeline_when_videos_provided(
               "lines": [{"text": "b", "start": 1.0, "end": 3.0}]},
         ],
     }
-    # scene 0 = 4.0s (sp 3.0 → 実 4.0、ratio=4/3≈1.333)
-    # scene 1 = 7.5s (sp 5.0 → 実 7.5、ratio=1.5)
+    # vid > duration のケース: merged は max(vid, duration) = vid を占有
     durations = {"a.mp4": 4.0, "b.mp4": 7.5}
     monkeypatch.setattr(compositor, "_get_duration",
                         lambda p: durations[os.path.basename(p)])
@@ -145,10 +171,10 @@ def test_build_overlay_uses_real_timeline_when_videos_provided(
     paths = [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4")]
     f = compositor._build_overlay_filter(sp, str(tmp_path), scene_videos=paths)
 
-    # scene 0 line (0.0-1.0) は ratio 1.333 で 0.0-1.333、offset 0
-    assert "between(t,0.000,1.333)" in f
-    # scene 1 line (1.0-3.0) は ratio 1.5 で 1.5-4.5、offset 4.0 → 5.5-8.5
-    assert "between(t,5.500,8.500)" in f
+    # scene 0 line 0.0-1.0 はリスケールせずそのまま、offset 0
+    assert "between(t,0.000,1.000)" in f
+    # scene 1 offset = max(4.0, 3.0) = 4.0、line 1.0-3.0 をそのまま → 5.0-7.0
+    assert "between(t,5.000,7.000)" in f
 
 
 def test_build_overlay_falls_back_to_sp_duration_without_videos(
@@ -585,10 +611,12 @@ def test_manual_subtitles_skip_auto_split(tmp_path, monkeypatch) -> None:
     assert contents == ["やばい", "セーフ"]
 
 
-def test_manual_subtitles_rescaled_with_real_duration(
+def test_manual_subtitles_not_rescaled_with_real_duration(
     tmp_path, monkeypatch,
 ) -> None:
-    """scene_videos が渡されたら subtitles[].start/end も実尺比でリスケール。"""
+    """manual subtitles[].start/end は frontend が scene.duration 基準でスナップ
+    した値なので、scene_videos を渡しても実尺リスケールせずそのまま絶対秒に
+    lift する (= UI のスナップ位置と一致させる)。"""
     sp = {
         "scenes": [
             {
@@ -608,15 +636,15 @@ def test_manual_subtitles_rescaled_with_real_duration(
             }
         ],
     }
-    durations = {"a.mp4": 7.5}  # ratio 1.5
+    durations = {"a.mp4": 7.5}
     monkeypatch.setattr(
         compositor, "_get_duration",
         lambda p: durations[os.path.basename(p)])
     paths = [str(tmp_path / "a.mp4")]
     f = compositor._build_overlay_filter(sp, str(tmp_path), scene_videos=paths)
-    # A: 0 - 2 → 0 - 3.0、B: 2 - 4 → 3.0 - 6.0
-    assert "between(t,0.000,3.000)" in f
-    assert "between(t,3.000,6.000)" in f
+    # offset 0 (single scene)、A/B はリスケールせずそのまま
+    assert "between(t,0.000,2.000)" in f
+    assert "between(t,2.000,4.000)" in f
 
 
 def test_manual_subtitles_offset_by_previous_scene(tmp_path) -> None:

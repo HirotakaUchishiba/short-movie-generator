@@ -111,13 +111,13 @@ docs/plannings/...-autonomous-loop-runbook.md       ← 自走 + 自動マージ
 
 - **stage**: overlay (既定 OFF、リリース前のみ)。**責務**: `reels_<TS>.mp4` 音声を Whisper 再文字起こし → 焼き込み字幕を緩くアライメント → 表示時刻と発話区間のズレを測る。char_ts から独立した出口実測。**動画再生成なし**。
 
-### 3.3 overlay 後フレーム validator (OCR) — `subtitle_render` [Phase 2]
+### 3.3 overlay 後フレーム validator (視覚検証) — `subtitle_render` [Phase 5 実装済み]
 
-- `overlaid.mp4` から代表フレーム抽出 → OCR で bbox / コントラスト / 画面内収まりを実測。tesseract 未導入なら skip。**課金ゼロ**。
+- `overlaid.mp4` から複数時刻でフレーム抽出 → **opencv の Canny エッジ密度**で字幕帯 (下 1/3) にテキスト様要素があるか実測 (= tesseract 非依存)。tesseract があれば OCR で文字も読み補強。実 overlaid.mp4 で動作確認済み。**課金ゼロ**。
 
-### 3.4 UI 生存確認 (run / verify → Playwright) [Phase 3]
+### 3.4 UI 生存確認 (Playwright) — `scripts/e2e_ui_check.py` [Phase 6 実装済み]
 
-- 「UI が壊れていないか」の回帰確認。まず組み込み `run` / `verify` スキル、反復・CI 化が要れば Playwright。動画の正しさは 3.1-3.3 が担うので E2E は薄く。
+- preview_server + frontend/dist を起動し Playwright (chromium) で UI を操作・スクショ取得。「UI が壊れていないか」(= 配信・描画される) の生存確認に限定。動画の正しさは 3.1-3.3 が担うので E2E は薄く保つ。実走確認済み (title 取得・`#root` 描画・スクショ保存)。
 
 ### 3.5 Whisper の使い分け (決定 vs 検証)
 
@@ -211,6 +211,16 @@ docs/plannings/...-autonomous-loop-runbook.md       ← 自走 + 自動マージ
 - [ ] 11. 完了条件雛形集 + 自走 runbook 作成 (即マージ・自動公開のフロー)
 - [ ] 12. 自走 dry-run で 1 巡を検証
 - [ ] 13. 異種モデル cross-critique (Codex CLI) の導入: 実装 = Claude / レビュー = Codex の SLEAN 型 3 フェーズ (independent → cross-critique → arbitration) を runbook 化 (§3.7)。検証 validator の土台 (Phase 1-3) 完成後に着手
+
+### Phase 5: FFmpeg 動画視覚検証の実動作 (実装済み 2026-05-27)
+
+- [x] 14. `subtitle_render` を opencv エッジ密度ベースに実装 (= tesseract 非依存・複数フレームサンプルで字幕の出/消を跨ぐ)。tesseract があれば OCR で補強
+- [x] 15. 実 `overlaid.mp4` で動作確認 (max_edge_density=0.024 で pass。OCR は縁取り字幕で空振り → エッジ密度を主経路にした設計の妥当性を実証)
+
+### Phase 6: UI E2E (Playwright Python) (実装済み 2026-05-27)
+
+- [x] 16. `scripts/e2e_ui_check.py`: preview_server 起動 + chromium で UI 操作 + スクショ取得
+- [x] 17. 実走確認 (title 取得・`#root` 描画・スクショ 133KB 保存)
 
 ## 8. リスクと対策
 
