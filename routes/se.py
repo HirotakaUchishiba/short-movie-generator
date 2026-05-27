@@ -7,6 +7,7 @@
 """
 from __future__ import annotations
 
+import json
 import os
 import re
 from datetime import datetime, timezone
@@ -100,6 +101,51 @@ def api_auto_se(ts):
     io_utils.atomic_write_json(
         os.path.join(project_path, "metadata.json"), meta)
     return jsonify({"se": meta["se"]})
+
+
+def _read_waveform_cache(cache_path: str, src_mtime: float):
+    """cache が src と同じ mtime なら {peaks, duration} を返す。古い / 不在は None。"""
+    if not os.path.exists(cache_path):
+        return None
+    try:
+        with open(cache_path, encoding="utf-8") as f:
+            d = json.load(f)
+    except (OSError, json.JSONDecodeError):
+        return None
+    if d.get("_src_mtime") != src_mtime:
+        return None
+    return {"peaks": d.get("peaks", []), "duration": d.get("duration", 0.0)}
+
+
+@se_bp.route("/api/projects/<ts>/se/waveform", methods=["GET"])
+def api_se_waveform(ts):
+    """bgm_mixed (無ければ overlaid) の音声波形 peaks + duration を返す (mtime cache)。"""
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
+
+    src = os.path.join(project_path, "bgm_mixed.mp4")
+    if not os.path.exists(src):
+        src = os.path.join(project_path, "overlaid.mp4")
+    if not os.path.exists(src):
+        return api_error(
+            "SE_WAVEFORM_SOURCE_MISSING", "bgm_mixed / overlaid が見つかりません", 409)
+
+    cache_path = os.path.join(project_path, "se_waveform.json")
+    src_mtime = os.path.getmtime(src)
+    cached = _read_waveform_cache(cache_path, src_mtime)
+    if cached is not None:
+        return jsonify(cached)
+
+    import audio_features
+    data = audio_features.extract_waveform_peaks(src)
+    out = {"peaks": data["peaks"], "duration": data["duration"]}
+    try:
+        io_utils.atomic_write_json(cache_path, {**out, "_src_mtime": src_mtime})
+    except OSError:
+        pass
+    return jsonify(out)
 
 
 @se_bp.route("/asset/se/<filename>")

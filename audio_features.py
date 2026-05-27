@@ -107,6 +107,29 @@ def extract_phrase_features(audio_path: str, start: float, end: float) -> dict:
         }
 
 
+def extract_waveform_peaks(audio_path: str, frame_sec: float = 0.03) -> dict:
+    """音声全体の RMS エンベロープを 0-1 正規化した peaks 配列で返す (波形描画用)。
+
+    SE 配置タイムライン UI が wavesurfer に渡す peaks。frame_sec (既定 30ms) ごとに
+    1 サンプル。Returns: {"peaks": list[float], "duration": float}。
+    """
+    import numpy as np
+    import librosa
+
+    with _ensured_wav(audio_path) as wav_path:
+        y, sr = librosa.load(wav_path, sr=16000, mono=True)
+        duration = round(len(y) / sr, 3) if sr else 0.0
+        if sr == 0 or len(y) < sr // 100:
+            return {"peaks": [], "duration": duration}
+        hop = max(1, int(sr * frame_sec))
+        rms = librosa.feature.rms(y=y, frame_length=hop * 2, hop_length=hop)[0]
+        peak = float(np.max(rms)) if len(rms) else 0.0
+        if peak <= 0:
+            return {"peaks": [0.0] * len(rms), "duration": duration}
+        peaks = [round(float(v) / peak, 4) for v in rms]
+        return {"peaks": peaks, "duration": duration}
+
+
 def wpm_from_text(text: str, duration: float) -> float:
     """日本語テキスト長とdurationからWPM相当値を計算。"""
     chars = len([c for c in text if not c.isspace()])

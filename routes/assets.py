@@ -117,6 +117,19 @@ def asset_overlay(ts):
     return "", 404
 
 
+@assets_bp.route("/asset/<ts>/bgm-mixed")
+def asset_bgm_mixed(ts):
+    """SE 配置 UI 用に bgm_mixed.mp4 を配信。無ければ overlaid.mp4 に fallback。"""
+    validate_ts(ts)
+    p = safe_join(ts_path(ts), "bgm_mixed.mp4")
+    if os.path.exists(p):
+        return send_file(p, mimetype="video/mp4")
+    p = safe_join(ts_path(ts), "overlaid.mp4")
+    if os.path.exists(p):
+        return send_file(p, mimetype="video/mp4")
+    return "", 404
+
+
 @assets_bp.route("/asset/character/<name>")
 def asset_character(name):
     from analyze import character_meta as cmeta_mod
