@@ -6,7 +6,8 @@ import MultiTrackTimeline from "./se/MultiTrackTimeline";
 import {
   addItemAt,
   moveItemTime,
-  removeItemAt,
+  clampNoOverlap,
+  setItemClip,
   computeSceneBlocks,
   computeSubtitleBlocks,
   type SceneLike,
@@ -26,7 +27,7 @@ export default function StageSE() {
   const [sceneOffsets, setSceneOffsets] = useState<number[]>([]);
   const [thumbCount, setThumbCount] = useState(0);
   const [thumbInterval, setThumbInterval] = useState(1);
-  const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
+  const [selectedIdxs, setSelectedIdxs] = useState<number[]>([]);
   const [baking, setBaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bakeTimer = useRef<number | null>(null);
@@ -42,8 +43,6 @@ export default function StageSE() {
       .catch(() => undefined);
   }, []);
 
-  // 波形 + 実尺 scene_offsets + サムネは bgm_mixed ベースで bake では変わらないので
-  // bgm 承認時に 1 回取得。scene_offsets は字幕 / scene ブロックの正確な配置に使う。
   useEffect(() => {
     if (!bgmApproved) return;
     api
@@ -63,7 +62,6 @@ export default function StageSE() {
       .catch(() => undefined);
   }, [ts, bgmApproved]);
 
-  // 既存 items を metadata.se から復元 (= 編集トリガにはしない)。
   useEffect(() => {
     const s = (ctx.detail as { se?: { items?: SeItem[] } }).se;
     if (s && Array.isArray(s.items)) setItems(s.items);
@@ -103,24 +101,36 @@ export default function StageSE() {
     }
   };
 
-  const selected = selectedIdx !== null ? (items[selectedIdx] ?? null) : null;
-  const updateSelected = (patch: Partial<SeItem>) => {
-    if (selectedIdx === null) return;
-    applyItems(
-      items.map((it, i) => (i === selectedIdx ? { ...it, ...patch } : it)),
-    );
+  const onSelect = (idx: number, additive: boolean) => {
+    setSelectedIdxs((prev) => {
+      if (additive) {
+        return prev.includes(idx)
+          ? prev.filter((i) => i !== idx)
+          : [...prev, idx];
+      }
+      return [idx];
+    });
   };
 
-  const removeAt = (idx: number) => {
-    applyItems(removeItemAt(items, idx));
-    setSelectedIdx(null);
+  const removeMany = (idxs: number[]) => {
+    const set = new Set(idxs);
+    applyItems(items.filter((_, i) => !set.has(i)));
+    setSelectedIdxs([]);
+  };
+
+  // 単一選択のときだけ詳細パネルで編集する。
+  const selIdx = selectedIdxs.length === 1 ? selectedIdxs[0] : null;
+  const selected = selIdx !== null ? (items[selIdx] ?? null) : null;
+  const updateSelected = (patch: Partial<SeItem>) => {
+    if (selIdx === null) return;
+    applyItems(items.map((it, i) => (i === selIdx ? { ...it, ...patch } : it)));
   };
 
   return (
     <StageGate
       stage="se"
       title="効果音"
-      description="字幕・映像・BGM・効果音をタイムラインで見ながら効果音を配置・移動・削除する。変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
+      description="字幕・映像・BGM・効果音をタイムラインで見ながら効果音を配置・移動・長さ変更・削除する。変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
     >
       {!bgmApproved ? (
         <div className="card text-center text-slate-400">
@@ -152,15 +162,34 @@ export default function StageSE() {
               subtitleBlocks={subtitleBlocks}
               sceneBlocks={sceneBlocks}
               bgmLabel={bgmLabel}
-              selectedIdx={selectedIdx}
-              onMove={(idx, t) => applyItems(moveItemTime(items, idx, t))}
-              onSelect={setSelectedIdx}
-              onRemove={removeAt}
+              selectedIdxs={selectedIdxs}
+              onMove={(idx, t) =>
+                applyItems(
+                  moveItemTime(
+                    items,
+                    idx,
+                    clampNoOverlap(items, tracks, idx, t),
+                  ),
+                )
+              }
+              onSelect={onSelect}
+              onRemoveMany={removeMany}
+              onResize={(idx, cs, ce, t) => {
+                let next = setItemClip(items, tracks, idx, cs, ce);
+                next = moveItemTime(next, idx, Math.max(0, t));
+                applyItems(next);
+              }}
               onAddAtPlayhead={(t) => {
                 const f = tracks[0];
                 if (!f) return;
-                const next = addItemAt(items, t, f.id, 0.6);
-                setSelectedIdx(next.length - 1);
+                let next = addItemAt(items, t, f.id, 0.6);
+                const newIdx = next.length - 1;
+                next = moveItemTime(
+                  next,
+                  newIdx,
+                  clampNoOverlap(next, tracks, newIdx, t),
+                );
+                setSelectedIdxs([newIdx]);
                 applyItems(next);
               }}
             />
@@ -168,10 +197,12 @@ export default function StageSE() {
             <div className="text-sm text-slate-400">
               {baking
                 ? "🔄 動画に反映中…"
-                : "✓ 追加・移動・削除は自動で動画 (reels) に反映されます"}
+                : selectedIdxs.length > 1
+                  ? `${selectedIdxs.length} 個選択中 (Delete で一括削除)`
+                  : "✓ 追加・移動・長さ変更・削除は自動で動画 (reels) に反映されます"}
             </div>
 
-            {selected ? (
+            {selected && selIdx !== null ? (
               <div className="border-t border-slate-700 pt-3 space-y-2">
                 <div className="flex flex-wrap items-center gap-2">
                   <span className="text-sm text-slate-400">
@@ -203,10 +234,7 @@ export default function StageSE() {
                       }
                     />
                   </label>
-                  <button
-                    className="btn"
-                    onClick={() => removeAt(selectedIdx!)}
-                  >
+                  <button className="btn" onClick={() => removeMany([selIdx])}>
                     × 削除
                   </button>
                 </div>
@@ -218,8 +246,8 @@ export default function StageSE() {
               </div>
             ) : (
               <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
-                効果音トラックのブロックをクリックで編集・ドラッグで移動。「⊕
-                再生位置に効果音を追加」で新規追加。選択中は Delete キーで削除。
+                効果音をクリックで選択・ドラッグで移動・両端ドラッグで長さ変更。Cmd/Ctrl+クリックで複数選択、Delete
+                で削除。「⊕ 再生位置に効果音を追加」で新規追加。
               </div>
             )}
           </div>

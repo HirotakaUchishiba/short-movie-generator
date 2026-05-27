@@ -5,8 +5,8 @@ import { itemsToRegions } from "./timeline-utils";
 import { seThumbUrl } from "../../../asset-urls";
 
 // CapCut 風マルチトラック timeline。横軸 = 時間 (pxPerSec 可変スケール + 横スクロール)。
-// 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ可) / BGM を縦に積む。playhead は
-// <video> の currentTime と同期。効果音のみ編集可能 (他は参照表示)。
+// 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ移動 + 端ドラッグ trim) / BGM を縦に積む。
+// playhead は <video> の currentTime と同期。効果音のみ編集可能 (他は参照表示)。
 interface Props {
   videoUrl: string;
   peaks: number[];
@@ -19,10 +19,16 @@ interface Props {
   subtitleBlocks: TimelineBlock[];
   sceneBlocks: TimelineBlock[];
   bgmLabel: string | null;
-  selectedIdx: number | null;
+  selectedIdxs: number[];
   onMove: (idx: number, time: number) => void;
-  onSelect: (idx: number) => void;
-  onRemove: (idx: number) => void;
+  onSelect: (idx: number, additive: boolean) => void;
+  onRemoveMany: (idxs: number[]) => void;
+  onResize: (
+    idx: number,
+    clipStart: number,
+    clipEnd: number,
+    newTime: number,
+  ) => void;
   onAddAtPlayhead: (time: number) => void;
 }
 
@@ -50,17 +56,15 @@ export default function MultiTrackTimeline({
   subtitleBlocks,
   sceneBlocks,
   bgmLabel,
-  selectedIdx,
+  selectedIdxs,
   onMove,
   onSelect,
-  onRemove,
+  onRemoveMany,
+  onResize,
   onAddAtPlayhead,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
-  const dragRef = useRef<{ idx: number; startX: number; orig: number } | null>(
-    null,
-  );
   const [playhead, setPlayhead] = useState(0);
   const [pxPerSec, setPxPerSec] = useState(90);
 
@@ -76,19 +80,19 @@ export default function MultiTrackTimeline({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // 選択中の効果音を Delete / Backspace で削除 (input/select 編集中は無視)。
+  // 選択中の効果音を Delete / Backspace で一括削除 (input/select 編集中は無視)。
   useEffect(() => {
     const onKey = (e: KeyboardEvent) => {
       if (e.key !== "Delete" && e.key !== "Backspace") return;
       const tag = (e.target as HTMLElement | null)?.tagName;
       if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
-      if (selectedIdx === null) return;
+      if (!selectedIdxs.length) return;
       e.preventDefault();
-      onRemove(selectedIdx);
+      onRemoveMany(selectedIdxs);
     };
     window.addEventListener("keydown", onKey);
     return () => window.removeEventListener("keydown", onKey);
-  }, [selectedIdx, onRemove]);
+  }, [selectedIdxs, onRemoveMany]);
 
   const width = Math.max(Math.ceil(duration * pxPerSec), 320);
   const regions = itemsToRegions(items, tracks);
@@ -117,18 +121,46 @@ export default function MultiTrackTimeline({
     if (videoRef.current) videoRef.current.currentTime = t;
   };
 
+  // SE 本体ドラッグ = 移動 (Cmd/Ctrl は追加選択のみで移動しない)。
   const onSeMouseDown = (e: React.MouseEvent, idx: number, time: number) => {
     e.stopPropagation();
-    onSelect(idx);
-    dragRef.current = { idx, startX: e.clientX, orig: time };
+    const additive = e.metaKey || e.ctrlKey;
+    onSelect(idx, additive);
+    if (additive) return;
+    const startX = e.clientX;
     const move = (ev: MouseEvent) => {
-      const d = dragRef.current;
-      if (!d) return;
-      const t = Math.max(0, d.orig + (ev.clientX - d.startX) / pxPerSec);
-      onMove(d.idx, t);
+      onMove(idx, Math.max(0, time + (ev.clientX - startX) / pxPerSec));
     };
     const up = () => {
-      dragRef.current = null;
+      window.removeEventListener("mousemove", move);
+      window.removeEventListener("mouseup", up);
+    };
+    window.addEventListener("mousemove", move);
+    window.addEventListener("mouseup", up);
+  };
+
+  // 端ドラッグ = trim。end は clip_end を伸縮、start は clip_start と time を同時に。
+  const onResizeStart = (
+    e: React.MouseEvent,
+    idx: number,
+    edge: "start" | "end",
+  ) => {
+    e.stopPropagation();
+    const it = items[idx];
+    const full = tracks.find((t) => t.id === it.se_id)?.duration_sec ?? 0.3;
+    const cs0 = it.clip_start ?? 0;
+    const ce0 = it.clip_end ?? full;
+    const t0 = it.time;
+    const startX = e.clientX;
+    const move = (ev: MouseEvent) => {
+      const d = (ev.clientX - startX) / pxPerSec;
+      if (edge === "end") {
+        onResize(idx, cs0, ce0 + d, t0);
+      } else {
+        onResize(idx, cs0 + d, ce0, t0 + d);
+      }
+    };
+    const up = () => {
       window.removeEventListener("mousemove", move);
       window.removeEventListener("mouseup", up);
     };
@@ -168,7 +200,7 @@ export default function MultiTrackTimeline({
           />
         </label>
         <span className="text-xs text-slate-500">
-          選択中の効果音は Delete キーでも削除できます
+          Cmd/Ctrl+クリックで複数選択 / 端ドラッグで長さ変更 / Delete で削除
         </span>
       </div>
 
@@ -187,7 +219,7 @@ export default function MultiTrackTimeline({
             ))}
           </div>
 
-          {/* 字幕トラック */}
+          {/* 字幕トラック (チャンク単位) */}
           <div
             className="relative h-7 border-b border-slate-800"
             onClick={(e) => seekTo(e.clientX, e.currentTarget)}
@@ -240,18 +272,19 @@ export default function MultiTrackTimeline({
             <canvas ref={waveRef} className="absolute top-0 left-0" />
           </div>
 
-          {/* 効果音トラック (ドラッグ可) */}
+          {/* 効果音トラック (ドラッグ移動 + 端 trim) */}
           <div
             className="relative h-10 border-b border-slate-800"
             onClick={(e) => seekTo(e.clientX, e.currentTarget)}
           >
             {regions.map((r) => {
               const track = tracks.find((t) => t.id === r.seId);
+              const selected = selectedIdxs.includes(r.idx);
               return (
                 <div
                   key={r.idx}
                   className={`absolute top-1 h-8 rounded px-1 text-[10px] text-white truncate cursor-grab ${
-                    r.idx === selectedIdx ? "ring-2 ring-white" : ""
+                    selected ? "ring-2 ring-white" : ""
                   }`}
                   style={{
                     left: r.start * pxPerSec,
@@ -263,7 +296,15 @@ export default function MultiTrackTimeline({
                   title={track?.title ?? r.seId}
                   onMouseDown={(e) => onSeMouseDown(e, r.idx, r.start)}
                 >
+                  <div
+                    className="absolute left-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/30"
+                    onMouseDown={(e) => onResizeStart(e, r.idx, "start")}
+                  />
                   {track?.title ?? r.seId}
+                  <div
+                    className="absolute right-0 top-0 h-full w-1.5 cursor-ew-resize bg-black/30"
+                    onMouseDown={(e) => onResizeStart(e, r.idx, "end")}
+                  />
                 </div>
               );
             })}
