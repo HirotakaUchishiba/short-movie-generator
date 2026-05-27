@@ -34,6 +34,7 @@ export default function StageSE() {
   const [baking, setBaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const bakeTimer = useRef<number | null>(null);
+  const videoRef = useRef<HTMLVideoElement>(null);
 
   useEffect(() => {
     api
@@ -155,32 +156,40 @@ export default function StageSE() {
             </div>
           )}
           <div className="card space-y-3">
-            <div>
-              <div className="text-sm text-slate-400 mb-1">
-                効果音をタイムラインの効果音トラックにドラッグして配置
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 items-start">
+              <div className="max-w-xs mx-auto w-full">
+                <div className="aspect-[9/16] bg-slate-950 overflow-hidden rounded">
+                  <video
+                    key={reelsAssetUrl(ts, seRegen)}
+                    ref={videoRef}
+                    src={reelsAssetUrl(ts, seRegen)}
+                    controls
+                    playsInline
+                    className="w-full h-full object-contain"
+                  />
+                </div>
               </div>
-              <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
-                {tracks.map((t) => (
-                  <div
-                    key={t.id}
-                    draggable
-                    onDragStart={(e) => e.dataTransfer.setData("se_id", t.id)}
-                    className="rounded border border-slate-700 bg-slate-800 p-2 text-xs cursor-grab"
-                  >
-                    <div className="truncate font-medium">{t.title}</div>
-                    <div className="text-slate-500">{t.category}</div>
-                    <audio
-                      controls
-                      preload="none"
-                      src={`/asset/se/${encodeURIComponent(t.file)}`}
-                      className="w-full h-6 mt-1"
-                    />
-                  </div>
-                ))}
+              <div>
+                <div className="text-sm text-slate-400 mb-1">
+                  効果音をタイムラインの効果音トラックにドラッグして配置
+                </div>
+                <div className="grid grid-cols-2 gap-2 max-h-[28rem] overflow-y-auto pr-1">
+                  {tracks.map((t) => (
+                    <div
+                      key={t.id}
+                      draggable
+                      onDragStart={(e) => e.dataTransfer.setData("se_id", t.id)}
+                      className="rounded border border-slate-700 bg-slate-800 p-2 text-xs cursor-grab"
+                    >
+                      <div className="truncate font-medium">{t.title}</div>
+                      <div className="text-slate-500">{t.category}</div>
+                    </div>
+                  ))}
+                </div>
               </div>
             </div>
             <MultiTrackTimeline
-              videoUrl={reelsAssetUrl(ts, seRegen)}
+              videoRef={videoRef}
               peaks={peaks}
               duration={duration}
               items={items}
@@ -206,19 +215,6 @@ export default function StageSE() {
               onResize={(idx, cs, ce, t) => {
                 let next = setItemClip(items, tracks, idx, cs, ce);
                 next = moveItemTime(next, idx, Math.max(0, t));
-                applyItems(next);
-              }}
-              onAddAtPlayhead={(t) => {
-                const f = tracks[0];
-                if (!f) return;
-                let next = addItemAt(items, t, f.id, 0.6);
-                const newIdx = next.length - 1;
-                next = moveItemTime(
-                  next,
-                  newIdx,
-                  clampNoOverlap(next, tracks, newIdx, t),
-                );
-                setSelectedIdxs([newIdx]);
                 applyItems(next);
               }}
               onDropSe={(seId, t) => {
@@ -286,8 +282,8 @@ export default function StageSE() {
               </div>
             ) : (
               <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
-                効果音をクリックで選択・ドラッグで移動・両端ドラッグで長さ変更。Cmd/Ctrl+クリックで複数選択、Delete
-                で削除。「⊕ 再生位置に効果音を追加」で新規追加。
+                効果音を右のリストからタイムラインにドラッグして配置。クリックで選択・ドラッグで移動・両端ドラッグで長さ変更。Cmd/Ctrl+クリックで複数選択、Delete
+                で削除。
               </div>
             )}
           </div>
