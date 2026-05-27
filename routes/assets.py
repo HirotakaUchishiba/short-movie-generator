@@ -13,6 +13,7 @@ import re
 
 from flask import Blueprint, abort, jsonify, send_file
 
+import config
 import scene_gen
 from analyze import job as analyze_job
 
@@ -127,6 +128,20 @@ def asset_bgm_mixed(ts):
     p = safe_join(ts_path(ts), "overlaid.mp4")
     if os.path.exists(p):
         return send_file(p, mimetype="video/mp4")
+    return "", 404
+
+
+@assets_bp.route("/asset/<ts>/reels")
+def asset_reels(ts):
+    """SE 込みの最終 reels を配信 (= SE プレビュー再生用)。無ければ bgm_mixed / overlaid。"""
+    validate_ts(ts)
+    p = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
+    if os.path.exists(p):
+        return send_file(p, mimetype="video/mp4")
+    for name in ("bgm_mixed.mp4", "overlaid.mp4"):
+        p2 = safe_join(ts_path(ts), name)
+        if os.path.exists(p2):
+            return send_file(p2, mimetype="video/mp4")
     return "", 404
 
 

@@ -77,6 +77,10 @@ export function bgmMixedAssetUrl(
 export function seThumbUrl(ts: string, idx: number): string {
   return `${API_BASE}/asset/${ts}/se-thumb/${idx}`;
 }
+// SE 込みの reels (= SE プレビュー再生)。version で auto-bake 後の cache bust。
+export function reelsAssetUrl(ts: string, version?: number | string): string {
+  return withVersion(`${API_BASE}/asset/${ts}/reels`, version);
+}
 
 export function finalVersionAssetUrl(
   ts: string,

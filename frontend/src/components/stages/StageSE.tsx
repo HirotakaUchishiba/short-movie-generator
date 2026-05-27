@@ -12,12 +12,15 @@ import {
   computeSubtitleBlocks,
   type SceneLike,
 } from "./se/timeline-utils";
-import { bgmMixedAssetUrl } from "../../asset-urls";
+import { reelsAssetUrl } from "../../asset-urls";
 
 export default function StageSE() {
   const ctx = useShellCtx();
   const ts = ctx.detail.timestamp;
   const bgmApproved = !!ctx.detail.progress.stages.bgm.approved_at;
+  const seRegen = (
+    ctx.detail.progress.stages.se as { regen_count?: number } | undefined
+  )?.regen_count;
 
   const [tracks, setTracks] = useState<SeTrack[]>([]);
   const [bgmTracks, setBgmTracks] = useState<BgmTrack[]>([]);
@@ -151,7 +154,7 @@ export default function StageSE() {
           )}
           <div className="card space-y-3">
             <MultiTrackTimeline
-              videoUrl={bgmMixedAssetUrl(ts)}
+              videoUrl={reelsAssetUrl(ts, seRegen)}
               peaks={peaks}
               duration={duration}
               items={items}
