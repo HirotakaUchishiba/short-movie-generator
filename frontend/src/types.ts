@@ -40,6 +40,8 @@ export interface SeItem {
   volume: number;
   source: string;
   reason: string;
+  clip_start?: number;
+  clip_end?: number;
 }
 
 // QA failure tag は backend (qa/categories.py) を SSOT とし、

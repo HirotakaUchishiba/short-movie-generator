@@ -6,6 +6,8 @@ import {
   removeItemAt,
   computeSceneBlocks,
   computeSubtitleBlocks,
+  clampNoOverlap,
+  setItemClip,
 } from "./timeline-utils";
 import type { SeItem, SeTrack } from "../../../types";
 
@@ -111,5 +113,46 @@ describe("computeSubtitleBlocks", () => {
       [0, 2.5],
     );
     expect(blocks[1]).toEqual({ start: 3, end: 4.5, label: "b" });
+  });
+  it("splits into subtitles[] chunks by char ratio", () => {
+    const blocks = computeSubtitleBlocks([
+      {
+        duration: 2,
+        lines: [
+          {
+            text: "abcd",
+            start: 0,
+            end: 2,
+            subtitles: [{ text: "ab" }, { text: "cd" }],
+          },
+        ],
+      },
+    ]);
+    expect(blocks).toHaveLength(2);
+    expect(blocks[0]).toEqual({ start: 0, end: 1, label: "ab" });
+    expect(blocks[1]).toEqual({ start: 1, end: 2, label: "cd" });
+  });
+});
+
+describe("clampNoOverlap", () => {
+  it("pushes a moved SE out of an overlapping neighbor", () => {
+    // a(width .5) at 0, b(width 1.2) at 2 → move a to 1.9 overlaps b[2,3.2]
+    const items = [mk(0, "a"), mk(2, "b")];
+    expect(clampNoOverlap(items, tracks, 0, 1.9)).toBe(1.5);
+  });
+  it("keeps a non-overlapping time", () => {
+    const items = [mk(0, "a"), mk(2, "b")];
+    expect(clampNoOverlap(items, tracks, 0, 1.0)).toBe(1.0);
+  });
+});
+
+describe("setItemClip", () => {
+  it("sets clip range and clamps to source duration", () => {
+    const items = [mk(0, "b")]; // b full 1.2
+    const out = setItemClip(items, tracks, 0, 0.2, 0.8);
+    expect(out[0]).toMatchObject({ clip_start: 0.2, clip_end: 0.8 });
+    const clamped = setItemClip(items, tracks, 0, -1, 5);
+    expect(clamped[0].clip_start).toBe(0);
+    expect(clamped[0].clip_end).toBe(1.2);
   });
 });

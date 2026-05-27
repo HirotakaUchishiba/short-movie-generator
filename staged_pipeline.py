@@ -584,6 +584,8 @@ def run_se(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
             p,
             float(it.get("time", 0.0)),
             float(it.get("volume", config.SE_DEFAULT_VOLUME)),
+            it.get("clip_start"),
+            it.get("clip_end"),
         ))
 
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)

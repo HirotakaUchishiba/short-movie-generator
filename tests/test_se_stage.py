@@ -64,6 +64,18 @@ def test_mix_se_empty_raises(tmp_path):
         se_mix.mix_se(str(video), [], str(out))
 
 
+def test_mix_se_with_clip_trims_source(tmp_path):
+    """clip_start/clip_end 付き placement (= trim) でも動画長を保ったまま焼ける。"""
+    video = tmp_path / "in.mp4"
+    se = tmp_path / "s.mp3"
+    out = tmp_path / "out.mp4"
+    _make_video(video, dur=3.0)
+    _make_se(se, dur=1.0)
+    se_mix.mix_se(str(video), [(str(se), 0.5, 0.6, 0.2, 0.6)], str(out))
+    assert out.exists()
+    assert abs(_duration(out) - 3.0) < 0.3
+
+
 @pytest.fixture
 def se_project(tmp_path, monkeypatch):
     """bgm 承認済み + bgm_mixed.mp4 を持つ project を用意する。"""
