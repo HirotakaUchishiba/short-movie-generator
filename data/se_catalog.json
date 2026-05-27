@@ -1,0 +1,26 @@
+[
+  {
+    "id": "transition_whoosh",
+    "title": "Whoosh (開発用)",
+    "file": "transition_whoosh.mp3",
+    "category": "transition",
+    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
+    "source": "ffmpeg lavfi"
+  },
+  {
+    "id": "reaction_pop",
+    "title": "Pop (開発用)",
+    "file": "reaction_pop.mp3",
+    "category": "reaction",
+    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
+    "source": "ffmpeg lavfi"
+  },
+  {
+    "id": "sting_hit",
+    "title": "Hit (開発用)",
+    "file": "sting_hit.mp3",
+    "category": "sting",
+    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
+    "source": "ffmpeg lavfi"
+  }
+]

@@ -728,6 +728,30 @@ BGM_DUCKING_ATTACK_MS = 5        # 圧縮開始の速さ
 BGM_DUCKING_RELEASE_MS = 300     # 圧縮解除の速さ (発話後に BGM が戻る)
 BGM_FADE_IN_SEC = 1.0            # 冒頭フェードイン
 BGM_FADE_OUT_SEC = 1.5           # 末尾フェードアウト
+
+SE_DIR = os.path.join(BASE_DIR, "assets", "se")
+SE_CATALOG_PATH = os.path.join(BASE_DIR, "data", "se_catalog.json")
+
+# Stage se (効果音オーバーレイ) の自動配置・ミックス設定。se_planner が
+# screenplay の既存メタから SE 配置案を導出する。詳細は
+# docs/plannings/2026-05-27_se-overlay-stage.md。
+SE_DEFAULT_VOLUME = 0.6          # SE のベース音量 (TTS=1.0 比)
+SE_MAX_PER_SCENE = 2             # 1 scene あたり自動配置する SE 上限 (鳴りすぎ防止)
+# emotion → SE category。se_planner が line.emotion からこの category の SE を
+# 1 つ選び line の絶対開始秒に置く。値は se_catalog.json の category と対応。
+EMOTION_SE_MAP: dict[str, str] = {
+    "驚き": "reaction",
+    "焦り": "sting",
+    "喜び": "sting",
+    "満足": "reaction",
+}
+# reaction 系 visual_intent → SE category。
+VISUAL_INTENT_SE_MAP: dict[str, str] = {
+    "reaction_surprise": "reaction",
+    "reaction_relief": "reaction",
+}
+# scene 境界に置くトランジション SE の category。
+SE_TRANSITION_CATEGORY = "transition"
 DEFAULT_CHARACTER_REFS: list[str] = ["f1"]
 
 # cache 関連は config.cache から re-export (= §3.1.4-b)。
