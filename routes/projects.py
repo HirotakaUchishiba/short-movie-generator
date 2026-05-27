@@ -481,4 +481,6 @@ def api_project_detail(ts):
         "current_stage": progress_store.current_stage(project_path),
         "analyze_job_id": meta.get("analyze_job_id"),
         "analyze_status": analyze_status_val,
+        "bgm": meta.get("bgm"),
+        "se": meta.get("se"),
     })

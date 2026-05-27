@@ -10,6 +10,7 @@ export type StageName =
   | "scene"
   | "overlay"
   | "bgm"
+  | "se"
   | "final_import"
   | "publish";
 
@@ -21,6 +22,23 @@ export interface BgmTrack {
   duration_sec: number | null;
   license: string;
   source: string;
+}
+
+export interface SeTrack {
+  id: string;
+  title: string;
+  file: string;
+  category: string;
+  license: string;
+  source: string;
+}
+
+export interface SeItem {
+  time: number;
+  se_id: string;
+  volume: number;
+  source: string;
+  reason: string;
 }
 
 // QA failure tag は backend (qa/categories.py) を SSOT とし、

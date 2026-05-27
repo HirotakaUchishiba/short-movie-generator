@@ -9,6 +9,7 @@ const STAGES: { key: StageName; label: string }[] = [
   { key: "scene", label: "音声/リップシンク合成" },
   { key: "overlay", label: "字幕" },
   { key: "bgm", label: "BGM" },
+  { key: "se", label: "効果音" },
   { key: "final_import", label: "取込" },
   { key: "publish", label: "公開" },
 ];

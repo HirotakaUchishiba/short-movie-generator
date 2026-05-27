@@ -1,5 +1,7 @@
 import type {
   BgmTrack,
+  SeTrack,
+  SeItem,
   AbstractScreenplay,
   AbstractScreenplayResponse,
   AnalyzeJobDetail,
@@ -185,6 +187,17 @@ export const api = {
     http<{ bgm: { id: string; volume: number; ducking: boolean } }>(
       `/api/projects/${ts}/bgm`,
       { method: "PUT", body: JSON.stringify(body) },
+    ),
+  listSe: () => http<{ se: SeTrack[] }>(`/api/se`),
+  setSe: (ts: string, items: SeItem[]) =>
+    http<{ se: { items: SeItem[] } }>(`/api/projects/${ts}/se`, {
+      method: "PUT",
+      body: JSON.stringify({ items }),
+    }),
+  autoSe: (ts: string) =>
+    http<{ se: { items: SeItem[]; auto_generated_at?: string } }>(
+      `/api/projects/${ts}/se/auto`,
+      { method: "POST" },
     ),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
