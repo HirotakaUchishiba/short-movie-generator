@@ -658,7 +658,12 @@ VOICE_LIBRARY: list[dict] = [
 
 BREATH_DEFAULT_DURATION = 0.25
 
-SCENE_TTS_TAIL_BUFFER = 0.3
+# scene.duration の末尾余白。0.3 だと merged 連結時に _merge_scenes が tpad で
+# 末尾フレームを 0.3s クローンし、各シーン末尾が一瞬フリーズして切替が不自然に
+# なる (= scene 動画自体は末尾まで動いている)。0 にして duration を実発話長に
+# 揃え tpad を発動させない。シーン間の「間」は scene 動画末尾の発話後区間
+# (= line.end〜音声末尾、動いている映像) が担う。
+SCENE_TTS_TAIL_BUFFER = 0.0
 SCENE_TTS_NATURAL_GAP = 0.3
 
 # 主要動作をクリップのこの割合までに終える指示 (残りは静止保持で末尾トリム用)。

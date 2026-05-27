@@ -101,30 +101,6 @@ def test_scene_offsets_from_videos_uses_real_durations(tmp_path, monkeypatch) ->
     assert compositor._scene_offsets_from_videos(paths) == [0.0, 2.6, 8.61]
 
 
-def test_merged_scene_length_tpad_vs_passthrough() -> None:
-    # target > vid (+0.05) → tpad で target まで伸びる
-    assert compositor._merged_scene_length(2.7, 3.0) == 3.0
-    # target <= vid → vid のまま (concat 実長)
-    assert compositor._merged_scene_length(4.0, 3.0) == 4.0
-    # 閾値 0.05 以内なら tpad しない (vid のまま)
-    assert compositor._merged_scene_length(3.0, 3.02) == 3.0
-
-
-def test_scene_offsets_merged_uses_tpad_target(tmp_path, monkeypatch) -> None:
-    """字幕 offset は merged の tpad 後位置 (= max(vid, duration) 累積)。
-    vid < duration (= SCENE_TTS_TAIL_BUFFER 分) でも duration 累積に揃い、
-    字幕が発話より先行する累積ドリフトを防ぐ。"""
-    durations = {"a.mp4": 2.7, "b.mp4": 4.7, "c.mp4": 5.0}
-    monkeypatch.setattr(compositor, "_get_duration",
-                        lambda p: durations[os.path.basename(p)])
-    paths = [str(tmp_path / "a.mp4"), str(tmp_path / "b.mp4"),
-             str(tmp_path / "c.mp4")]
-    # duration a=3.0(>2.7→tpad), b=5.0(>4.7→tpad)
-    offsets = compositor._scene_offsets_merged(paths, [3.0, 5.0, 5.5])
-    # 0, max(2.7,3.0)=3.0, 3.0+max(4.7,5.0)=8.0
-    assert offsets == [0.0, 3.0, 8.0]
-
-
 def test_line_window_rescales_with_real_duration() -> None:
     """scene_real_duration を渡すと line.start / end が比例で伸びる。"""
     line = {"text": "a", "start": 1.0, "end": 2.5}
@@ -149,12 +125,12 @@ def test_line_window_fallback_uses_real_duration_for_end() -> None:
     assert e == 7.5
 
 
-def test_build_overlay_uses_merged_timeline_when_videos_provided(
+def test_build_overlay_uses_real_video_timeline_when_videos_provided(
     tmp_path, monkeypatch,
 ) -> None:
-    """scene_videos 指定時、offset は merged の tpad 後位置 (= max(vid,duration)
-    累積)。line.start/end は TTS char_ts 基準なので実尺リスケールしない
-    (= frontend の sceneOffsets が scene.duration 累積なのと一致させる)。"""
+    """scene_videos 指定時、offset は scene 動画の実尺累積 (= tpad しない
+    _merge_scenes の連結位置と一致)。duration ではなく実尺で offset が決まる。
+    line.start/end は TTS char_ts 基準なので実尺リスケールはしない。"""
     sp = {
         "scenes": [
             {"duration": 3.0, "background_prompt": "bg",
@@ -163,7 +139,7 @@ def test_build_overlay_uses_merged_timeline_when_videos_provided(
               "lines": [{"text": "b", "start": 1.0, "end": 3.0}]},
         ],
     }
-    # vid > duration のケース: merged は max(vid, duration) = vid を占有
+    # 実尺は duration と一致しない (a: dur3.0/実4.0、b: dur5.0/実7.5)
     durations = {"a.mp4": 4.0, "b.mp4": 7.5}
     monkeypatch.setattr(compositor, "_get_duration",
                         lambda p: durations[os.path.basename(p)])
@@ -173,7 +149,7 @@ def test_build_overlay_uses_merged_timeline_when_videos_provided(
 
     # scene 0 line 0.0-1.0 はリスケールせずそのまま、offset 0
     assert "between(t,0.000,1.000)" in f
-    # scene 1 offset = max(4.0, 3.0) = 4.0、line 1.0-3.0 をそのまま → 5.0-7.0
+    # scene 1 offset = 実尺 a.mp4 = 4.0 (duration 3.0 ではない)、line 1.0-3.0 → 5.0-7.0
     assert "between(t,5.000,7.000)" in f
 
 
