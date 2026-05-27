@@ -54,13 +54,29 @@ def load_catalog() -> list[SeTrack]:
     return out
 
 
+def _probe_duration(path: str) -> float:
+    """ffprobe で音源長 (秒) を返す。失敗時 0.0。"""
+    import json as _json
+    import subprocess
+    try:
+        r = subprocess.run(
+            ["ffprobe", "-v", "quiet", "-print_format", "json",
+             "-show_format", path],
+            capture_output=True, text=True, timeout=10)
+        return round(float(_json.loads(r.stdout)["format"]["duration"]), 3)
+    except (subprocess.SubprocessError, ValueError, KeyError, OSError):
+        return 0.0
+
+
 def list_se() -> list[dict]:
-    """UI 用に catalog を dict list で返す (実ファイルが存在するものだけ)。"""
+    """UI 用に catalog を dict list で返す (実ファイルが存在するもの + duration_sec)。"""
     out = []
     for t in load_catalog():
         p = os.path.join(config.SE_DIR, t.file) if t.file else ""
         if p and os.path.exists(p):
-            out.append(asdict(t))
+            d = asdict(t)
+            d["duration_sec"] = _probe_duration(p)
+            out.append(d)
     return out
 
 

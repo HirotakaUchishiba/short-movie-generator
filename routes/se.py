@@ -7,9 +7,12 @@
 """
 from __future__ import annotations
 
+import glob
 import json
 import os
 import re
+import shutil
+import subprocess
 from datetime import datetime, timezone
 
 from flask import Blueprint, abort, jsonify, request, send_file
@@ -146,6 +149,60 @@ def api_se_waveform(ts):
     except OSError:
         pass
     return jsonify(out)
+
+
+def _ensure_thumbnails(src: str, thumb_dir: str, interval: float) -> int:
+    """src から interval 秒ごとの 9:16 サムネを thumb_dir に抽出 (mtime cache)。枚数を返す。"""
+    mtime = os.path.getmtime(src)
+    marker = os.path.join(thumb_dir, ".src_mtime")
+    if os.path.isdir(thumb_dir) and os.path.exists(marker):
+        try:
+            with open(marker) as f:
+                if abs(float(f.read().strip()) - mtime) < 0.001:
+                    return len(glob.glob(os.path.join(thumb_dir, "thumb_*.jpg")))
+        except (OSError, ValueError):
+            pass
+    shutil.rmtree(thumb_dir, ignore_errors=True)
+    os.makedirs(thumb_dir, exist_ok=True)
+    cmd = [
+        "ffmpeg", "-y", "-i", src,
+        "-vf", f"fps={1.0 / interval},scale=90:160",
+        os.path.join(thumb_dir, "thumb_%03d.jpg"),
+    ]
+    subprocess.run(cmd, capture_output=True, text=True)
+    count = len(glob.glob(os.path.join(thumb_dir, "thumb_*.jpg")))
+    with open(marker, "w") as f:
+        f.write(str(mtime))
+    return count
+
+
+@se_bp.route("/api/projects/<ts>/se/thumbnails", methods=["GET"])
+def api_se_thumbnails(ts):
+    """bgm_mixed (無ければ overlaid) から interval 秒ごとのサムネを抽出し枚数を返す (cache)。"""
+    validate_ts(ts)
+    project_path = ts_path(ts)
+    if not os.path.isdir(project_path):
+        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
+    src = os.path.join(project_path, "bgm_mixed.mp4")
+    if not os.path.exists(src):
+        src = os.path.join(project_path, "overlaid.mp4")
+    if not os.path.exists(src):
+        return api_error(
+            "SE_THUMB_SOURCE_MISSING", "bgm_mixed / overlaid が見つかりません", 409)
+    interval = 1.0
+    count = _ensure_thumbnails(
+        src, os.path.join(project_path, "se_thumbs"), interval)
+    return jsonify({"interval_sec": interval, "count": count})
+
+
+@se_bp.route("/asset/<ts>/se-thumb/<int:idx>")
+def asset_se_thumb(ts, idx):
+    """se_thumbs/thumb_<idx+1>.jpg を配信 (idx は 0 始まり = 時刻 idx*interval)。"""
+    validate_ts(ts)
+    p = os.path.join(ts_path(ts), "se_thumbs", f"thumb_{idx + 1:03d}.jpg")
+    if os.path.exists(p):
+        return send_file(p, mimetype="image/jpeg")
+    return "", 404
 
 
 @se_bp.route("/asset/se/<filename>")
