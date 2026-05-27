@@ -95,3 +95,7 @@ SUBTITLE_TIMING_DRIFT_RATIO_MAX = _env_float("SUBTITLE_TIMING_DRIFT_RATIO_MAX", 
 
 # subtitle_audio_sync: 字幕テキストが Whisper transcript に含まれる ref カバレッジ下限。
 SUBTITLE_AUDIO_SYNC_MATCH_MIN = _env_float("SUBTITLE_AUDIO_SYNC_MATCH_MIN", 0.6)
+
+# subtitle_render: 字幕帯 (下 1/3) の Canny エッジ画素比率の下限。これ未満なら
+# 字幕未描画 / 画面外の疑い。実データで baseline する前提の保守的な暫定値。
+SUBTITLE_RENDER_EDGE_DENSITY_MIN = _env_float("SUBTITLE_RENDER_EDGE_DENSITY_MIN", 0.01)
