@@ -4,9 +4,9 @@ import type { TimelineBlock } from "./timeline-utils";
 import { itemsToRegions } from "./timeline-utils";
 import { seThumbUrl } from "../../../asset-urls";
 
-// CapCut 風マルチトラック timeline。横軸 = 時間 (PX_PER_SEC 固定スケール + 横スクロール)。
+// CapCut 風マルチトラック timeline。横軸 = 時間 (pxPerSec 可変スケール + 横スクロール)。
 // 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ可) / BGM を縦に積む。playhead は
-// <video> の currentTime と同期。effects のみ編集可能 (他は参照表示)。
+// <video> の currentTime と同期。効果音のみ編集可能 (他は参照表示)。
 interface Props {
   videoUrl: string;
   peaks: number[];
@@ -22,10 +22,9 @@ interface Props {
   selectedIdx: number | null;
   onMove: (idx: number, time: number) => void;
   onSelect: (idx: number) => void;
+  onRemove: (idx: number) => void;
   onAddAtPlayhead: (time: number) => void;
 }
-
-const PX_PER_SEC = 90;
 
 const CATEGORY_COLOR: Record<string, string> = {
   reaction: "rgba(56,189,248,0.85)",
@@ -54,6 +53,7 @@ export default function MultiTrackTimeline({
   selectedIdx,
   onMove,
   onSelect,
+  onRemove,
   onAddAtPlayhead,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
@@ -62,9 +62,7 @@ export default function MultiTrackTimeline({
     null,
   );
   const [playhead, setPlayhead] = useState(0);
-
-  const width = Math.max(Math.ceil(duration * PX_PER_SEC), 320);
-  const regions = itemsToRegions(items, tracks);
+  const [pxPerSec, setPxPerSec] = useState(90);
 
   // playhead を video.currentTime に追従 (rAF)。
   useEffect(() => {
@@ -78,7 +76,24 @@ export default function MultiTrackTimeline({
     return () => cancelAnimationFrame(raf);
   }, []);
 
-  // 波形 canvas を描画。
+  // 選択中の効果音を Delete / Backspace で削除 (input/select 編集中は無視)。
+  useEffect(() => {
+    const onKey = (e: KeyboardEvent) => {
+      if (e.key !== "Delete" && e.key !== "Backspace") return;
+      const tag = (e.target as HTMLElement | null)?.tagName;
+      if (tag === "INPUT" || tag === "SELECT" || tag === "TEXTAREA") return;
+      if (selectedIdx === null) return;
+      e.preventDefault();
+      onRemove(selectedIdx);
+    };
+    window.addEventListener("keydown", onKey);
+    return () => window.removeEventListener("keydown", onKey);
+  }, [selectedIdx, onRemove]);
+
+  const width = Math.max(Math.ceil(duration * pxPerSec), 320);
+  const regions = itemsToRegions(items, tracks);
+
+  // 波形 canvas を描画 (幅は pxPerSec に追従)。
   useEffect(() => {
     const cv = waveRef.current;
     if (!cv) return;
@@ -98,7 +113,7 @@ export default function MultiTrackTimeline({
 
   const seekTo = (clientX: number, el: HTMLElement) => {
     const rect = el.getBoundingClientRect();
-    const t = Math.max(0, (clientX - rect.left) / PX_PER_SEC);
+    const t = Math.max(0, (clientX - rect.left) / pxPerSec);
     if (videoRef.current) videoRef.current.currentTime = t;
   };
 
@@ -109,7 +124,7 @@ export default function MultiTrackTimeline({
     const move = (ev: MouseEvent) => {
       const d = dragRef.current;
       if (!d) return;
-      const t = Math.max(0, d.orig + (ev.clientX - d.startX) / PX_PER_SEC);
+      const t = Math.max(0, d.orig + (ev.clientX - d.startX) / pxPerSec);
       onMove(d.idx, t);
     };
     const up = () => {
@@ -133,13 +148,29 @@ export default function MultiTrackTimeline({
         playsInline
         className="w-full max-h-72 bg-black rounded"
       />
-      <button
-        type="button"
-        className="btn"
-        onClick={() => onAddAtPlayhead(videoRef.current?.currentTime ?? 0)}
-      >
-        ⊕ 再生位置に効果音を追加
-      </button>
+      <div className="flex items-center gap-3 flex-wrap">
+        <button
+          type="button"
+          className="btn"
+          onClick={() => onAddAtPlayhead(videoRef.current?.currentTime ?? 0)}
+        >
+          ⊕ 再生位置に効果音を追加
+        </button>
+        <label className="flex items-center gap-1">
+          <span className="text-xs text-slate-400">ズーム</span>
+          <input
+            type="range"
+            min={30}
+            max={240}
+            step={10}
+            value={pxPerSec}
+            onChange={(e) => setPxPerSec(Number(e.target.value))}
+          />
+        </label>
+        <span className="text-xs text-slate-500">
+          選択中の効果音は Delete キーでも削除できます
+        </span>
+      </div>
 
       <div className="overflow-x-auto rounded border border-slate-800 bg-slate-900">
         <div className="relative" style={{ width }}>
@@ -149,7 +180,7 @@ export default function MultiTrackTimeline({
               <div
                 key={s}
                 className="absolute top-0 text-[10px] text-slate-400"
-                style={{ left: s * PX_PER_SEC }}
+                style={{ left: s * pxPerSec }}
               >
                 |{fmt(s)}
               </div>
@@ -164,10 +195,10 @@ export default function MultiTrackTimeline({
             {subtitleBlocks.map((b, i) => (
               <div
                 key={i}
-                className="absolute top-0.5 h-6 rounded bg-orange-800/80 text-[10px] text-white px-1 overflow-hidden whitespace-nowrap"
+                className="absolute top-0.5 h-6 rounded bg-orange-800/80 text-[10px] text-white px-1 truncate"
                 style={{
-                  left: b.start * PX_PER_SEC,
-                  width: Math.max((b.end - b.start) * PX_PER_SEC, 6),
+                  left: b.start * pxPerSec,
+                  width: Math.max((b.end - b.start) * pxPerSec, 4),
                 }}
                 title={b.label}
               >
@@ -188,8 +219,8 @@ export default function MultiTrackTimeline({
                 alt=""
                 className="absolute top-0 h-12 object-cover"
                 style={{
-                  left: i * thumbInterval * PX_PER_SEC,
-                  width: thumbInterval * PX_PER_SEC,
+                  left: i * thumbInterval * pxPerSec,
+                  width: thumbInterval * pxPerSec,
                 }}
               />
             ))}
@@ -197,7 +228,7 @@ export default function MultiTrackTimeline({
               <div
                 key={i}
                 className="absolute top-0 h-3 border-l border-cyan-500 pl-0.5 text-[9px] text-cyan-200"
-                style={{ left: b.start * PX_PER_SEC }}
+                style={{ left: b.start * pxPerSec }}
               >
                 {b.label}
               </div>
@@ -219,12 +250,12 @@ export default function MultiTrackTimeline({
               return (
                 <div
                   key={r.idx}
-                  className={`absolute top-1 h-8 rounded px-1 text-[10px] text-white overflow-hidden whitespace-nowrap cursor-grab ${
+                  className={`absolute top-1 h-8 rounded px-1 text-[10px] text-white truncate cursor-grab ${
                     r.idx === selectedIdx ? "ring-2 ring-white" : ""
                   }`}
                   style={{
-                    left: r.start * PX_PER_SEC,
-                    width: Math.max((r.end - r.start) * PX_PER_SEC, 8),
+                    left: r.start * pxPerSec,
+                    width: Math.max((r.end - r.start) * pxPerSec, 8),
                     background:
                       CATEGORY_COLOR[track?.category ?? ""] ??
                       "rgba(148,163,184,0.7)",
@@ -242,8 +273,8 @@ export default function MultiTrackTimeline({
           <div className="relative h-7">
             {bgmLabel && (
               <div
-                className="absolute top-1 h-5 rounded bg-indigo-700/70 text-[10px] text-white px-1 overflow-hidden whitespace-nowrap"
-                style={{ left: 0, width: duration * PX_PER_SEC }}
+                className="absolute top-1 h-5 rounded bg-indigo-700/70 text-[10px] text-white px-1 truncate"
+                style={{ left: 0, width: duration * pxPerSec }}
               >
                 ♪ {bgmLabel}
               </div>
@@ -253,7 +284,7 @@ export default function MultiTrackTimeline({
           {/* playhead */}
           <div
             className="absolute top-0 bottom-0 w-px bg-white pointer-events-none"
-            style={{ left: playhead * PX_PER_SEC }}
+            style={{ left: playhead * pxPerSec }}
           />
         </div>
       </div>

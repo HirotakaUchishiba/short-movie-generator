@@ -73,15 +73,21 @@ export interface SceneLike {
   lines?: { text?: string; start?: number; end?: number }[];
 }
 
-// scene を絶対秒の連続ブロックに (= 映像トラック)。start は duration の累積。
-export function computeSceneBlocks(scenes: SceneLike[]): TimelineBlock[] {
+// scene を絶対秒の連続ブロックに (= 映像トラック)。offsets (実尺累積) があれば
+// それを scene 開始秒に使い、無ければ duration 累積で近似する。
+export function computeSceneBlocks(
+  scenes: SceneLike[],
+  offsets?: number[],
+): TimelineBlock[] {
   const out: TimelineBlock[] = [];
   let acc = 0;
   scenes.forEach((sc, i) => {
     const dur = sc.duration ?? 0;
+    const start = offsets?.[i] ?? acc;
+    const end = offsets?.[i + 1] ?? start + dur;
     out.push({
-      start: round3(acc),
-      end: round3(acc + dur),
+      start: round3(start),
+      end: round3(end),
       label: sc.label ?? `S${i + 1}`,
     });
     acc += dur;
@@ -89,17 +95,22 @@ export function computeSceneBlocks(scenes: SceneLike[]): TimelineBlock[] {
   return out;
 }
 
-// 各 line を絶対秒ブロックに (= 字幕トラック)。time は scene offset + 相対秒。
-export function computeSubtitleBlocks(scenes: SceneLike[]): TimelineBlock[] {
+// 各 line を絶対秒ブロックに (= 字幕トラック)。scene 開始秒 (offsets or 近似) +
+// line の相対秒 (TTS char_ts 由来) で配置する。
+export function computeSubtitleBlocks(
+  scenes: SceneLike[],
+  offsets?: number[],
+): TimelineBlock[] {
   const out: TimelineBlock[] = [];
   let acc = 0;
-  for (const sc of scenes) {
+  scenes.forEach((sc, i) => {
+    const base = offsets?.[i] ?? acc;
     for (const line of sc.lines ?? []) {
-      const s = acc + (line.start ?? 0);
-      const e = acc + (line.end ?? line.start ?? 0);
+      const s = base + (line.start ?? 0);
+      const e = base + (line.end ?? line.start ?? 0);
       out.push({ start: round3(s), end: round3(e), label: line.text ?? "" });
     }
     acc += sc.duration ?? 0;
-  }
+  });
   return out;
 }

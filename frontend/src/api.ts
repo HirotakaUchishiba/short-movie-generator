@@ -194,13 +194,8 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ items }),
     }),
-  autoSe: (ts: string) =>
-    http<{ se: { items: SeItem[]; auto_generated_at?: string } }>(
-      `/api/projects/${ts}/se/auto`,
-      { method: "POST" },
-    ),
   getSeWaveform: (ts: string) =>
-    http<{ peaks: number[]; duration: number }>(
+    http<{ peaks: number[]; duration: number; scene_offsets: number[] }>(
       `/api/projects/${ts}/se/waveform`,
     ),
   getSeThumbnails: (ts: string) =>

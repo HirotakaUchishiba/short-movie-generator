@@ -13,7 +13,6 @@ import os
 import re
 import shutil
 import subprocess
-from datetime import datetime, timezone
 
 from flask import Blueprint, abort, jsonify, request, send_file
 
@@ -23,7 +22,6 @@ import io_utils
 import project_state
 import scene_gen
 import se_library
-import se_planner
 import staged_pipeline
 from routes._helpers import api_error, ts_path, validate_ts
 
@@ -79,31 +77,17 @@ def api_set_se(ts):
     return jsonify({"se": meta["se"]})
 
 
-@se_bp.route("/api/projects/<ts>/se/auto", methods=["POST"])
-def api_auto_se(ts):
-    """既存メタ (emotion / visual_intent / scene 境界) から SE 配置を自動導出して保存。"""
-    validate_ts(ts)
-    project_path = ts_path(ts)
-    meta = project_state.read_metadata(project_path)
-    if meta is None:
-        return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
-
-    screenplay = staged_pipeline.load_project_screenplay(project_path)
+def _safe_scene_offsets(project_path: str) -> list[float]:
+    """字幕 / scene ブロックの実尺配置用に scene 開始秒を返す。失敗時は空 (= 近似 fallback)。"""
     try:
+        screenplay = staged_pipeline.load_project_screenplay(project_path)
         scene_videos = scene_gen.collect_scene_videos(screenplay, project_path)
-    except (FileNotFoundError, RuntimeError) as e:
-        return api_error("SE_SCENE_VIDEOS_MISSING", str(e), 409)
-
-    offsets = compositor._scene_offsets_from_videos(scene_videos)
-    items = se_planner.plan_se(screenplay, offsets)
-
-    se = meta.get("se") or {}
-    se["items"] = items
-    se["auto_generated_at"] = datetime.now(timezone.utc).isoformat()
-    meta["se"] = se
-    io_utils.atomic_write_json(
-        os.path.join(project_path, "metadata.json"), meta)
-    return jsonify({"se": meta["se"]})
+        return [
+            round(o, 3)
+            for o in compositor._scene_offsets_from_videos(scene_videos)
+        ]
+    except Exception:
+        return []
 
 
 def _read_waveform_cache(cache_path: str, src_mtime: float):
@@ -117,7 +101,11 @@ def _read_waveform_cache(cache_path: str, src_mtime: float):
         return None
     if d.get("_src_mtime") != src_mtime:
         return None
-    return {"peaks": d.get("peaks", []), "duration": d.get("duration", 0.0)}
+    return {
+        "peaks": d.get("peaks", []),
+        "duration": d.get("duration", 0.0),
+        "scene_offsets": d.get("scene_offsets", []),
+    }
 
 
 @se_bp.route("/api/projects/<ts>/se/waveform", methods=["GET"])
@@ -143,7 +131,11 @@ def api_se_waveform(ts):
 
     import audio_features
     data = audio_features.extract_waveform_peaks(src)
-    out = {"peaks": data["peaks"], "duration": data["duration"]}
+    out = {
+        "peaks": data["peaks"],
+        "duration": data["duration"],
+        "scene_offsets": _safe_scene_offsets(project_path),
+    }
     try:
         io_utils.atomic_write_json(cache_path, {**out, "_src_mtime": src_mtime})
     except OSError:

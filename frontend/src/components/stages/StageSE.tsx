@@ -23,6 +23,7 @@ export default function StageSE() {
   const [items, setItems] = useState<SeItem[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [duration, setDuration] = useState(0);
+  const [sceneOffsets, setSceneOffsets] = useState<number[]>([]);
   const [thumbCount, setThumbCount] = useState(0);
   const [thumbInterval, setThumbInterval] = useState(1);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
@@ -41,7 +42,8 @@ export default function StageSE() {
       .catch(() => undefined);
   }, []);
 
-  // 波形 + サムネは bgm_mixed ベースで bake では変わらないので bgm 承認時に 1 回取得。
+  // 波形 + 実尺 scene_offsets + サムネは bgm_mixed ベースで bake では変わらないので
+  // bgm 承認時に 1 回取得。scene_offsets は字幕 / scene ブロックの正確な配置に使う。
   useEffect(() => {
     if (!bgmApproved) return;
     api
@@ -49,6 +51,7 @@ export default function StageSE() {
       .then((r) => {
         setPeaks(r.peaks);
         setDuration(r.duration);
+        setSceneOffsets(r.scene_offsets ?? []);
       })
       .catch(() => undefined);
     api
@@ -69,8 +72,8 @@ export default function StageSE() {
   const scenes: SceneLike[] =
     (ctx.detail as { screenplay?: { scenes?: SceneLike[] } }).screenplay
       ?.scenes ?? [];
-  const subtitleBlocks = computeSubtitleBlocks(scenes);
-  const sceneBlocks = computeSceneBlocks(scenes);
+  const subtitleBlocks = computeSubtitleBlocks(scenes, sceneOffsets);
+  const sceneBlocks = computeSceneBlocks(scenes, sceneOffsets);
 
   const bgmId = (ctx.detail as { bgm?: { id?: string } }).bgm?.id;
   const bgmLabel =
@@ -100,23 +103,17 @@ export default function StageSE() {
     }
   };
 
-  const onAuto = async () => {
-    setError(null);
-    try {
-      const r = await api.autoSe(ts);
-      setSelectedIdx(null);
-      applyItems(r.se.items);
-    } catch (e) {
-      setError(String(e));
-    }
-  };
-
   const selected = selectedIdx !== null ? (items[selectedIdx] ?? null) : null;
   const updateSelected = (patch: Partial<SeItem>) => {
     if (selectedIdx === null) return;
     applyItems(
       items.map((it, i) => (i === selectedIdx ? { ...it, ...patch } : it)),
     );
+  };
+
+  const removeAt = (idx: number) => {
+    applyItems(removeItemAt(items, idx));
+    setSelectedIdx(null);
   };
 
   return (
@@ -158,6 +155,7 @@ export default function StageSE() {
               selectedIdx={selectedIdx}
               onMove={(idx, t) => applyItems(moveItemTime(items, idx, t))}
               onSelect={setSelectedIdx}
+              onRemove={removeAt}
               onAddAtPlayhead={(t) => {
                 const f = tracks[0];
                 if (!f) return;
@@ -167,15 +165,10 @@ export default function StageSE() {
               }}
             />
 
-            <div className="flex items-center gap-3">
-              <button className="btn" onClick={onAuto} disabled={baking}>
-                自動配置を生成
-              </button>
-              <span className="text-sm text-slate-400">
-                {baking
-                  ? "🔄 動画に反映中…"
-                  : "✓ 追加・移動・削除は自動で動画 (reels) に反映されます"}
-              </span>
+            <div className="text-sm text-slate-400">
+              {baking
+                ? "🔄 動画に反映中…"
+                : "✓ 追加・移動・削除は自動で動画 (reels) に反映されます"}
             </div>
 
             {selected ? (
@@ -212,10 +205,7 @@ export default function StageSE() {
                   </label>
                   <button
                     className="btn"
-                    onClick={() => {
-                      applyItems(removeItemAt(items, selectedIdx!));
-                      setSelectedIdx(null);
-                    }}
+                    onClick={() => removeAt(selectedIdx!)}
                   >
                     × 削除
                   </button>
@@ -229,7 +219,7 @@ export default function StageSE() {
             ) : (
               <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
                 効果音トラックのブロックをクリックで編集・ドラッグで移動。「⊕
-                再生位置に効果音を追加」で新規追加。
+                再生位置に効果音を追加」で新規追加。選択中は Delete キーで削除。
               </div>
             )}
           </div>

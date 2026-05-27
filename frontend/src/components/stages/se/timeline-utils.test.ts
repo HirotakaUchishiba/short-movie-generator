@@ -83,6 +83,14 @@ describe("computeSceneBlocks", () => {
     expect(blocks[0]).toEqual({ start: 0, end: 2, label: "A" });
     expect(blocks[1]).toEqual({ start: 2, end: 5, label: "S2" });
   });
+  it("uses real offsets when provided", () => {
+    const blocks = computeSceneBlocks(
+      [{ duration: 2 }, { duration: 3 }],
+      [0, 2.5],
+    );
+    expect(blocks[0]).toEqual({ start: 0, end: 2.5, label: "S1" });
+    expect(blocks[1].start).toBe(2.5);
+  });
 });
 
 describe("computeSubtitleBlocks", () => {
@@ -93,5 +101,15 @@ describe("computeSubtitleBlocks", () => {
     ]);
     expect(blocks[0]).toEqual({ start: 0, end: 1, label: "a" });
     expect(blocks[1]).toEqual({ start: 2.5, end: 4, label: "b" });
+  });
+  it("subtitle uses real offsets when provided", () => {
+    const blocks = computeSubtitleBlocks(
+      [
+        { duration: 2, lines: [{ text: "a", start: 0, end: 1 }] },
+        { duration: 3, lines: [{ text: "b", start: 0.5, end: 2 }] },
+      ],
+      [0, 2.5],
+    );
+    expect(blocks[1]).toEqual({ start: 3, end: 4.5, label: "b" });
   });
 });
