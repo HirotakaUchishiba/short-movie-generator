@@ -153,6 +153,30 @@ export default function StageSE() {
             </div>
           )}
           <div className="card space-y-3">
+            <div>
+              <div className="text-sm text-slate-400 mb-1">
+                効果音をタイムラインの効果音トラックにドラッグして配置
+              </div>
+              <div className="grid grid-cols-3 gap-2 max-h-40 overflow-y-auto">
+                {tracks.map((t) => (
+                  <div
+                    key={t.id}
+                    draggable
+                    onDragStart={(e) => e.dataTransfer.setData("se_id", t.id)}
+                    className="rounded border border-slate-700 bg-slate-800 p-2 text-xs cursor-grab"
+                  >
+                    <div className="truncate font-medium">{t.title}</div>
+                    <div className="text-slate-500">{t.category}</div>
+                    <audio
+                      controls
+                      preload="none"
+                      src={`/asset/se/${encodeURIComponent(t.file)}`}
+                      className="w-full h-6 mt-1"
+                    />
+                  </div>
+                ))}
+              </div>
+            </div>
             <MultiTrackTimeline
               videoUrl={reelsAssetUrl(ts, seRegen)}
               peaks={peaks}
@@ -186,6 +210,17 @@ export default function StageSE() {
                 const f = tracks[0];
                 if (!f) return;
                 let next = addItemAt(items, t, f.id, 0.6);
+                const newIdx = next.length - 1;
+                next = moveItemTime(
+                  next,
+                  newIdx,
+                  clampNoOverlap(next, tracks, newIdx, t),
+                );
+                setSelectedIdxs([newIdx]);
+                applyItems(next);
+              }}
+              onDropSe={(seId, t) => {
+                let next = addItemAt(items, t, seId, 0.6);
                 const newIdx = next.length - 1;
                 next = moveItemTime(
                   next,

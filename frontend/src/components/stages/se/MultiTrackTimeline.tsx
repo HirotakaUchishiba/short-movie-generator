@@ -30,6 +30,7 @@ interface Props {
     newTime: number,
   ) => void;
   onAddAtPlayhead: (time: number) => void;
+  onDropSe: (seId: string, time: number) => void;
 }
 
 const CATEGORY_COLOR: Record<string, string> = {
@@ -62,6 +63,7 @@ export default function MultiTrackTimeline({
   onRemoveMany,
   onResize,
   onAddAtPlayhead,
+  onDropSe,
 }: Props) {
   const videoRef = useRef<HTMLVideoElement>(null);
   const waveRef = useRef<HTMLCanvasElement>(null);
@@ -276,6 +278,14 @@ export default function MultiTrackTimeline({
           <div
             className="relative h-10 border-b border-slate-800"
             onClick={(e) => seekTo(e.clientX, e.currentTarget)}
+            onDragOver={(e) => e.preventDefault()}
+            onDrop={(e) => {
+              e.preventDefault();
+              const seId = e.dataTransfer.getData("se_id");
+              if (!seId) return;
+              const rect = e.currentTarget.getBoundingClientRect();
+              onDropSe(seId, Math.max(0, (e.clientX - rect.left) / pxPerSec));
+            }}
           >
             {regions.map((r) => {
               const track = tracks.find((t) => t.id === r.seId);
