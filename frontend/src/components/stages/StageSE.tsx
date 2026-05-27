@@ -1,4 +1,4 @@
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api } from "../../api";
 import type { SeTrack, SeItem } from "../../types";
@@ -17,8 +17,9 @@ export default function StageSE() {
   const [duration, setDuration] = useState(0);
   const [thumbCount, setThumbCount] = useState(0);
   const [selectedIdx, setSelectedIdx] = useState<number | null>(null);
-  const [pending, setPending] = useState<"save" | "auto" | "bake" | null>(null);
+  const [baking, setBaking] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const bakeTimer = useRef<number | null>(null);
 
   useEffect(() => {
     api
@@ -43,7 +44,7 @@ export default function StageSE() {
       .catch(() => undefined);
   }, [ts, bgmApproved]);
 
-  // 既存 items を metadata.se から復元。
+  // 既存 items を metadata.se から復元 (= 編集トリガにはしない)。
   useEffect(() => {
     const s = (ctx.detail as { se?: { items?: SeItem[] } }).se;
     if (s && Array.isArray(s.items)) setItems(s.items);
@@ -63,54 +64,45 @@ export default function StageSE() {
     return out;
   })();
 
-  const onAuto = async () => {
-    setPending("auto");
-    setError(null);
-    try {
-      const r = await api.autoSe(ts);
-      setItems(r.se.items);
-      setSelectedIdx(null);
-      await ctx.reload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(null);
-    }
+  // 編集操作で items を変えるたびに呼ぶ。debounce して setSe + reels 焼き直しを
+  // 自動実行する (= 効果音を重ねた / 消した時点で動画に即反映)。復元の useEffect は
+  // setItems を直接呼ぶのでこの経路を通らず、自動焼きは編集だけがトリガになる。
+  const applyItems = (next: SeItem[]) => {
+    setItems(next);
+    if (bakeTimer.current) window.clearTimeout(bakeTimer.current);
+    bakeTimer.current = window.setTimeout(() => void autoBake(next), 700);
   };
 
-  const onSave = async () => {
-    setPending("save");
+  const autoBake = async (next: SeItem[]) => {
+    setBaking(true);
     setError(null);
     try {
-      await api.setSe(ts, items);
-      await ctx.reload();
-    } catch (e) {
-      setError(String(e));
-    } finally {
-      setPending(null);
-    }
-  };
-
-  // 配置を保存してから reels を焼き直す (= se stage 再生成)。
-  const onBake = async () => {
-    setPending("bake");
-    setError(null);
-    try {
-      await api.setSe(ts, items);
+      await api.setSe(ts, next);
       await api.regen(ts, { stage: "se" });
       await ctx.reload();
     } catch (e) {
       setError(String(e));
     } finally {
-      setPending(null);
+      setBaking(false);
+    }
+  };
+
+  const onAuto = async () => {
+    setError(null);
+    try {
+      const r = await api.autoSe(ts);
+      setSelectedIdx(null);
+      applyItems(r.se.items);
+    } catch (e) {
+      setError(String(e));
     }
   };
 
   const selected = selectedIdx !== null ? (items[selectedIdx] ?? null) : null;
   const updateSelected = (patch: Partial<SeItem>) => {
     if (selectedIdx === null) return;
-    setItems((prev) =>
-      prev.map((it, i) => (i === selectedIdx ? { ...it, ...patch } : it)),
+    applyItems(
+      items.map((it, i) => (i === selectedIdx ? { ...it, ...patch } : it)),
     );
   };
 
@@ -118,7 +110,7 @@ export default function StageSE() {
     <StageGate
       stage="se"
       title="効果音"
-      description="字幕 + BGM 済みの動画に効果音を重ねる。波形・映像・効果音の区間をタイムラインで見ながら配置・移動できる。再生成は ffmpeg のみで AI 課金は発生しない。"
+      description="字幕 + BGM 済みの動画に効果音を重ねる。波形・映像・効果音をタイムラインで見ながら配置・移動・削除でき、変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
     >
       {!bgmApproved ? (
         <div className="card text-center text-slate-400">
@@ -147,29 +139,26 @@ export default function StageSE() {
               ts={ts}
               thumbCount={thumbCount}
               sceneBoundaries={sceneBoundaries}
-              onMove={(idx, t) =>
-                setItems((prev) => moveItemTime(prev, idx, t))
-              }
+              onMove={(idx, t) => applyItems(moveItemTime(items, idx, t))}
               onSelect={setSelectedIdx}
               onAddAtPlayhead={(t) => {
                 const f = tracks[0];
                 if (!f) return;
-                setItems((prev) => {
-                  const next = addItemAt(prev, t, f.id, 0.6);
-                  setSelectedIdx(next.length - 1);
-                  return next;
-                });
+                const next = addItemAt(items, t, f.id, 0.6);
+                setSelectedIdx(next.length - 1);
+                applyItems(next);
               }}
             />
 
-            <div className="flex gap-2">
-              <button
-                className="btn"
-                onClick={onAuto}
-                disabled={pending !== null}
-              >
-                {pending === "auto" ? "生成中…" : "自動配置を生成"}
+            <div className="flex items-center gap-3">
+              <button className="btn" onClick={onAuto} disabled={baking}>
+                自動配置を生成
               </button>
+              <span className="text-sm text-slate-400">
+                {baking
+                  ? "🔄 動画に反映中…"
+                  : "✓ 追加・移動・削除は自動で動画 (reels) に反映されます"}
+              </span>
             </div>
 
             {selected ? (
@@ -207,7 +196,7 @@ export default function StageSE() {
                   <button
                     className="btn"
                     onClick={() => {
-                      setItems((prev) => removeItemAt(prev, selectedIdx!));
+                      applyItems(removeItemAt(items, selectedIdx!));
                       setSelectedIdx(null);
                     }}
                   >
@@ -222,29 +211,10 @@ export default function StageSE() {
               </div>
             ) : (
               <div className="text-sm text-slate-400 border-t border-slate-700 pt-3">
-                波形上の効果音をクリックすると編集できます。「⊕
+                波形上の効果音をクリックで編集。「⊕
                 再生位置に効果音を追加」で新規追加。
               </div>
             )}
-
-            <div className="flex gap-2 pt-2 border-t border-slate-700">
-              <button
-                className="btn"
-                onClick={onSave}
-                disabled={pending !== null}
-              >
-                {pending === "save" ? "保存中…" : "配置を保存"}
-              </button>
-              <button
-                className="btn btn-primary"
-                onClick={onBake}
-                disabled={pending !== null}
-              >
-                {pending === "bake"
-                  ? "焼き直し中…"
-                  : "効果音をミックスして reels を焼く"}
-              </button>
-            </div>
           </div>
         </>
       )}
