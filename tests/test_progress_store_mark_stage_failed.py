@@ -75,6 +75,29 @@ def test_mark_stage_failed_truncates_legacy_error_field(ts_path: str) -> None:
     assert len(p["stages"]["kling"]["error_detail"]["message"]) == 2000
 
 
+# ─────────── mark_generated が failed を解除する (= 再生成成功) ───────────
+
+
+def test_mark_generated_clears_prior_failure(ts_path: str) -> None:
+    """一度 failed にした stage を再生成 (mark_generated) すると status /
+    error_detail / error がクリアされる (= 古いエラーバナーが残り続けない)。"""
+    detail = build_error_detail("Overlay application failed")
+    progress_store.mark_stage_failed(ts_path, "overlay", detail)
+    block = progress_store.load(ts_path)["stages"]["overlay"]
+    assert block["status"] == "failed"
+    assert block["error_detail"]["message"] == "Overlay application failed"
+
+    # 再生成成功
+    progress_store.mark_generated(ts_path, "overlay")
+
+    block = progress_store.load(ts_path)["stages"]["overlay"]
+    assert block["status"] is None
+    assert "error_detail" not in block
+    assert "error" not in block
+    assert block["generated_at"] is not None
+    assert block["approved_at"] is None
+
+
 # ─────────── mark_analyze_failed (= 後方互換 wrapper) ───────────
 
 

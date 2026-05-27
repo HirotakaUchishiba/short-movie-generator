@@ -51,8 +51,15 @@ def mark_generated(ts_path: str, stage: str) -> None:
     if stage not in STAGES:
         raise ValueError(f"unknown stage: {stage}")
     progress = load(ts_path)
-    progress["stages"][stage]["generated_at"] = _now()
-    progress["stages"][stage]["approved_at"] = None
+    block = progress["stages"][stage]
+    block["generated_at"] = _now()
+    block["approved_at"] = None
+    # 生成成功は直前の failed 状態を解除する。これをしないと、一度失敗した stage を
+    # 再生成して成功しても status="failed" / error_detail が残り、UI のエラー
+    # バナーが消えない (= mark_stage_failed の逆操作)。
+    block["status"] = None
+    block.pop("error_detail", None)
+    block.pop("error", None)
     save(ts_path, progress)
 
 
