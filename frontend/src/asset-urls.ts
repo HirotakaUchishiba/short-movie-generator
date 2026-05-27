@@ -66,6 +66,17 @@ export function sceneAudioAssetUrl(
 export function overlayAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/overlay`, version);
 }
+// SE 配置タイムラインの <video> ソース (bgm_mixed.mp4。無ければ overlaid に fallback)。
+export function bgmMixedAssetUrl(
+  ts: string,
+  version?: number | string,
+): string {
+  return withVersion(`${API_BASE}/asset/${ts}/bgm-mixed`, version);
+}
+// SE タイムラインの映像サムネ列 (idx は 0 始まり = 時刻 idx*interval)。
+export function seThumbUrl(ts: string, idx: number): string {
+  return `${API_BASE}/asset/${ts}/se-thumb/${idx}`;
+}
 
 export function finalVersionAssetUrl(
   ts: string,

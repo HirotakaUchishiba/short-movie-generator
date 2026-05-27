@@ -31,6 +31,7 @@ export interface SeTrack {
   category: string;
   license: string;
   source: string;
+  duration_sec?: number;
 }
 
 export interface SeItem {

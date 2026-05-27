@@ -199,6 +199,14 @@ export const api = {
       `/api/projects/${ts}/se/auto`,
       { method: "POST" },
     ),
+  getSeWaveform: (ts: string) =>
+    http<{ peaks: number[]; duration: number }>(
+      `/api/projects/${ts}/se/waveform`,
+    ),
+  getSeThumbnails: (ts: string) =>
+    http<{ interval_sec: number; count: number }>(
+      `/api/projects/${ts}/se/thumbnails`,
+    ),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
   // patch.<field> = null でフィールド削除。
