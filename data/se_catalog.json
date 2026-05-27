@@ -1,26 +1,74 @@
 [
   {
-    "id": "transition_whoosh",
-    "title": "Whoosh (開発用)",
-    "file": "transition_whoosh.mp3",
-    "category": "transition",
-    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
-    "source": "ffmpeg lavfi"
-  },
-  {
-    "id": "reaction_pop",
-    "title": "Pop (開発用)",
-    "file": "reaction_pop.mp3",
+    "id": "シャキーン1",
+    "title": "シャキーン1",
+    "file": "シャキーン1.mp3",
     "category": "reaction",
-    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
-    "source": "ffmpeg lavfi"
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
   },
   {
-    "id": "sting_hit",
-    "title": "Hit (開発用)",
-    "file": "sting_hit.mp3",
+    "id": "きらーん1",
+    "title": "きらーん1",
+    "file": "きらーん1.mp3",
+    "category": "reaction",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "ニュッ1",
+    "title": "ニュッ1",
+    "file": "ニュッ1.mp3",
+    "category": "reaction",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "ニュッ3",
+    "title": "ニュッ3",
+    "file": "ニュッ3.mp3",
+    "category": "reaction",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "鈴を鳴らす",
+    "title": "鈴を鳴らす",
+    "file": "鈴を鳴らす.mp3",
+    "category": "reaction",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "不安（ピアノ演奏）",
+    "title": "不安（ピアノ演奏）",
+    "file": "不安（ピアノ演奏）.mp3",
     "category": "sting",
-    "license": "self-generated (開発/テスト専用。本番動画には使わないこと)",
-    "source": "ffmpeg lavfi"
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "シーン切り替え2",
+    "title": "シーン切り替え2",
+    "file": "シーン切り替え2.mp3",
+    "category": "transition",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "拍子木1",
+    "title": "拍子木1",
+    "file": "拍子木1.mp3",
+    "category": "transition",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
+  },
+  {
+    "id": "拍子木2",
+    "title": "拍子木2",
+    "file": "拍子木2.mp3",
+    "category": "transition",
+    "license": "商用利用可 (効果音ラボ等のフリー素材。利用規約に従って使用)",
+    "source": "効果音ラボ等"
   }
 ]
