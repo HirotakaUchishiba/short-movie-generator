@@ -1,13 +1,15 @@
-"""Stage bgm の Blueprint: BGM catalog 取得 + project の BGM 選択保存。
+"""Stage bgm の Blueprint: BGM catalog 取得 + project の BGM 選択保存 + 試聴 asset。
 
 - GET  /api/bgm                  : 実ファイルが存在する BGM catalog 一覧
 - PUT  /api/projects/<ts>/bgm    : project の BGM 選択を metadata.json に保存
+- GET  /asset/bgm/<filename>     : BGM 音源 (UI の試聴用)
 """
 from __future__ import annotations
 
 import os
+import re
 
-from flask import Blueprint, jsonify, request
+from flask import Blueprint, abort, jsonify, request, send_file
 
 import bgm_library
 import config
@@ -16,6 +18,8 @@ import project_state
 from routes._helpers import api_error, ts_path, validate_ts
 
 bgm_bp = Blueprint("bgm", __name__)
+
+_BGM_FILE_RE = re.compile(r"^[\w\.\-]+$")
 
 
 @bgm_bp.route("/api/bgm", methods=["GET"])
@@ -54,3 +58,14 @@ def api_set_bgm(ts):
     io_utils.atomic_write_json(
         os.path.join(project_path, "metadata.json"), meta)
     return jsonify({"bgm": meta["bgm"]})
+
+
+@bgm_bp.route("/asset/bgm/<filename>")
+def asset_bgm(filename):
+    """BGM 音源を返す (= UI の試聴用)。assets/bgm/<filename>。"""
+    if not _BGM_FILE_RE.match(filename):
+        abort(400)
+    p = os.path.join(config.BGM_DIR, filename)
+    if not os.path.exists(p):
+        return "", 404
+    return send_file(p, mimetype="audio/mpeg", conditional=True)

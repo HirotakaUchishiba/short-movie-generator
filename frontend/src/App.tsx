@@ -8,6 +8,7 @@ import StageBG from "./components/stages/StageBG";
 import StageKling from "./components/stages/StageKling";
 import StageScene from "./components/stages/StageScene";
 import StageOverlay from "./components/stages/StageOverlay";
+import StageBGM from "./components/stages/StageBGM";
 import StageFinalImport from "./components/stages/StageFinalImport";
 import StagePublish from "./components/stages/StagePublish";
 import AnalyzeStage0Page from "./pages/AnalyzeStage0Page";
@@ -95,6 +96,14 @@ export default function App() {
           element={
             <ErrorBoundary context="StageOverlay">
               <StageOverlay />
+            </ErrorBoundary>
+          }
+        />
+        <Route
+          path="bgm"
+          element={
+            <ErrorBoundary context="StageBGM">
+              <StageBGM />
             </ErrorBoundary>
           }
         />
