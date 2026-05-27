@@ -95,8 +95,10 @@ export default function StageSE() {
     setError(null);
     try {
       await api.setSe(ts, next);
-      await api.regen(ts, { stage: "se" });
-      await ctx.reload();
+      // ctx.regen 経由にすると ProjectShell の job 監視に乗り、完了時に自動 reload
+      // される (= reels + regen_count 更新 → プレビュー動画が SE 反映後に貼り替わる)。
+      // api.regen を直接呼ぶと監視外になり、削除しても古い reels を再生し続ける。
+      await ctx.regen({ stage: "se" });
     } catch (e) {
       setError(String(e));
     } finally {
