@@ -93,6 +93,7 @@ from routes.reference_videos import reference_videos_bp  # noqa: E402
 from routes.screenplay import screenplay_bp  # noqa: E402
 from routes.stage_cache import stage_cache_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
+from routes.bgm import bgm_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
 app.register_blueprint(config_bp)
@@ -112,6 +113,7 @@ app.register_blueprint(catalogs_bp)
 app.register_blueprint(jobs_bp)
 app.register_blueprint(stage_cache_bp)
 app.register_blueprint(project_queries_bp)
+app.register_blueprint(bgm_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None

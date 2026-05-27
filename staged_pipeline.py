@@ -441,10 +441,12 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
 
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage 6: シーン連結 + 字幕焼き込み + 最終出力配置。
+    """Stage 6: シーン連結 + 字幕焼き込み。出力は ``temp/<TS>/overlaid.mp4``。
 
-    pipeline raw である ``output/reels_<TS>.mp4`` と SNS 投稿キャプション、
-    Stage 7 (final_import) 用の drop folder までこの stage で生成する。
+    最終 ``output/reels_<TS>.mp4`` / SNS キャプション / final drop folder は
+    後段の Stage bgm (run_bgm) が生成する (= reels を書く責務を bgm に移譲)。
+    こうすることで BGM ミックスの有無に関わらず reels は常に bgm stage の出力に
+    なり、final_import は無変更で済む。
 
     古い snapshot を resume する経路では UI の保存時 validator を通過していない
     ことがあるため、Stage 6 直前で composed 形式 + subtitle anchor 順序を
@@ -459,8 +461,6 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
     scene_durations = [float(s["duration"]) for s in screenplay["scenes"]]
     merged = os.path.join(ts_path, "merged.mp4")
     overlaid = os.path.join(ts_path, "overlaid.mp4")
-    ts = os.path.basename(ts_path)
-    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
 
     if os.path.exists(overlaid):
         os.remove(overlaid)
@@ -470,16 +470,11 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
         merged_path = _merge_scenes(scene_videos, scene_durations, ts_path)
         _apply_overlays(merged_path, screenplay, ts_path, overlaid,
                           scene_videos=scene_videos)
-
-        os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-        shutil.copyfile(overlaid, output_path)
-        caption_path = generate_post_captions(
-            screenplay, screenplay_name, output_path)
         is_overlay_success = True
     finally:
         if not is_overlay_success:
             # 部分書き込み artifact を掃除して、再実行が old merged を流用しない
-            for p in (merged, overlaid, output_path):
+            for p in (merged, overlaid):
                 if os.path.exists(p):
                     try:
                         os.remove(p)
@@ -488,11 +483,8 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
                             "[overlay-cleanup] %s 削除失敗: %s", p, e,
                         )
 
-    # Stage 7 (final_import) 用の drop folder を用意。CapCut 出力をここに置く。
-    os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
-
-    # cache promote: pipeline raw まで生成完了 = 高信頼な素材として将来の hit
-    # 候補に格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
+    # cache promote: 素材まで生成完了 = 高信頼な素材として将来の hit 候補に
+    # 格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
     # 内部で個別 entry の例外は握り潰すので、外側は import / setup 系の
     # programming bug を残しておく (= bare Exception では mask しない)。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
@@ -502,7 +494,63 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
             logger.warning("%s promote setup failed: %s", module, e)
 
     progress_store.mark_generated(ts_path, "overlay")
-    logger.info("[字幕] 焼き込み完了 — %s", output_path)
+    logger.info("[字幕] 焼き込み完了 — %s (reels は bgm stage が生成)", overlaid)
+
+
+def run_bgm(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
+    """Stage bgm: ``overlaid.mp4`` に BGM をミックスして ``output/reels_<TS>.mp4``。
+
+    BGM 選択は ``metadata.json.bgm`` ({id, volume, ducking})。id=none / 未選択は
+    pass-through (overlaid をそのまま reels)。overlaid.mp4 が無い既存 project は
+    既存 reels を入力にする (後方互換)。reels が確定するので SNS キャプションと
+    Stage 7 用 final/ drop folder もここで用意する。
+    """
+    from stages import bgm_mix
+    import bgm_library
+
+    _ensure_prev_approved("overlay", ts_path)
+
+    ts = os.path.basename(ts_path)
+    overlaid = os.path.join(ts_path, "overlaid.mp4")
+    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
+
+    # 入力: overlaid.mp4 (新フロー) があればそれ、無ければ既存 reels (後方互換)
+    if os.path.exists(overlaid):
+        video_in = overlaid
+    elif os.path.exists(output_path):
+        video_in = output_path
+        logger.info("[bgm] overlaid.mp4 が無いため既存 reels を入力に使用 (後方互換)")
+    else:
+        raise RuntimeError(
+            "overlay 出力 (overlaid.mp4 / reels) が見つかりません — overlay を先に実行してください")
+
+    meta = read_metadata(ts_path) or {}
+    bgm = meta.get("bgm") or {}
+    bgm_path = bgm_library.resolve_bgm_path(bgm.get("id"))
+
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    if bgm_path is None:
+        # BGM なし: overlaid をそのまま reels に (pass-through)
+        if os.path.abspath(video_in) != os.path.abspath(output_path):
+            shutil.copyfile(video_in, output_path)
+        logger.info("[bgm] BGM なし — pass-through: %s", output_path)
+    else:
+        volume = float(bgm.get("volume", config.BGM_VOLUME_RATIO))
+        ducking = bool(bgm.get("ducking", config.BGM_DUCKING_ENABLED))
+        # video_in == output_path (後方互換経路) でも壊れないよう tmp に書いて置換
+        tmp_out = output_path + ".bgm.tmp.mp4"
+        bgm_mix.mix_bgm(video_in, bgm_path, tmp_out,
+                        volume=volume, ducking=ducking)
+        os.replace(tmp_out, output_path)
+        logger.info("[bgm] BGM ミックス完了 (%s): %s", bgm.get("id"), output_path)
+
+    caption_path = generate_post_captions(
+        screenplay, screenplay_name, output_path)
+    # Stage 7 (final_import) 用の drop folder を用意。
+    os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
+
+    progress_store.mark_generated(ts_path, "bgm")
+    logger.info("[bgm] 完了 — %s", output_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
 
 
@@ -541,6 +589,7 @@ STAGE_RUNNERS = {
     "kling": run_kling,
     "scene": run_scene,
     "overlay": run_overlay,
+    "bgm": run_bgm,
 }
 
 
@@ -599,7 +648,7 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
         raise RuntimeError(f"unknown stage: {nxt}")
     started_at = datetime.now().isoformat(timespec="seconds")
     try:
-        if nxt in ("script", "overlay"):
+        if nxt in ("script", "overlay", "bgm"):
             runner(screenplay, screenplay_name, ts_path)
         else:
             runner(screenplay, ts_path)
@@ -897,6 +946,10 @@ def regen(stage: str, screenplay: dict, ts_path: str,
         if screenplay_name is None:
             raise ValueError("overlay 再生成には screenplay_name が必要です")
         run_overlay(screenplay, screenplay_name, ts_path)
+    elif stage == "bgm":
+        if screenplay_name is None:
+            raise ValueError("bgm 再生成には screenplay_name が必要です")
+        run_bgm(screenplay, screenplay_name, ts_path)
     else:
         raise ValueError(f"このstageは個別再生成に対応していません: {stage}")
     progress_store.increment_regen(ts_path, stage)

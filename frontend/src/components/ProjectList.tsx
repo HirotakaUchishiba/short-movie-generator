@@ -17,6 +17,7 @@ const STAGE_LABELS: Record<StageName, string> = {
   kling: "Kling",
   scene: "音声合成",
   overlay: "字幕",
+  bgm: "BGM",
   final_import: "取込",
   publish: "公開",
 };

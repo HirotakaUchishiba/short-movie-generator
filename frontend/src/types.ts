@@ -9,8 +9,19 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
+  | "bgm"
   | "final_import"
   | "publish";
+
+export interface BgmTrack {
+  id: string;
+  title: string;
+  file: string;
+  mood: string;
+  duration_sec: number | null;
+  license: string;
+  source: string;
+}
 
 // QA failure tag は backend (qa/categories.py) を SSOT とし、
 // /api/config/qa-tags 経由で取得する。型は string に緩めて runtime validate に

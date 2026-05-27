@@ -1,4 +1,5 @@
 import type {
+  BgmTrack,
   AbstractScreenplay,
   AbstractScreenplayResponse,
   AnalyzeJobDetail,
@@ -176,6 +177,15 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ screenplay: stripUids(screenplay) }),
     }),
+  listBgm: () => http<{ bgm: BgmTrack[] }>(`/api/bgm`),
+  setBgm: (
+    ts: string,
+    body: { id: string; volume?: number; ducking?: boolean },
+  ) =>
+    http<{ bgm: { id: string; volume: number; ducking: boolean } }>(
+      `/api/projects/${ts}/bgm`,
+      { method: "PUT", body: JSON.stringify(body) },
+    ),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
   // patch.<field> = null でフィールド削除。
