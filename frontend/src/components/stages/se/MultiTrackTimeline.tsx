@@ -176,6 +176,7 @@ export default function MultiTrackTimeline({
   return (
     <div className="space-y-2">
       <video
+        key={videoUrl}
         ref={videoRef}
         src={videoUrl}
         controls

@@ -125,6 +125,26 @@ def test_run_se_backward_compat_uses_existing_reels(se_project):
     assert progress_store.is_generated(ts_path, "se")
 
 
+def test_run_se_prefers_overlaid_to_strip_se(se_project):
+    """bgm_mixed が無い旧 project: overlaid を入力に SE を消せる (reels 自己参照しない)。"""
+    ts, ts_path = se_project
+    with open(f"{ts_path}/overlaid.mp4", "wb") as f:
+        f.write(b"overlaid-no-se")
+    os.makedirs(config.OUTPUT_DIR, exist_ok=True)
+    reels = f"{config.OUTPUT_DIR}/reels_{ts}.mp4"
+    with open(reels, "wb") as f:
+        f.write(b"old-reels-with-se")
+    with open(f"{ts_path}/metadata.json", "w") as f:
+        json.dump({"screenplay_name": "x", "se": {"items": []}}, f)
+
+    staged_pipeline.run_se({"caption": "x", "scenes": []}, "x", ts_path)
+
+    # overlaid で上書き = 焼き込まれていた SE が消える (reels 自己参照しない)
+    with open(reels, "rb") as f:
+        assert f.read() == b"overlaid-no-se"
+    assert progress_store.is_generated(ts_path, "se")
+
+
 def test_run_se_mixes_items(se_project, tmp_path, monkeypatch):
     """se items があれば mix_se 経由で reels (実動画) を生成する。"""
     ts, ts_path = se_project

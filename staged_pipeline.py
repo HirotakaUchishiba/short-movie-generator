@@ -561,16 +561,26 @@ def run_se(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     ts = os.path.basename(ts_path)
     bgm_mixed = os.path.join(ts_path, "bgm_mixed.mp4")
+    overlaid = os.path.join(ts_path, "overlaid.mp4")
     output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
 
     if os.path.exists(bgm_mixed):
         video_in = bgm_mixed
+    elif os.path.exists(overlaid):
+        # bgm_mixed が無い旧 project は overlaid (= SE/BGM を載せる前) を入力に
+        # する。既存 reels を入力にすると SE が焼き込み済みで、SE を消しても
+        # pass-through が video_in == output_path になり copyfile が skip され、
+        # 削除した効果音が reels に残り続ける (= 鳴り続ける真因)。
+        video_in = overlaid
+        logger.info("[se] bgm_mixed.mp4 が無いため overlaid を入力に使用")
     elif os.path.exists(output_path):
         video_in = output_path
-        logger.info("[se] bgm_mixed.mp4 が無いため既存 reels を入力に使用 (後方互換)")
+        logger.warning(
+            "[se] bgm_mixed / overlaid が無いため既存 reels を入力に使用 "
+            "(SE の除去はできない可能性)")
     else:
         raise RuntimeError(
-            "bgm 出力 (bgm_mixed.mp4 / reels) が見つかりません — bgm を先に実行してください")
+            "se の入力 (bgm_mixed / overlaid / reels) が見つかりません")
 
     meta = read_metadata(ts_path) or {}
     items = (meta.get("se") or {}).get("items") or []
