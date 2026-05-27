@@ -79,7 +79,7 @@ def bgm_project(tmp_path, monkeypatch):
 
 
 def test_run_bgm_passthrough_when_no_bgm(bgm_project, monkeypatch):
-    """metadata に bgm 未設定 → overlaid をそのまま reels にコピー (pass-through)。"""
+    """metadata に bgm 未設定 → overlaid をそのまま bgm_mixed.mp4 にコピー (pass-through)。"""
     ts, ts_path = bgm_project
     overlaid = f"{ts_path}/overlaid.mp4"
     with open(overlaid, "wb") as f:
@@ -89,8 +89,9 @@ def test_run_bgm_passthrough_when_no_bgm(bgm_project, monkeypatch):
 
     staged_pipeline.run_bgm({"caption": "x", "scenes": []}, "x", ts_path)
 
-    reels = f"{config.OUTPUT_DIR}/reels_{ts}.mp4"
-    with open(reels, "rb") as f:
+    # reels を書く責務は se stage に移譲。bgm は bgm_mixed.mp4 を書く。
+    bgm_mixed = f"{ts_path}/bgm_mixed.mp4"
+    with open(bgm_mixed, "rb") as f:
         assert f.read() == b"fake-overlaid-mp4"   # コピーされた
     assert progress_store.is_generated(ts_path, "bgm")
 
@@ -110,5 +111,5 @@ def test_run_bgm_backward_compat_uses_existing_reels(bgm_project, monkeypatch):
     staged_pipeline.run_bgm({"caption": "x", "scenes": []}, "x", ts_path)
 
     with open(reels, "rb") as f:
-        assert f.read() == b"existing-reels"   # bgm none + 同一パス → そのまま
+        assert f.read() == b"existing-reels"   # reels を入力に bgm_mixed を作る。reels は温存
     assert progress_store.is_generated(ts_path, "bgm")

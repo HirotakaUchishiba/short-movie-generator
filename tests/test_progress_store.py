@@ -138,10 +138,22 @@ def test_cascade_reset_after_overlay_resets_bgm(tmp_path) -> None:
     assert p["stages"]["bgm"]["generated_at"] is not None
 
 
-def test_cascade_reset_after_bgm_is_noop(tmp_path) -> None:
+def test_cascade_reset_after_bgm_resets_se(tmp_path) -> None:
+    """bgm の後続は se。bgm 再生成で se の承認がリセットされる。"""
     ts = str(tmp_path)
-    _approve_through(ts, "bgm")
+    _approve_through(ts, "se")
     reset = progress_store.cascade_reset_after(ts, "bgm")
+    assert reset == ["se"]
+    p = progress_store.load(ts)
+    assert p["stages"]["bgm"]["approved_at"] is not None
+    assert p["stages"]["se"]["approved_at"] is None
+    assert p["stages"]["se"]["generated_at"] is not None
+
+
+def test_cascade_reset_after_se_is_noop(tmp_path) -> None:
+    ts = str(tmp_path)
+    _approve_through(ts, "se")
+    reset = progress_store.cascade_reset_after(ts, "se")
     assert reset == []
     p = progress_store.load(ts)
     for s in progress_store._CASCADE_STAGES:
