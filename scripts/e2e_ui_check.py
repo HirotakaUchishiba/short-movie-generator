@@ -34,6 +34,12 @@ def _wait_port(host: str, port: int, timeout: float) -> bool:
     return False
 
 
+def _port_in_use(host: str, port: int) -> bool:
+    with socket.socket(socket.AF_INET, socket.SOCK_STREAM) as s:
+        s.settimeout(0.5)
+        return s.connect_ex((host, port)) == 0
+
+
 def run(screenshot: str, timeout: int, port: int) -> int:
     try:
         from playwright.sync_api import sync_playwright
@@ -42,17 +48,22 @@ def run(screenshot: str, timeout: int, port: int) -> int:
               "install chromium")
         return 2
 
+    # 既存サーバとの競合を避ける (= 既存 :port があると二重起動して偽 green になる)。
+    if _port_in_use("127.0.0.1", port):
+        print(f"FAIL: port {port} は既に使用中 (別の preview_server 稼働中の可能性)")
+        return 1
+
+    # --port を subprocess に確実に伝える (PREVIEW_PORT)。stdout/stderr は DEVNULL に
+    # して、起動ログでパイプが詰まりサーバが hang するデッドロックを防ぐ。
+    env = dict(os.environ)
+    env["PREVIEW_PORT"] = str(port)
     proc = subprocess.Popen(
         [sys.executable, "preview_server.py"],
-        cwd=str(ROOT), env=dict(os.environ),
-        stdout=subprocess.PIPE, stderr=subprocess.STDOUT)
+        cwd=str(ROOT), env=env,
+        stdout=subprocess.DEVNULL, stderr=subprocess.DEVNULL)
     try:
         if not _wait_port("127.0.0.1", port, timeout):
-            out = b""
-            if proc.stdout:
-                out = proc.stdout.read1(2000) if hasattr(proc.stdout, "read1") else b""
-            print(f"FAIL: server did not start on :{port}\n"
-                  f"{out.decode(errors='replace')}")
+            print(f"FAIL: server did not start on :{port}")
             return 1
         with sync_playwright() as p:
             browser = p.chromium.launch()

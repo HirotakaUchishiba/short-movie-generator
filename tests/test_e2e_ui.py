@@ -27,3 +27,30 @@ def test_module_exposes_run_and_main():
     mod = _load_module()
     assert callable(mod.run)
     assert callable(mod.main)
+
+
+def test_run_forwards_port_to_server_env(monkeypatch):
+    import pytest
+    pytest.importorskip("playwright")
+    mod = _load_module()
+    captured = {}
+
+    class _FakePopen:
+        def __init__(self, args, **kw):
+            captured["env"] = kw.get("env", {})
+
+        def send_signal(self, _sig):
+            pass
+
+        def wait(self, timeout=None):
+            return 0
+
+        def kill(self):
+            pass
+
+    monkeypatch.setattr(mod.subprocess, "Popen", _FakePopen)
+    monkeypatch.setattr(mod, "_port_in_use", lambda h, p: False)
+    monkeypatch.setattr(mod, "_wait_port", lambda h, p, t: False)
+    rc = mod.run("/tmp/_e2e_x.png", 1, 6789)
+    assert rc == 1  # _wait_port False で early return
+    assert captured["env"].get("PREVIEW_PORT") == "6789"  # port が server に転送される
