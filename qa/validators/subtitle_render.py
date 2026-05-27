@@ -39,6 +39,8 @@ def _deps_ok() -> tuple[bool, str]:
         return False, f"opencv missing: {e}"
     if not shutil.which("ffmpeg"):
         return False, "ffmpeg not found"
+    if not shutil.which("ffprobe"):
+        return False, "ffprobe not found"
     return True, "ok"
 
 
@@ -54,6 +56,9 @@ def _video_duration(mp4_path: str) -> float:
 
 
 def _extract_frame(mp4_path: str, out_png: str, at_sec: float) -> bool:
+    # 前回クラッシュ等で残った stale フレームを成功扱いしないよう先に消す。
+    if os.path.exists(out_png):
+        os.remove(out_png)
     try:
         subprocess.run(
             ["ffmpeg", "-y", "-ss", f"{at_sec}", "-i", mp4_path,
@@ -61,7 +66,8 @@ def _extract_frame(mp4_path: str, out_png: str, at_sec: float) -> bool:
             capture_output=True, timeout=60, check=False)
     except (subprocess.TimeoutExpired, FileNotFoundError):
         return False
-    return os.path.exists(out_png)
+    # 0 byte / 未生成は失敗扱い (= ffmpeg 失敗時の空ファイルを弾く)。
+    return os.path.exists(out_png) and os.path.getsize(out_png) > 0
 
 
 def _edge_density_bottom(png_path: str) -> float:
@@ -72,6 +78,8 @@ def _edge_density_bottom(png_path: str) -> float:
         return 0.0
     h, w = img.shape[:2]
     bottom = img[int(h * 2 / 3):, :]
+    if bottom.size == 0:  # 極端に小さいフレームで下帯が空になるのを防ぐ
+        return 0.0
     edges = cv2.Canny(bottom, 100, 200)
     return float((edges > 0).mean())
 
