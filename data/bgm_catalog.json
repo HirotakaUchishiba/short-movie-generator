@@ -1,0 +1,11 @@
+[
+  {
+    "id": "test_tone",
+    "title": "Test Tone (開発用)",
+    "file": "test_tone.mp3",
+    "mood": "test",
+    "duration_sec": 30.0,
+    "license": "self-generated sine (開発/テスト専用。本番動画には使わないこと)",
+    "source": "ffmpeg lavfi sine"
+  }
+]

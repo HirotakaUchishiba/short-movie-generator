@@ -714,6 +714,20 @@ TEMP_DIR = os.path.join(BASE_DIR, "temp")
 SCREENPLAYS_DIR = os.path.join(BASE_DIR, "screenplays")
 POST_CAPTIONS_DIR = os.path.join(BASE_DIR, "post_captions")
 CHARACTERS_DIR = os.path.join(BASE_DIR, "characters")
+BGM_DIR = os.path.join(BASE_DIR, "assets", "bgm")
+BGM_CATALOG_PATH = os.path.join(BASE_DIR, "data", "bgm_catalog.json")
+
+# Stage bgm (BGM オーバーレイ) のミックスパラメータ。BGM は TTS の
+# BGM_VOLUME_RATIO 倍の音量で敷き、発話中は sidechaincompress で自動的に下げる
+# (ダッキング)。詳細は docs/plannings/2026-05-27_bgm-overlay-stage.md。
+BGM_VOLUME_RATIO = 0.18          # BGM のベース音量 (TTS=1.0 比)
+BGM_DUCKING_ENABLED = True       # 発話中に BGM を下げる
+BGM_DUCKING_THRESHOLD = 0.03     # sidechaincompress threshold (TTS がこれ以上で圧縮)
+BGM_DUCKING_RATIO = 8            # 圧縮比 (大きいほど強く下げる)
+BGM_DUCKING_ATTACK_MS = 5        # 圧縮開始の速さ
+BGM_DUCKING_RELEASE_MS = 300     # 圧縮解除の速さ (発話後に BGM が戻る)
+BGM_FADE_IN_SEC = 1.0            # 冒頭フェードイン
+BGM_FADE_OUT_SEC = 1.5           # 末尾フェードアウト
 DEFAULT_CHARACTER_REFS: list[str] = ["f1"]
 
 # cache 関連は config.cache から re-export (= §3.1.4-b)。
