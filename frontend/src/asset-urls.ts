@@ -70,17 +70,6 @@ export function overlayAssetUrl(ts: string, version?: number | string): string {
 export function reelsAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/reels`, version);
 }
-
-export function finalVersionAssetUrl(
-  ts: string,
-  filename: string,
-  version?: number | string,
-): string {
-  return withVersion(
-    `${API_BASE}/asset/${ts}/final-version/${encodeURIComponent(filename)}`,
-    version,
-  );
-}
 export function referenceVideoAssetUrl(sha256: string): string {
   return `${API_BASE}/asset/reference-video/${sha256}`;
 }

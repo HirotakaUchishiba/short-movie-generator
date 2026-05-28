@@ -8,8 +8,7 @@ import StageBG from "./components/stages/StageBG";
 import StageKling from "./components/stages/StageKling";
 import StageScene from "./components/stages/StageScene";
 import StageOverlay from "./components/stages/StageOverlay";
-import StageFinalImport from "./components/stages/StageFinalImport";
-import StagePublish from "./components/stages/StagePublish";
+import StageDownload from "./components/stages/StageDownload";
 import AnalyzeStage0Page from "./pages/AnalyzeStage0Page";
 import IntentCatalogPage from "./pages/IntentCatalogPage";
 
@@ -99,18 +98,10 @@ export default function App() {
           }
         />
         <Route
-          path="final_import"
+          path="download"
           element={
-            <ErrorBoundary context="StageFinalImport">
-              <StageFinalImport />
-            </ErrorBoundary>
-          }
-        />
-        <Route
-          path="publish"
-          element={
-            <ErrorBoundary context="StagePublish">
-              <StagePublish />
+            <ErrorBoundary context="StageDownload">
+              <StageDownload />
             </ErrorBoundary>
           }
         />

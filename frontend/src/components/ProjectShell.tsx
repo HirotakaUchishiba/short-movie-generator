@@ -54,8 +54,7 @@ const STAGE_SCAN_ORDER: StageName[] = [
   "kling",
   "scene",
   "overlay",
-  "final_import",
-  "publish",
+  "download",
 ];
 
 const STAGE_LABELS: Partial<Record<StageName, string>> = {
@@ -65,8 +64,7 @@ const STAGE_LABELS: Partial<Record<StageName, string>> = {
   kling: "Kling 動画",
   scene: "音声合成",
   overlay: "字幕オーバーレイ",
-  final_import: "取込",
-  publish: "公開",
+  download: "完成",
 };
 
 const STAGE_RETRY_HINTS: Partial<Record<StageName, string>> = {
@@ -77,8 +75,6 @@ const STAGE_RETRY_HINTS: Partial<Record<StageName, string>> = {
   scene:
     "retry は Sync.so lipsync 再生成 — 失敗 scene のみ再課金 (= $0.07/scene)。",
   overlay: "retry は ffmpeg 再描画のみ — AI 課金は発生しない。",
-  final_import: "retry は file copy のみ — 課金なし。",
-  publish: "retry は API 再呼び出しのみ — 動画 upload 自体に追加課金は無し。",
 };
 
 // progress.stages から status==="failed" + error_detail を持つ最初の stage を
