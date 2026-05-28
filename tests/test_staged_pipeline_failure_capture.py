@@ -33,9 +33,7 @@ def test_run_next_stage_failure_writes_structured_error_detail(project_ts: str) 
                 RuntimeError("Your credit balance is too low (ElevenLabs)")
             ),
         },
-    ), patch.object(staged_pipeline, "_record_stage_run"):
-        # _record_stage_run は analytics DB に書く副作用がある (= 別経路) ので
-        # mock。本 test は progress_store 経路だけ検証する。
+    ):
         with pytest.raises(RuntimeError):
             staged_pipeline.run_next_stage(fake_screenplay, "dummy", project_ts)
 
@@ -59,7 +57,7 @@ def test_run_next_stage_propagates_exception(project_ts: str) -> None:
             **staged_pipeline.STAGE_RUNNERS,
             "tts": lambda sp, ts: (_ for _ in ()).throw(ValueError("boom")),
         },
-    ), patch.object(staged_pipeline, "_record_stage_run"):
+    ):
         with pytest.raises(ValueError, match="boom"):
             staged_pipeline.run_next_stage(fake_screenplay, "dummy", project_ts)
 
@@ -89,7 +87,7 @@ def test_run_next_stage_success_does_not_set_failed(project_ts: str) -> None:
         staged_pipeline,
         "STAGE_RUNNERS",
         {**staged_pipeline.STAGE_RUNNERS, "tts": fake_tts},
-    ), patch.object(staged_pipeline, "_record_stage_run"):
+    ):
         result = staged_pipeline.run_next_stage(fake_screenplay, "dummy", project_ts)
 
     assert result == "tts"

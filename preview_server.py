@@ -21,15 +21,13 @@ import staged_pipeline
 from analyze import job as analyze_job
 from analyze import progress as analyze_progress
 from analyze import runner as analyze_runner
-from analytics import db as _analytics_db
+from analyze import store as _analyze_store
 
 log_setup.setup()
 logger = logging.getLogger(__name__)
 
-# 起動時に analytics DB schema を最新化する。
-# analyze_jobs / analyze_phases / reference_videos テーブルが含まれていない
-# 古い DB でも CREATE TABLE IF NOT EXISTS で安全に追加される。
-_analytics_db.init_db()
+# 起動時に analyze ジョブ DB の schema を最新化する。
+_analyze_store.ensure_schema()
 
 
 def _bootstrap_intent_suggestions_inbox() -> None:
@@ -78,7 +76,6 @@ CORS(app)
 from routes.assets import assets_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
-from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
@@ -93,7 +90,6 @@ from routes.reference_videos import reference_videos_bp  # noqa: E402
 from routes.screenplay import screenplay_bp  # noqa: E402
 from routes.stage_cache import stage_cache_bp  # noqa: E402
 from routes.stages import stages_bp  # noqa: E402
-from routes.bgm import bgm_bp  # noqa: E402
 
 app.register_blueprint(cost_bp)
 app.register_blueprint(config_bp)
@@ -102,7 +98,6 @@ app.register_blueprint(intent_catalog_bp)
 app.register_blueprint(clip_library_bp)
 app.register_blueprint(intent_suggestions_bp)
 app.register_blueprint(stages_bp)
-app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
 app.register_blueprint(screenplay_bp)
 app.register_blueprint(analyze_bp)
@@ -113,7 +108,6 @@ app.register_blueprint(catalogs_bp)
 app.register_blueprint(jobs_bp)
 app.register_blueprint(stage_cache_bp)
 app.register_blueprint(project_queries_bp)
-app.register_blueprint(bgm_bp)
 
 
 _AUTH_TOKEN = os.getenv("PREVIEW_AUTH_TOKEN", "").strip() or None
@@ -155,7 +149,7 @@ SCREENPLAYS_DIR = config.SCREENPLAYS_DIR
 OUTPUT_DIR = config.OUTPUT_DIR
 
 # 共有 job state は job_runner.py を SSOT とする。Blueprint 化される routes
-# (= routes/stages.py / routes/publish.py 等) からも安全に呼べる。
+# (= routes/stages.py 等) からも安全に呼べる。
 import job_runner  # noqa: E402
 
 _jobs = job_runner._jobs
@@ -167,8 +161,7 @@ _screenplay_lock = staged_pipeline.screenplay_lock
 FRONTEND_DIST = os.path.join(os.path.dirname(__file__), "frontend", "dist")
 
 
-# /api/config/* は routes/config.py の Blueprint に移管済み
-# (= /api/config, /api/config/{model,speed,silences,qa-tags} の 5 routes)。
+# /api/config/* は routes/config.py の Blueprint に移管済み。
 
 
 @app.after_request
@@ -221,15 +214,9 @@ from routes.projects import (  # noqa: E402, F401
 # tts-source / composed-prompts / progress は routes/project_queries.py に移管済 (= §3.1.2)。
 
 
-# /api/projects/<ts>/{run-next,approve,reject,regen} は routes/stages.py
-# の Blueprint に移管済み。互換 shim で _archive_before_regen /
-# _stage_artifact_paths / _REJECT_NOTE_MAX_LENGTH を re-export し、既存テスト
-# (= test_preview_server_reject.py) の import path を保つ。
-from routes.stages import (  # noqa: E402, F401
-    _REJECT_NOTE_MAX_LENGTH,
-    _archive_before_regen,
-    _stage_artifact_paths,
-)
+# /api/projects/<ts>/{run-next,approve,reject,regen} は routes/stages.py の
+# Blueprint に移管済み。
+from routes.stages import _REJECT_NOTE_MAX_LENGTH  # noqa: E402, F401
 
 
 # ───────────────── 台本書き戻し ─────────────────
@@ -313,10 +300,6 @@ def _spawn_job(fn, *, kind: str, ts: str, exclusive_ts: bool = True) -> str:
 # ───────────────── コスト記録 / 動的見積もり / レポート ─────────────────
 # /api/cost/* は routes/cost.py の Blueprint に移管済み (= app.register_blueprint)。
 # Blueprint 完全移行は routes/__init__.py の roadmap 参照。
-
-
-# Stage 7 (final import) + Stage 8 (publish) は routes/final_publish.py の
-# Blueprint に移管済み。
 
 
 # ───────────────── React 静的配信 ─────────────────

@@ -1,5 +1,4 @@
 import type {
-  BgmTrack,
   AbstractScreenplay,
   AbstractScreenplayResponse,
   AnalyzeJobDetail,
@@ -18,7 +17,6 @@ import type {
   CostProjectReport,
   CostStage,
   DecisionsResponse,
-  FinalVersion,
   KlingCacheEntry,
   KlingCandidateMeta,
   KlingDecisionsResponse,
@@ -27,7 +25,6 @@ import type {
   ProjectDetail,
   ProjectListItem,
   Progress,
-  PublishedPost,
   ReferenceVideo,
   ReferenceVideoUploadResult,
   Screenplay,
@@ -177,15 +174,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ screenplay: stripUids(screenplay) }),
     }),
-  listBgm: () => http<{ bgm: BgmTrack[] }>(`/api/bgm`),
-  setBgm: (
-    ts: string,
-    body: { id: string; volume?: number; ducking?: boolean },
-  ) =>
-    http<{ bgm: { id: string; volume: number; ducking: boolean } }>(
-      `/api/projects/${ts}/bgm`,
-      { method: "PUT", body: JSON.stringify(body) },
-    ),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
   // patch.<field> = null でフィールド削除。
@@ -419,35 +407,6 @@ export const api = {
     typeof makeStageCacheApi<KlingCandidateMeta, KlingCacheEntry>
   >,
 
-  // ─── Stage 8 final import / Stage 9 publish ──────────
-  listFinals: (ts: string) =>
-    http<{ final_versions: FinalVersion[] }>(`/api/projects/${ts}/final`),
-  setCanonicalFinal: (ts: string, filename: string) =>
-    http<{ final_version: FinalVersion }>(
-      `/api/projects/${ts}/final/${encodeURIComponent(filename)}/canonical`,
-      { method: "POST" },
-    ),
-  deleteFinal: (ts: string, filename: string) =>
-    http<{ ok: true; deleted: string }>(
-      `/api/projects/${ts}/final/${encodeURIComponent(filename)}`,
-      { method: "DELETE" },
-    ),
-  publish: (
-    ts: string,
-    body: {
-      platform: "youtube" | "instagram" | "tiktok";
-      privacy?: "private" | "unlisted" | "public";
-    },
-  ) =>
-    http<{ job_id: string }>(`/api/projects/${ts}/publish`, {
-      method: "POST",
-      body: JSON.stringify(body),
-    }),
-  publishHistory: (ts: string) =>
-    http<{ published_posts: PublishedPost[] }>(
-      `/api/projects/${ts}/publish-history`,
-    ),
-
   // cost: 実体は ./api/cost.ts (= §3.1.3 で分離)。bgCache と同じ pattern で
   // placeholder 予約 → 下で makeCostApi(http) を代入する。
   cost: undefined as unknown as ReturnType<typeof makeCostApi>,
@@ -496,7 +455,6 @@ export type {
 export {
   bgAssetUrl,
   characterAssetUrl,
-  finalVersionAssetUrl,
   klingAssetUrl,
   locationPreviewUrl,
   overlayAssetUrl,

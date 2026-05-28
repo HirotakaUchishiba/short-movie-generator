@@ -1,6 +1,7 @@
 # Short Movie Generator
 
-ショート動画を自動生成する日本語特化ツール。
+ショート動画を自動生成する日本語特化ツール。**動画の生成までを責務**とし、
+公開や公開後の分析は本プロジェクトの範囲外。
 
 ## 最重要ルール
 
@@ -33,19 +34,17 @@
 
 - 言語は **日本語のみ** に限定。テーマは特定領域に固定しない。
 - 台本は `screenplays/<名前>.json` に配置する。`scripts/analyze_video.py` で参考動画から自動生成する (= 現状の唯一の作成経路。screenplay を新規作成する UI は無く、手書きで起こす導線は廃止済み)。
-- 動画生成は **段階的ゲート方式**。台本作成後、`python main.py <台本名>` を起動するたびに **1ステージだけ** 実行して停止する。プレビューUIで成果物を確認・承認するまで次stageに進まない。フルオートは `scripts/auto_loop.py` (= 参考動画 URL 起点で Stage 1→7 を自動進行、Stage 8 は既定で `PRODUCTION_HUMAN_GATE_ENABLED=1` により publish 直前で停止) のみが正規経路で、`main.py` / UI からは到達できない。
+- 動画生成は **段階的ゲート方式**。台本作成後、`python main.py <台本名>` を起動するたびに **1ステージだけ** 実行して停止する。プレビューUIで成果物を確認・承認するまで次stageに進まない。
 
-## 段階的ゲート方式 (8ステージ)
+## 段階的ゲート方式 (7ステージ)
 
 ```
-[1.台本] → [2.TTS] → [3.背景] → [4.Kling] → [5.音声/リップシンク合成] → [6.字幕 (= pipeline raw)]
-                                                                                ↓
-                                                                  [7.取込 (= raw → canonical)] → [8.公開 (YouTube/IG/TikTok)]
+[1.台本] → [2.TTS] → [3.背景] → [4.Kling] → [5.音声/リップシンク合成] → [6.字幕] → [7.完成 (ダウンロード)]
 ```
 
 各stageの成果物は `temp/<TS>/tmp/` に保存され、進捗は `tmp-progress.json` で管理する。プレビューUIで承認するまで次stageは実行できない。
 
-**Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に pipeline raw である `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7** は auto_loop が pipeline raw を canonical 化する内部経路 (= `_import_raw_as_final()`)。**Stage 8** はユーザの公開アクションが起点で、`run-next` では自動起動しない。
+**Stage 6 まで** はパイプラインが自動で生成し、UI 承認で次に進む完全自動。Stage 6 (字幕) の生成完了時に最終動画 `output/reels_<TS>.mp4` と SNS キャプションも同時に書き出される。**Stage 7 (完成)** は overlay 承認後に自動で発火する最終 stage で、完成動画の存在確認 + プレビューUIでのダウンロード提供を行う (= ここで動画は完成。公開は本プロジェクトの責務外で、生成済み reels を任意のプラットフォームへ手動で投稿する)。
 
 **Stage 1「台本」ページの「素材編集」セクション** — analyze 経由で作成されたプロジェクト (= `metadata.json` に `analyze_job_id` がある) では、Stage 1 ページ上部に **参考動画 (read-only) / 抽象台本 (caption + 登場人物 + 話者マッピング + シーン別 lines)** が表示される。話者マッピングは Claude が振った匿名 `speaker_1, speaker_2, ...` を実 character ref に対応付ける UI で、ここを 1 回設定するだけで各シーンの登場人物と各 line の `voice_overrides` が自動推論される。`identity` / `annotation` / `location_ref` / `camera_distance` は analyze pipeline が SSOT として産出するため Stage 1 に編集 UI は無い (= `IdentityEditor` / `AnnotationEditor` / `SceneFieldEditor` は撤去済み、`docs/plannings/2026-05-12_legacy-schema-removal.md` 参照)。analyze 経由でないプロジェクト (= `analyze_job_id` 無し、legacy 残骸の screenplay template を選択した場合のみ発生) では話者マッピングは表示されず、Stage 1 は完全 screenplay の確認のみとなる。
 
@@ -58,25 +57,22 @@ cd frontend && npm run dev           # http://localhost:5173 (フロント開発
 # または `npm run build` 後はサーバが /frontend/dist を配信
 
 # UIで「プロジェクト作成」 → Stage 1完了。承認すると次stageが自動起動
-# CLIから手動で進めることも可 (= Stage 1-6 まで。Stage 7+ は auto_loop 経由のみ):
+# CLIから手動で進めることも可:
 python3 main.py <台本>                # 新規TS生成 + Stage 1実行
 python3 main.py <台本> --resume <TS>  # 既存TSの次stageを実行
 ```
 
-`python3 main.py --resume <TS>` は **Stage 6 (overlay) まで** を手送りする経路。Stage 7 (取込) は `scripts/auto_loop.py` の URL 起点フルラン経路に統合されており、manual main.py からは進行しない。`--list-finals` / `--canonical` / `--publish` は auto_loop が canonical を作った後の再選択 / 再公開のための補助コマンドとして残してある。
-
 ### ステージ別の成果物
 
-| Stage           | アーティファクト                                                          | 主な確認内容                                                                                                                                                        |
-| --------------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| 1. script       | `metadata.json` + 台本検証                                                | caption/シーン構成/lines 整合性 (analyze 経由なら同ページ上部で 参考動画 / 抽象台本 / 話者マッピングも編集可能。保存時は Stage 1〜6 の承認のみ解除し assets は保持) |
-| 2. tts          | `tmp/tts_<S>_<L>.mp3`                                                     | 各セリフの発音/感情/速度/voice_id                                                                                                                                   |
-| 3. bg           | `tmp/bg_<S>.png`                                                          | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入                                                                                                                    |
-| 4. kling        | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`                            | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
-| 5. scene        | `tmp/scene_<S>.mp4`                                                       | 音声 / リップシンク合成済みの完成シーン動画                                                                                                                         |
-| 6. overlay      | `tmp/overlaid.mp4` + `output/reels_<TS>.mp4` + `post_captions/<title>.md` | 字幕の表示位置・タイミング・視認性。生成時に pipeline raw (`reels_<TS>.mp4`) と SNS キャプションも同時に書き出される                                                |
-| 7. final_import | `temp/<TS>/final/<HHMMSS>.mp4`                                            | auto_loop が pipeline raw を取り込み canonical 化する。複数 final が存在する場合は UI または CLI で canonical を切替えて Stage 8 の対象を選択する                   |
-| 8. publish      | `metadata.json.published_posts[]` + analytics DB                          | YouTube は Data API resumable upload で自動投稿、IG/TikTok は半自動 (caption をクリップボードへ + アプリ起動)。成功時に `posts` テーブルに登録される                |
+| Stage       | アーティファクト                                                          | 主な確認内容                                                                                                                                                        |
+| ----------- | ------------------------------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| 1. script   | `metadata.json` + 台本検証                                                | caption/シーン構成/lines 整合性 (analyze 経由なら同ページ上部で 参考動画 / 抽象台本 / 話者マッピングも編集可能。保存時は Stage 1〜6 の承認のみ解除し assets は保持) |
+| 2. tts      | `tmp/tts_<S>_<L>.mp3`                                                     | 各セリフの発音/感情/速度/voice_id                                                                                                                                   |
+| 3. bg       | `tmp/bg_<S>.png`                                                          | 構図・キャラ一貫性・字幕領域(下部)への被写体侵入                                                                                                                    |
+| 4. kling    | `tmp/kling_<S>.mp4` + `tmp/scene_<S>.trim.mp4`                            | 動き・キャラ崩壊・動作完了点                                                                                                                                        |
+| 5. scene    | `tmp/scene_<S>.mp4`                                                       | 音声 / リップシンク合成済みの完成シーン動画                                                                                                                         |
+| 6. overlay  | `tmp/overlaid.mp4` + `output/reels_<TS>.mp4` + `post_captions/<title>.md` | 字幕の表示位置・タイミング・視認性。生成時に最終 reels (`reels_<TS>.mp4`) と SNS キャプションも同時に書き出される                                                   |
+| 7. download | `output/reels_<TS>.mp4` (再利用)                                          | overlay 承認後に自動完了する最終 stage。プレビューUIから動画再生 + ダウンロード                                                                                     |
 
 ### 個別シーンの再生成
 
@@ -94,7 +90,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 
 ### 静的設計 (= `docs/developments/`)
 
-- `docs/developments/workflow.md` — **全体ワークフロー** (= 参考動画 → 公開動画までの完全な動的フロー、Stage 別成果物・コスト・モデル一覧)
+- `docs/developments/workflow.md` — **全体ワークフロー** (= 参考動画 → 完成動画までの動的フロー、Stage 別成果物・コスト・モデル一覧)
 - `docs/developments/architecture.md` — レイヤ・依存方向・データフロー・Stage × 外部 API マトリクス
 - `docs/developments/coding-rules.md` — Python / TypeScript コーディング規約・命名・log・error handling
 - `docs/developments/testing.md` — テスト戦略・観点 3 セット・factory・モック規約
@@ -104,7 +100,7 @@ UIから各シーンカードの「再生成」ボタンで個別シーンのみ
 ### ドメイン (= `docs/`)
 
 - `docs/content-strategy.md` — **動画制作の根本戦略**。Transformation / コンテンツ軸 / POV / MVP / 最適化
-- `docs/architecture-decisions.md` — AI モデル選定、プラットフォーム選定、コスト構造、プロンプト最適化、cost_tracking 仕様
+- `docs/architecture-decisions.md` — AI モデル選定、コスト構造、プロンプト最適化、cost_tracking 仕様
 - `docs/abstract-screenplay-design.md` — **抽象台本生成 + compose 合成** の設計 (analyze pipeline は構成・セリフ・感情・話者に加え `location_ref` / `camera_distance` を `locations/` カタログから自動選定する。`identity` / `annotation` も analyze が SSOT として産出する)
 
 ### フロー (= `docs/plannings/`)
@@ -306,15 +302,16 @@ python3 scripts/analyze_video.py path/to/reference.mov
 python3 scripts/analyze_video.py path/to/reference.mov --fps 1.5  # フレーム抽出レート変更
 ```
 
-プラットフォーム UI 要素 (TikTok / Instagram / YouTube Shorts のハンドル名・いいね・コメント・ウォーターマーク) は **SYSTEM_PROMPT が常に無視するよう指示済み** (= `video_analyzer.SYSTEM_PROMPT`)。手動の追加指示欄 (CLI `--instructions` / UI textarea) は廃止。`AnalyzeOptions.instructions` フィールドは残るが、これは `scripts/auto_loop.py` の Phase 3 戦略注入 (= bandit が選んだ "結論先出し" 等の directive を analyze prompt に流す) 用で、UI / CLI からは触れない。
+プラットフォーム UI 要素 (TikTok / Instagram / YouTube Shorts のハンドル名・いいね・コメント・ウォーターマーク) は **SYSTEM_PROMPT が常に無視するよう指示済み** (= `video_analyzer.SYSTEM_PROMPT`)。
 
 - フレーム抽出は **0.5秒刻み** が既定（`--fps 2.0`）。変更可能
 - 音声: Whisper でword単位のtranscript取得（`OPENAI_API_KEY`が無ければ `faster-whisper` ローカル推論にフォールバック）
 - librosa で各phraseの pitch/rms/wpm を抽出
 - 全素材を Claude Opus 4.7 (1M context) に渡して統合推論。出力は **抽象台本** (構成・セリフ・感情・各 line.speaker は resolved id 直書き、ビジュアル要素は scene 個別フィールド)。詳細は `docs/abstract-screenplay-design.md`
-- **casting は参考動画に寄せない** (= 2026-05-17 方針、`docs/plannings/2026-05-17_decouple-casting-from-reference.md` + `2026-05-17_drop-speaker-mapping-schema.md`): analyze は character catalog の base を alphabetical 順に line.speaker へ直書きする。Stage 1 UI で人間が自由に選び直す前提。`speaker_to_ref` / `speaker_profiles` の mapping schema は撤廃 (= dead 抽象化を解消)
+- **casting は参考動画に寄せない** (= 2026-05-17 方針、`docs/plannings/2026-05-17_decouple-casting-from-reference.md` + `2026-05-17_drop-speaker-mapping-schema.md`): analyze は character catalog の base を alphabetical 順に line.speaker へ直書きする。Stage 1 UI で人間が自由に選び直す前提
 - **rewrite phase (= Gemini)**: Claude の inference 直後に `gemini_dialogue_rewriter` が走り、`line.text` + `caption` だけを **同じ意味・同じ感情・独自の言い回し** に書き換える (= 翻案権配慮、2026-05-17 `docs/plannings/2026-05-17_gemini-dialogue-rewrite.md`)。失敗時は graceful に Claude original 維持 (= analyze 全体は止めない)。`ANALYZE_DIALOGUE_REWRITE_ENABLED=0` で kill-switch 可能。文字数比率 ±20% 超 / ASCII `,`/`.` 含 / payload 欠落の line は per-line で original に降格
 - 所要コストは `data/cost_records.jsonl` の履歴 median から動的算定 (履歴 < 3 件は "履歴不足" 表示)。単価カタログは `data/pricebook.json` (運用者管理)。rewrite phase は `stage="analyze_rewrite"` で個別記録される (= ~$0.02/動画)
+- analyze ジョブ DB は `data/analyze.db` に独立して保管される (analyze_jobs / analyze_phases / reference_videos の 3 テーブル)
 - 必要な環境変数: `ANTHROPIC_API_KEY` 必須、`GOOGLE_API_KEY` 必須 (= Imagen + Gemini rewrite)。`OPENAI_API_KEY` は任意（無ければローカル whisper）
 
 ## 感情 → inline tag / Kling motion 自動適用
@@ -337,7 +334,7 @@ Stage 2 は `generate_screenplay_tts_one_shot()` が unique speaker 数で 2 経
 ### voice_id 解決 (= 2 段 fallback)
 
 ```
-characters/<base>/voice.json.voice_id   ← キャラ既定 (= PR #201 で 5 キャラ割当済)
+characters/<base>/voice.json.voice_id   ← キャラ既定
    ↓ 未設定 / 読込失敗
 config.ELEVENLABS_VOICE_ID              ← グローバル既定
 ```
@@ -431,98 +428,21 @@ Sync.so 公式 API (`lipsync-2`) のみ。`.env` に `SYNC_API_KEY=<key>` を入
 
 - multipart 上限 1 ファイル 20MB。シーン動画 / audio はこの範囲に収まる前提
 
-## Stage 7 取込 + Stage 8 公開
-
-Stage 6 で生成された `output/reels_<TS>.mp4` (= pipeline raw) を canonical 化し、analytics + 公開につなげるためのフェーズ。
-
-### Stage 7: final import
-
-`scripts/auto_loop.py:_import_raw_as_final()` が pipeline raw を `final_import.import_final(ts, src)` 経由で `temp/<TS>/final/<HHMMSS>.mp4` に取り込み、`metadata.json.final_versions[]` に登録する。これが唯一の取込経路。
-
-複数バージョンを保管できる (= 同じ TS で複数の raw がある場合)。`is_canonical` フラグで「analytics / publish の正本」を管理し、UI または CLI (`--canonical <FILENAME>`) で切替可能。
-
-### Stage 8: 公開フロー
-
-| platform            | 自動化                                           | 必要な env                                                                                                                                   |
-| ------------------- | ------------------------------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------- |
-| **YouTube Shorts**  | 完全自動 (Data API resumable upload)             | `YOUTUBE_OAUTH_CLIENT_ID` / `_CLIENT_SECRET` / `_REFRESH_TOKEN` (`youtube.upload` スコープ同意必須)                                          |
-| **Instagram Reels** | 半自動 (caption をクリップボードへ + アプリ起動) | (Phase 1 では env 不要。Graph API 自動化は `INSTAGRAM_ACCESS_TOKEN` + `INSTAGRAM_BUSINESS_ID` で `platform_clients/instagram.py` がスタブ済) |
-| **TikTok**          | 半自動 + CSV 取込                                | (Phase 1 では env 不要。Display API は `TIKTOK_ACCESS_TOKEN` + `TIKTOK_OPEN_ID`、CSV は `scripts/ingest_tiktok_csv.py`)                      |
-
-YouTube は upload 成功時に `analytics.posts` に自動登録 (= `register_post.py` を叩かなくて良い)。IG/TikTok は半自動なので、アップロード完了後にユーザが URL を `register_post.py` で投入する。`fetch_metrics.py` は YouTube/IG/TikTok の 3 platform に対応 (= IG/TikTok は env 設定後に有効)。
-
-DB 登録が失敗した場合 (= disk full / SQLite 内部エラー等の極めてまれなケース) は publish 自体は **成功扱い** (= 動画は世界に出ているので Stage 8 mark_generated)、`metadata.json.published_posts[].analytics_persisted=false` + `analytics_warning` フィールドが残る。error log に復旧コマンドが出るので `python3 scripts/register_post.py <ts> <platform> <URL>` で手動補完する (= 旧 pending queue / 同期保留 機構は 2026-05-10 撤去済み — `docs/plannings/2026-05-10_remove-pending-queue.md` 参照)。
-
-```bash
-# Stage 7 (final 一覧 / canonical 切替)
-python3 main.py --resume 20260506_120000 --list-finals
-python3 main.py --resume 20260506_120000 --canonical 142233.mp4   # canonical 切替
-
-# Stage 8 (公開)
-python3 main.py --resume 20260506_120000 --publish youtube --privacy unlisted
-python3 main.py --resume 20260506_120000 --publish instagram     # 半自動
-
-# TikTok Studio CSV 取込 (= 暫定の metrics 取得)
-python3 scripts/ingest_tiktok_csv.py path/to/video_performance.csv
-```
-
-## 分析基盤（Analytics）
-
-SQLiteベースの台本×動画×投稿×メトリクス管理基盤。`data/analytics.db` に保存。
-
-### 運用フロー
+## 必要な環境変数
 
 ```
-# 1. 台本をDBに登録＋Claude Haikuでhook/tone/emotion/theme等を自動タグ付け
-python3 scripts/ingest_screenplay.py screenplays/19_xxx.json
-
-# 2. 生成した動画をDBに登録（metadata.jsonから台本と紐付け）
-#    canonical な final があれば自動でそちらを output_path にする (= --prefer raw で raw 強制可)
-python3 scripts/ingest_video.py 20260425_123456
-
-# 3. 各プラットフォームへ投稿後、投稿URLをDBに登録
-python3 scripts/register_post.py 20260425_123456 youtube https://youtube.com/shorts/abc
-python3 scripts/register_post.py 20260425_123456 instagram https://www.instagram.com/reel/xxx
-python3 scripts/register_post.py 20260425_123456 tiktok <tiktok_post_id>
-
-# 4. YouTube成績を取得（cron推奨、Instagram/TikTokは未対応）
-python3 scripts/fetch_metrics.py --platform youtube
-
-# 5. ダッシュボード閲覧
-streamlit run scripts/dashboard.py
+ANTHROPIC_API_KEY=...      # analyze pipeline (Claude Opus 4.7)
+GOOGLE_API_KEY=...         # Imagen (背景) + Gemini (rewrite phase)
+ELEVENLABS_API_KEY=...     # ElevenLabs TTS
+FAL_KEY=...                # fal.ai Kling V3 動画生成
+SYNC_API_KEY=...           # Sync.so lipsync
+OPENAI_API_KEY=...         # (任意) Whisper transcript。未設定なら faster-whisper にフォールバック
 ```
-
-### 必要な環境変数
-
-```
-# 分析ツール
-OPENAI_API_KEY=...              # scripts/analyze_video.py
-ANTHROPIC_API_KEY=...           # scripts/analyze_video.py / ingest_screenplay.py (auto_tag)
-
-# YouTube
-YOUTUBE_API_KEY=...             # 公開統計（views/likes/comments等）
-YOUTUBE_OAUTH_CLIENT_ID=...     # Analytics API（完遂率・視聴時間等、要OAuth）
-YOUTUBE_OAUTH_CLIENT_SECRET=...
-YOUTUBE_REFRESH_TOKEN=...       # 初回認可後の refresh token
-
-# analytics DBの保存先（任意、既定: data/analytics.db）
-ANALYTICS_DB_PATH=/absolute/path/analytics.db
-```
-
-### データモデル
-
-- `screenplays` — 台本 + 自動タグ（hook_type/tone/dominant_emotion/theme/character_archetype）
-- `videos` — 生成動画、台本IDで紐付け
-- `posts` — 投稿（YouTube/Instagram/TikTok）、video_idで紐付け
-- `post_metrics` — 時系列メトリクス、post_idで紐付け
-- `v_performance` — 横断ビュー（台本×動画×投稿×最新メトリクス）
-
-Instagram・TikTokのAPI連携は未実装。必要になったら `platform_clients/` に追加する。
 
 ## コマンド一覧
 
 ```
-# 生成（段階的ゲート方式: 1回起動につき1ステージ実行）
+# 生成 (段階的ゲート方式: 1回起動につき1ステージ実行)
 python3 main.py <台本>                                    新規TS発行 + Stage 1 実行
 python3 main.py <台本> --resume TS                        既存TSの次stage実行
 
@@ -531,13 +451,6 @@ python3 preview_server.py                                  バックエンド (h
 cd frontend && npm install && npm run build               フロントビルド (初回のみ)
 cd frontend && npm run dev                                 フロント開発サーバ (http://localhost:5173)
 
-# 分析
+# 参考動画から台本を逆算
 python3 scripts/analyze_video.py <参考動画>               参考動画から台本を逆算生成
-
-# 投稿と成績管理
-python3 scripts/ingest_screenplay.py <台本.json>          DB登録+自動タグ
-python3 scripts/ingest_video.py <TS>                      DB登録（台本と紐付け）
-python3 scripts/register_post.py <video_id> <platform> <URL>
-python3 scripts/fetch_metrics.py [--platform youtube]     最新メトリクス取得
-streamlit run scripts/dashboard.py                         ダッシュボード
 ```

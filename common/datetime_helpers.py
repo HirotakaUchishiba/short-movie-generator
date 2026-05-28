@@ -1,8 +1,8 @@
 """project 内で重複していた datetime helper を 1 箇所に集約 (= §3.1.5)。
 
 - ``now_iso_local_seconds()`` — local time, second precision の ISO 8601。
-  bg/kling cache decisions の ``decided_at`` / final_import の ``imported_at``
-  等、人間可読の audit 用途に使う tz-naive 文字列。
+  bg/kling cache decisions の ``decided_at`` 等、人間可読の audit 用途に
+  使う tz-naive 文字列。
 
 別 semantics の helper は意図的にここに集約しない:
 - ``clip_library._now_iso()`` は UTC + ms (= 競合解決に細粒度が必要)

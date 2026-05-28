@@ -1,0 +1,600 @@
+{
+  "caption": "日本総合研究所のホントの評判\n銀行員より高給なエンジニアの裏側を公開\n\n#日本総研 #JRI #SIer #エンジニア転職 #年収1000万 #ワークライフバランス #就活 #転職",
+  "hook_id": "behind_scene",
+  "arc_id": "problem_solution_celebration",
+  "featured_characters": [
+    "m1__office"
+  ],
+  "scenes": [
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 10,
+        "motion_intensity": "low"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "日本総合研究所、通称JRIの本当の評判ですね",
+          "start": 0.0,
+          "end": 1.6,
+          "emotion": "中立",
+          "delivery": "落ち着いた導入トーン",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.16,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "日本総合研究所": "にほんそうごうけんきゅうじょ",
+            "JRI": "ジェイアールアイ"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "日系企業の安定性とコンサルの高給与を両立した極めて優良な会社",
+          "start": 1.6,
+          "end": 6.1,
+          "emotion": "中立",
+          "delivery": "説明的に淡々と",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.12,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "日系": "にっけい",
+            "高待遇": "こうたいぐう",
+            "超優良企業": "ちょうゆうりょうきぎょう"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "という印象ですが、実態はどうなのでしょうか",
+          "start": 6.1,
+          "end": 7.3,
+          "emotion": "困惑",
+          "delivery": "問いかけ調",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 200
+          },
+          "pronunciation_hints": {
+            "実際": "じっさい"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "本日は求人票では分からない収入と働き方の実態を明かします",
+          "start": 7.3,
+          "end": 11.2,
+          "emotion": "中立",
+          "delivery": "宣言的",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.08,
+            "wpm": 220
+          },
+          "pronunciation_hints": {
+            "求人票": "きゅうじんひょう",
+            "WLB": "ダブリューエルビー"
+          }
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_animated",
+        "duration_bucket": 10,
+        "motion_intensity": "medium"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "平均年収は約980万円で",
+          "start": 0.0,
+          "end": 2.7,
+          "emotion": "中立",
+          "delivery": "数値を明瞭に発音",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.08,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "平均年収": "へいきんねんしゅう",
+            "980万円": "きゅうひゃくはちじゅうまんえん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "30代前半で1000万に届く",
+          "start": 2.7,
+          "end": 4.7,
+          "emotion": "満足",
+          "delivery": "インパクトを出す",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.08,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "30代前半": "さんじゅうだいぜんはん",
+            "1000万": "せんまん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "注目はボーナスの安定感",
+          "start": 4.7,
+          "end": 6.1,
+          "emotion": "中立",
+          "delivery": "トーン下げて強調",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.1,
+            "wpm": 205
+          },
+          "pronunciation_hints": {
+            "安定感": "あんていかん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "年間約7ヶ月分が目安",
+          "start": 6.1,
+          "end": 7.8,
+          "emotion": "中立",
+          "delivery": "明瞭に数値強調",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 205
+          },
+          "pronunciation_hints": {
+            "年間": "ねんかん",
+            "7ヶ月分": "ななかげつぶん",
+            "目安": "めやす"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "入社4年目だと評価によっては賞与だけで200万円も可能です",
+          "start": 7.8,
+          "end": 11.2,
+          "emotion": "満足",
+          "delivery": "自信を持って提示",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "4年目": "よねんめ",
+            "評価次第": "ひょうかしだい",
+            "単体": "たんたい"
+          }
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_animated",
+        "duration_bucket": 10,
+        "motion_intensity": "medium"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "三井住友銀行のシステムを一手に担っているため",
+          "start": 0.0,
+          "end": 3.88,
+          "emotion": "中立",
+          "delivery": "理由を順序立てて",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.08,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "三井住友銀行": "みついすみともぎんこう",
+            "独占": "どくせん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "不景気でも賞与が減額されにくい",
+          "start": 3.88,
+          "end": 6.4,
+          "emotion": "満足",
+          "delivery": "安心感を込めて",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.08,
+            "wpm": 205
+          },
+          "pronunciation_hints": {
+            "不況": "ふきょう",
+            "賞与": "しょうよ",
+            "削られにくい": "けずられにくい"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "さらに住宅補助も手厚く",
+          "start": 6.4,
+          "end": 8.7,
+          "emotion": "中立",
+          "delivery": "追加情報を提示",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "住宅補助": "じゅうたくほじょ",
+            "手厚く": "てあつく"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "額面以上の可処分所得は凄まじい",
+          "start": 8.7,
+          "end": 11.32,
+          "emotion": "満足",
+          "delivery": "強調的に締める",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "額面以上": "がくめんいじょう",
+            "可処分所得": "かしょぶんしょとく",
+            "凄まじい": "すさまじい"
+          }
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_animated",
+        "duration_bucket": 10,
+        "motion_intensity": "medium"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "お次は働き方のバランスです",
+          "start": 0.0,
+          "end": 1.12,
+          "emotion": "中立",
+          "delivery": "トピック転換",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 210
+          },
+          "pronunciation_hints": {}
+        },
+        {
+          "speaker": "m1__office",
+          "text": "この会社はSIer業界の楽園ですが、配属先で大きく違います",
+          "start": 1.12,
+          "end": 4.34,
+          "emotion": "困惑",
+          "delivery": "前向き→留保",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "SIer界": "エスアイアーかい",
+            "部署": "ぶしょ",
+            "差": "さ",
+            "激しい": "はげしい"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "在宅勤務やフレックス制が定着し、休暇取得もかなり奨励されます",
+          "start": 4.34,
+          "end": 7.28,
+          "emotion": "満足",
+          "delivery": "明るいトーン",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.08,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "浸透": "しんとう",
+            "有給取得": "ゆうきゅうしゅとく",
+            "推奨": "すいしょう"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "しかし実際は銀行の巨大なシステムを支えるという責任があります",
+          "start": 7.6,
+          "end": 11.16,
+          "emotion": "焦り",
+          "delivery": "トーン下げて警告",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.08,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "現実": "げんじつ",
+            "銀行": "ぎんこう",
+            "巨大": "きょだい",
+            "背負う": "せおう",
+            "重み": "おもみ"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "システムトラブルが起きると、昼夜休日問わず働くハードな状況も",
+          "start": 11.16,
+          "end": 14.52,
+          "emotion": "焦り",
+          "delivery": "重みを込めて",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.05,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "障害対応": "しょうがいたいおう",
+            "深夜": "しんや",
+            "休日": "きゅうじつ",
+            "激務": "げきむ"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "働き方は平時は楽園、緊急時は地獄というのが最も的確な表現です",
+          "start": 14.52,
+          "end": 18.28,
+          "emotion": "中立",
+          "delivery": "印象的なフレーズで締める",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.08,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "普段": "ふだん",
+            "天国": "てんごく",
+            "有事": "ゆうじ",
+            "戦場": "せんじょう",
+            "評価": "ひょうか"
+          }
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_animated",
+        "duration_bucket": 10,
+        "motion_intensity": "medium"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "最後に社員と文化",
+          "start": 0.0,
+          "end": 0.68,
+          "emotion": "中立",
+          "delivery": "トピック転換",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.04,
+            "wpm": 205
+          },
+          "pronunciation_hints": {
+            "社風": "しゃふう"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "一言でいうと誠実で知的な育ちの良い秀才集団",
+          "start": 0.68,
+          "end": 4.36,
+          "emotion": "満足",
+          "delivery": "称賛するトーン",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "一言": "ひとこと",
+            "誠実": "せいじつ",
+            "知的": "ちてき",
+            "育ち": "そだち",
+            "秀才集団": "しゅうさいしゅうだん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "野村総研のようなガツガツした感じはなく、理知的で温和な人が大半",
+          "start": 4.36,
+          "end": 8.02,
+          "emotion": "中立",
+          "delivery": "対比的に説明",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.07,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "NRI": "エヌアールアイ",
+            "肉食系": "にくしょくけい",
+            "論理的": "ろんりてき",
+            "穏やか": "おだやか"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "若者を時間をかけて育む風土がある反面、銀行由来の文化で危機管理は極めて慎重",
+          "start": 8.02,
+          "end": 12.32,
+          "emotion": "中立",
+          "delivery": "両面提示",
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.07,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "温かさ": "あたたかさ",
+            "一方": "いっぽう",
+            "銀行文化": "ぎんこうぶんか",
+            "影響": "えいきょう",
+            "リスク管理": "リスクかんり",
+            "超慎重": "ちょうしんちょう"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "華やかさよりも堅実さを求める人にとっては最高の環境でしょう",
+          "start": 12.64,
+          "end": 15.7,
+          "emotion": "満足",
+          "delivery": "締めくくり的に",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.07,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "派手さ": "はでさ",
+            "確実性": "かくじつせい",
+            "重視": "じゅうし",
+            "居場所": "いばしょ"
+          }
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "location_ref": "home_office",
+      "camera_distance": "medium-close",
+      "annotation": {
+        "visual_intent_id": "talking_head_calm",
+        "duration_bucket": 10,
+        "motion_intensity": "low"
+      },
+      "lines": [
+        {
+          "speaker": "m1__office",
+          "text": "外資のピリピリした感じは嫌だが",
+          "start": 0.0,
+          "end": 3.46,
+          "emotion": "中立",
+          "delivery": "穏やかに",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "外資": "がいし",
+            "殺伐感": "さつばつかん"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "年収1000万は絶対という方に最適です",
+          "start": 3.46,
+          "end": 5.5,
+          "emotion": "満足",
+          "delivery": "結論調",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.05,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "年収": "ねんしゅう",
+            "1000万": "せんまん",
+            "譲れない": "ゆずれない",
+            "最適": "さいてき"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "SMBCの最強バックボーンで",
+          "start": 5.5,
+          "end": 8.0,
+          "emotion": "中立",
+          "delivery": "事実列挙",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.04,
+            "wpm": 205
+          },
+          "pronunciation_hints": {
+            "SMBC": "エスエムビーシー",
+            "最強": "さいきょう"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "安定した環境と高い給与を生涯得たい人に向いた企業と言えますね",
+          "start": 8.0,
+          "end": 12.06,
+          "emotion": "満足",
+          "delivery": "締めの口調",
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.04,
+            "wpm": 210
+          },
+          "pronunciation_hints": {
+            "安定": "あんてい",
+            "高待遇": "こうたいぐう",
+            "一生": "いっしょう",
+            "守りたい": "まもりたい",
+            "会社": "かいしゃ"
+          }
+        },
+        {
+          "speaker": "m1__office",
+          "text": "キャリアチェンジの相談はプロフのリンクへ",
+          "start": 12.06,
+          "end": 14.28,
+          "emotion": "喜び",
+          "delivery": "明るく誘導",
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.06,
+            "wpm": 215
+          },
+          "pronunciation_hints": {
+            "相談": "そうだん"
+          }
+        }
+      ]
+    }
+  ]
+}

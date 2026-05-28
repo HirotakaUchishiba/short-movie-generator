@@ -1,0 +1,21 @@
+{
+  "scene_idx": 8,
+  "model": "gemini-3-pro-image-preview",
+  "location_ref": "enfp_sunset_ridge",
+  "character_refs": [
+    "m3"
+  ],
+  "key": "78ea796affd0989c",
+  "schema_version": 1,
+  "cache_version": "v1",
+  "created_at": "2026-05-26T14:16:38.855+00:00",
+  "last_used_at": "2026-05-26T14:21:35.158+00:00",
+  "hit_count": 1,
+  "quality": {
+    "blacklisted": false,
+    "blacklist_reason": null,
+    "integrity_ok": true,
+    "approved_at_origin": null,
+    "final_render_completed": false
+  }
+}

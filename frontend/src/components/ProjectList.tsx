@@ -17,9 +17,7 @@ const STAGE_LABELS: Record<StageName, string> = {
   kling: "Kling",
   scene: "音声合成",
   overlay: "字幕",
-  bgm: "BGM",
-  final_import: "取込",
-  publish: "公開",
+  download: "完成",
 };
 
 // stage の中で status==="failed" のものを探し、tooltip 用に actionable_hint を返す。
@@ -34,8 +32,7 @@ function findFailedStageTooltip(progress: Progress | undefined): string | null {
     "kling",
     "scene",
     "overlay",
-    "final_import",
-    "publish",
+    "download",
   ];
   for (const stage of order) {
     const block = (progress.stages as Record<string, unknown>)[stage] as

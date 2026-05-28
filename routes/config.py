@@ -96,17 +96,6 @@ def api_set_silences():
     return jsonify({"ok": True, "tts_pricing": _tts_pricing()})
 
 
-@config_bp.route("/api/config/qa-tags", methods=["GET"])
-def api_config_qa_tags():
-    """QA failure タグの SSOT 配信。frontend RejectModal がここから取得する
-    (= `qa/categories.py` を唯一の source of truth として drift を防ぐ)。"""
-    from qa.categories import QA_AXIS_LABELS, QA_FAILURE_TAG_DEFS
-    return jsonify({
-        "tags": [dict(d) for d in QA_FAILURE_TAG_DEFS],
-        "axis_labels": dict(QA_AXIS_LABELS),
-    })
-
-
 @config_bp.route("/api/config", methods=["GET"])
 def api_config():
     """フロント表示用にconfig値を一部公開。"""

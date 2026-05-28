@@ -441,12 +441,9 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
 
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage 6: シーン連結 + 字幕焼き込み。出力は ``temp/<TS>/overlaid.mp4``。
-
-    最終 ``output/reels_<TS>.mp4`` / SNS キャプション / final drop folder は
-    後段の Stage bgm (run_bgm) が生成する (= reels を書く責務を bgm に移譲)。
-    こうすることで BGM ミックスの有無に関わらず reels は常に bgm stage の出力に
-    なり、final_import は無変更で済む。
+    """Stage 6 (最終): シーン連結 + 字幕焼き込み + 最終 reels / SNS キャプション /
+    出力は ``temp/<TS>/overlaid.mp4`` (中間) と
+    ``output/reels_<TS>.mp4`` (最終ダウンロード対象)。
 
     古い snapshot を resume する経路では UI の保存時 validator を通過していない
     ことがあるため、Stage 6 直前で composed 形式 + subtitle anchor 順序を
@@ -485,73 +482,39 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     # cache promote: 素材まで生成完了 = 高信頼な素材として将来の hit 候補に
     # 格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
-    # 内部で個別 entry の例外は握り潰すので、外側は import / setup 系の
-    # programming bug を残しておく (= bare Exception では mask しない)。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
         try:
             _promote_cache_entries(ts_path, stage_name, module)
         except (ImportError, OSError, AttributeError) as e:
             logger.warning("%s promote setup failed: %s", module, e)
 
-    progress_store.mark_generated(ts_path, "overlay")
-    logger.info("[字幕] 焼き込み完了 — %s (reels は bgm stage が生成)", overlaid)
-
-
-def run_bgm(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage bgm: ``overlaid.mp4`` に BGM をミックスして ``output/reels_<TS>.mp4``。
-
-    BGM 選択は ``metadata.json.bgm`` ({id, volume, ducking})。id=none / 未選択は
-    pass-through (overlaid をそのまま reels)。overlaid.mp4 が無い既存 project は
-    既存 reels を入力にする (後方互換)。reels が確定するので SNS キャプションと
-    Stage 7 用 final/ drop folder もここで用意する。
-    """
-    from stages import bgm_mix
-    import bgm_library
-
-    _ensure_prev_approved("overlay", ts_path)
-
+    # 最終 reels + SNS キャプション。後段 download stage がダウンロード提供する。
     ts = os.path.basename(ts_path)
-    overlaid = os.path.join(ts_path, "overlaid.mp4")
-    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
-
-    # 入力: overlaid.mp4 (新フロー) があればそれ、無ければ既存 reels (後方互換)
-    if os.path.exists(overlaid):
-        video_in = overlaid
-    elif os.path.exists(output_path):
-        video_in = output_path
-        logger.info("[bgm] overlaid.mp4 が無いため既存 reels を入力に使用 (後方互換)")
-    else:
-        raise RuntimeError(
-            "overlay 出力 (overlaid.mp4 / reels) が見つかりません — overlay を先に実行してください")
-
-    meta = read_metadata(ts_path) or {}
-    bgm = meta.get("bgm") or {}
-    bgm_path = bgm_library.resolve_bgm_path(bgm.get("id"))
-
+    reels_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    if bgm_path is None:
-        # BGM なし: overlaid をそのまま reels に (pass-through)
-        if os.path.abspath(video_in) != os.path.abspath(output_path):
-            shutil.copyfile(video_in, output_path)
-        logger.info("[bgm] BGM なし — pass-through: %s", output_path)
-    else:
-        volume = float(bgm.get("volume", config.BGM_VOLUME_RATIO))
-        ducking = bool(bgm.get("ducking", config.BGM_DUCKING_ENABLED))
-        # video_in == output_path (後方互換経路) でも壊れないよう tmp に書いて置換
-        tmp_out = output_path + ".bgm.tmp.mp4"
-        bgm_mix.mix_bgm(video_in, bgm_path, tmp_out,
-                        volume=volume, ducking=ducking)
-        os.replace(tmp_out, output_path)
-        logger.info("[bgm] BGM ミックス完了 (%s): %s", bgm.get("id"), output_path)
-
+    shutil.copyfile(overlaid, reels_path)
     caption_path = generate_post_captions(
-        screenplay, screenplay_name, output_path)
-    # Stage 7 (final_import) 用の drop folder を用意。
-    os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
+        screenplay, screenplay_name, reels_path)
 
-    progress_store.mark_generated(ts_path, "bgm")
-    logger.info("[bgm] 完了 — %s", output_path)
+    progress_store.mark_generated(ts_path, "overlay")
+    logger.info("[字幕] 焼き込み完了 — %s + %s", overlaid, reels_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
+
+
+def run_download(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
+    """Stage download (最終): 完成 reels の存在を確認して mark_generated。
+
+    overlay が ``output/reels_<TS>.mp4`` を既に書いているので、ここでは
+    存在確認のみ。承認 (approved_at) は不要 (= 最終 stage、UI でダウンロード)。
+    """
+    _ensure_prev_approved("overlay", ts_path)
+    ts = os.path.basename(ts_path)
+    reels = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
+    if not os.path.exists(reels):
+        raise RuntimeError(f"reels が見つかりません: {reels}")
+    progress_store.mark_generated(ts_path, "download")
+    progress_store.mark_approved(ts_path, "download")
+    logger.info("[download] 完成 — %s", reels)
 
 
 def _promote_cache_entries(ts_path: str, stage: str, module_name: str) -> None:
@@ -589,75 +552,36 @@ STAGE_RUNNERS = {
     "kling": run_kling,
     "scene": run_scene,
     "overlay": run_overlay,
-    "bgm": run_bgm,
+    "download": run_download,
 }
 
 
-def _record_stage_run(ts_path: str, stage: str, started_at: str,
-                      status: str, error: str | None = None) -> None:
-    """generation_records.stage_runs に 1 stage 実行を追記する (best-effort)。
-
-    ``temp/<TS>`` 形式の ts_path から TS を抽出する。analytics DB エラーは
-    warn で握りつぶし pipeline を止めない (= cost 履歴と同様の方針)。
-    """
-    ts = os.path.basename(ts_path.rstrip("/")) or os.path.basename(ts_path)
-    ended_at = datetime.now().isoformat(timespec="seconds")
-    extra = {"error": error[:500]} if error else None
-    try:
-        from analytics import db as _adb
-
-        _adb.append_stage_run(
-            ts=ts, stage=stage,
-            started_at=started_at, ended_at=ended_at,
-            status=status, extra=extra,
-        )
-    except Exception as e:
-        # analytics DB は best-effort。どんな例外型 (= ImportError /
-        # sqlite3.Error / RuntimeError 等) でも pipeline は止めない。
-        # cost 履歴と同様の方針 (= 観測 layer は記録失敗で本流を妨げない)。
-        logger.warning("[gen-rec] append_stage_run failed (%s): %s", stage, e)
-
-
 def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str | None:
-    """次に実行すべきstageを1つだけ実行する。
-
-    - final_import / publish はユーザの外部アクション (CapCut 取り込み /
-      プラットフォーム公開) で発火するため、ここでは実行せず None を返す
-    - すでに全完了なら None
-    """
+    """次に実行すべきstageを1つだけ実行する。すでに全完了なら None。"""
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
         return None
 
     if nxt == "analyze":
         # 防御: STAGES 拡張により Stage 0 が先頭に来たが、ここに到達するのは
-        # run_script / analyze hook が mark_analyze_completed を呼び忘れた場合
-        # のみ (= 旧 progress.json の project や CLI 経路)。auto-skip して
-        # Stage 1 を狙う。analyze 自体は別 endpoint で起動するもので、CLI から
-        # は呼ばない。
+        # run_script / analyze hook が mark_analyze_completed を呼び忘れた
+        # 旧 progress.json の project のみ。auto-skip して Stage 1 を狙う。
         progress_store.mark_analyze_completed(ts_path)
         nxt = progress_store.next_stage(ts_path)
         if nxt is None:
             return None
 
-    if nxt in progress_store.EXTERNAL_ACTION_STAGES:
-        return None
-
     runner = STAGE_RUNNERS.get(nxt)
     if not runner:
         raise RuntimeError(f"unknown stage: {nxt}")
-    started_at = datetime.now().isoformat(timespec="seconds")
     try:
-        if nxt in ("script", "overlay", "bgm"):
+        if nxt in ("script", "overlay", "download"):
             runner(screenplay, screenplay_name, ts_path)
         else:
             runner(screenplay, ts_path)
     except Exception as e:
-        _record_stage_run(ts_path, nxt, started_at,
-                          status="failed", error=str(e))
         _record_stage_failure(ts_path, nxt, e)
         raise
-    _record_stage_run(ts_path, nxt, started_at, status="completed")
     return nxt
 
 
@@ -946,10 +870,6 @@ def regen(stage: str, screenplay: dict, ts_path: str,
         if screenplay_name is None:
             raise ValueError("overlay 再生成には screenplay_name が必要です")
         run_overlay(screenplay, screenplay_name, ts_path)
-    elif stage == "bgm":
-        if screenplay_name is None:
-            raise ValueError("bgm 再生成には screenplay_name が必要です")
-        run_bgm(screenplay, screenplay_name, ts_path)
     else:
         raise ValueError(f"このstageは個別再生成に対応していません: {stage}")
     progress_store.increment_regen(ts_path, stage)

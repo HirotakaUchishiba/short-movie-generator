@@ -1,0 +1,21 @@
+{
+  "scene_idx": 7,
+  "model": "gemini-3-pro-image-preview",
+  "location_ref": "enfp_summit",
+  "character_refs": [
+    "m3"
+  ],
+  "key": "f25726920ff54f18",
+  "schema_version": 1,
+  "cache_version": "v1",
+  "created_at": "2026-05-25T09:01:13.451+00:00",
+  "last_used_at": "2026-05-25T09:01:13.451+00:00",
+  "hit_count": 0,
+  "quality": {
+    "blacklisted": false,
+    "blacklist_reason": null,
+    "integrity_ok": true,
+    "approved_at_origin": "2026-05-27T01:38:17.363+00:00",
+    "final_render_completed": true
+  }
+}

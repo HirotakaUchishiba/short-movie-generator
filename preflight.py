@@ -103,51 +103,11 @@ def check_scene() -> None:
     check_disk_space(_min_free_bytes(_DEFAULT_MIN_FREE_BYTES_BIG))
 
 
-def check_publish_youtube() -> None:
-    miss = _missing(
-        "YOUTUBE_OAUTH_CLIENT_ID",
-        "YOUTUBE_OAUTH_CLIENT_SECRET",
-        "YOUTUBE_REFRESH_TOKEN",
-    )
-    if miss:
-        raise PreflightError(
-            f"YouTube 公開に必要な環境変数が不足: {', '.join(miss)}。"
-            "youtube.upload スコープ同意済みの token を取得してください。"
-        )
-
-
-def check_final_import() -> None:
-    """Stage 7: ffmpeg / ffprobe が PATH 上に居ないと取り込めない。"""
-    missing = [b for b in ("ffmpeg", "ffprobe") if shutil.which(b) is None]
-    if missing:
-        raise PreflightError(
-            f"Stage 7 (取込) に必要なバイナリが PATH に見つかりません: "
-            f"{', '.join(missing)}。"
-            "macOS なら `brew install ffmpeg` でインストールしてください。"
-        )
-    check_disk_space(_min_free_bytes(_DEFAULT_MIN_FREE_BYTES_SMALL))
-
-
-def check_publish_instagram() -> None:
-    if os.environ.get("INSTAGRAM_ACCESS_TOKEN") and os.environ.get(
-        "INSTAGRAM_BUSINESS_ID",
-    ):
-        return
-
-
-def check_publish_tiktok() -> None:
-    if os.environ.get("TIKTOK_ACCESS_TOKEN") and os.environ.get(
-        "TIKTOK_OPEN_ID",
-    ):
-        return
-
-
 _STAGE_CHECKS = {
     "tts": check_tts,
     "bg": check_bg,
     "kling": check_kling,
     "scene": check_scene,
-    "final_import": check_final_import,
 }
 
 

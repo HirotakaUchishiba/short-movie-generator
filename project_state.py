@@ -1,10 +1,10 @@
 """project の永続化 state へのアクセス基盤。
 
 `temp/<TS>/` 配下の metadata.json と project snapshot に対する I/O と
-書き込みロックを集約する。Stage 実装層 (= scene_gen / final_import) と
-オーケストレータ層 (= staged_pipeline) の両方からこのモジュールを
-依存することで、生成・編集層が上層 (orchestrator) を import する
-依存方向の違反を解消する (= docs/developments/architecture.md §2)。
+書き込みロックを集約する。Stage 実装層 (= scene_gen) とオーケストレータ層
+(= staged_pipeline) の両方からこのモジュールを依存することで、生成・編集層
+が上層 (orchestrator) を import する依存方向の違反を解消する
+(= docs/developments/architecture.md §2)。
 """
 
 import json

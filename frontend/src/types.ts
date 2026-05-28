@@ -9,19 +9,7 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
-  | "bgm"
-  | "final_import"
-  | "publish";
-
-export interface BgmTrack {
-  id: string;
-  title: string;
-  file: string;
-  mood: string;
-  duration_sec: number | null;
-  license: string;
-  source: string;
-}
+  | "download";
 
 // QA failure tag は backend (qa/categories.py) を SSOT とし、
 // /api/config/qa-tags 経由で取得する。型は string に緩めて runtime validate に
@@ -51,25 +39,6 @@ export interface RejectResponse {
   ok: true;
   failure_id: number;
   archive_dir: string;
-}
-
-// Stage 8 / 9 用の型
-export interface FinalVersion {
-  filename: string;
-  imported_at: string;
-  duration_sec: number | null;
-  size_bytes: number;
-  audio_match_score: number | null;
-  source: "watch" | "ui" | "cli";
-  is_canonical: boolean;
-}
-
-export interface PublishedPost {
-  platform: "youtube" | "instagram" | "tiktok";
-  video_id: string | null;
-  url: string | null;
-  manual: boolean;
-  published_at: string;
 }
 
 // 各 stage / phase の失敗時に backend が tmp-progress.json に書く構造化

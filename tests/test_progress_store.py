@@ -126,22 +126,11 @@ def test_cascade_reset_after_bg_clears_kling_scene_overlay(tmp_path) -> None:
         assert p["stages"][s]["generated_at"] is not None
 
 
-def test_cascade_reset_after_overlay_resets_bgm(tmp_path) -> None:
-    """overlay の後続は bgm。overlay 再生成で bgm の承認がリセットされる。"""
+def test_cascade_reset_after_overlay_is_noop(tmp_path) -> None:
+    """overlay は _CASCADE_STAGES の末尾なので reset は noop。"""
     ts = str(tmp_path)
-    _approve_through(ts, "bgm")
+    _approve_through(ts, "overlay")
     reset = progress_store.cascade_reset_after(ts, "overlay")
-    assert reset == ["bgm"]
-    p = progress_store.load(ts)
-    assert p["stages"]["overlay"]["approved_at"] is not None
-    assert p["stages"]["bgm"]["approved_at"] is None
-    assert p["stages"]["bgm"]["generated_at"] is not None
-
-
-def test_cascade_reset_after_bgm_is_noop(tmp_path) -> None:
-    ts = str(tmp_path)
-    _approve_through(ts, "bgm")
-    reset = progress_store.cascade_reset_after(ts, "bgm")
     assert reset == []
     p = progress_store.load(ts)
     for s in progress_store._CASCADE_STAGES:
@@ -171,20 +160,9 @@ def test_cascade_reset_after_idempotent_when_unapproved(tmp_path) -> None:
     assert reset2 == []
 
 
-def test_cascade_reset_after_excludes_external_stages(tmp_path) -> None:
-    """final_import / publish は外部アクション起点なので chain に含めない。"""
-    ts = str(tmp_path)
-    _approve_through(ts, "overlay")
-    progress_store.mark_generated(ts, "final_import")
-    progress_store.mark_approved(ts, "final_import")
-    progress_store.cascade_reset_after(ts, "overlay")
-    p = progress_store.load(ts)
-    assert p["stages"]["final_import"]["approved_at"] is not None
-
-
 def test_cascade_reset_after_unknown_stage_fails(tmp_path) -> None:
     with pytest.raises(ValueError, match="cascade 対象外"):
-        progress_store.cascade_reset_after(str(tmp_path), "final_import")
+        progress_store.cascade_reset_after(str(tmp_path), "download")
     with pytest.raises(ValueError, match="cascade 対象外"):
         progress_store.cascade_reset_after(str(tmp_path), "bogus")
 

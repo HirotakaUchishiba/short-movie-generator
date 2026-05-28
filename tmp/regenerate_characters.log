@@ -1,0 +1,38 @@
+target: 5 chars × 5 wardrobes = 25 images
+
+=== f1 (female, early 20s) ===
+  [f1/base] generating (ref=no)... done 19.0s → characters/f1/base.png
+  [f1/suit] generating (ref=yes)... done 19.9s → characters/f1/suit.png
+  [f1/casual] generating (ref=yes)... done 21.8s → characters/f1/casual.png
+  [f1/loungewear] generating (ref=yes)... done 19.3s → characters/f1/loungewear.png
+  [f1/office] generating (ref=yes)... done 21.0s → characters/f1/office.png
+
+=== f2 (female, late 20s) ===
+  [f2/base] generating (ref=no)... done 18.7s → characters/f2/base.png
+  [f2/suit] generating (ref=yes)... done 21.8s → characters/f2/suit.png
+  [f2/casual] generating (ref=yes)... done 19.2s → characters/f2/casual.png
+  [f2/loungewear] generating (ref=yes)... done 22.0s → characters/f2/loungewear.png
+  [f2/office] generating (ref=yes)... done 20.0s → characters/f2/office.png
+
+=== f3 (female, early 30s) ===
+  [f3/base] generating (ref=no)... done 18.4s → characters/f3/base.png
+  [f3/suit] generating (ref=yes)... done 21.9s → characters/f3/suit.png
+  [f3/casual] generating (ref=yes)... done 20.7s → characters/f3/casual.png
+  [f3/loungewear] generating (ref=yes)... done 22.9s → characters/f3/loungewear.png
+  [f3/office] generating (ref=yes)... done 22.4s → characters/f3/office.png
+
+=== m1 (male, mid 20s) ===
+  [m1/base] generating (ref=no)... done 17.7s → characters/m1/base.png
+  [m1/suit] generating (ref=yes)... done 23.0s → characters/m1/suit.png
+  [m1/casual] generating (ref=yes)... done 19.5s → characters/m1/casual.png
+  [m1/loungewear] generating (ref=yes)... done 21.0s → characters/m1/loungewear.png
+  [m1/office] generating (ref=yes)... done 22.1s → characters/m1/office.png
+
+=== m2 (male, early 30s) ===
+  [m2/base] generating (ref=no)... done 19.5s → characters/m2/base.png
+  [m2/suit] generating (ref=yes)... done 20.5s → characters/m2/suit.png
+  [m2/casual] generating (ref=yes)... done 28.8s → characters/m2/casual.png
+  [m2/loungewear] generating (ref=yes)... done 19.8s → characters/m2/loungewear.png
+  [m2/office] generating (ref=yes)... done 21.7s → characters/m2/office.png
+
+✅ 完了: 25 images / 522.6s

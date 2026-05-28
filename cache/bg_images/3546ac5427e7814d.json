@@ -1,0 +1,21 @@
+{
+  "scene_idx": 4,
+  "model": "gemini-3-pro-image-preview",
+  "location_ref": "enfp_lakeside",
+  "character_refs": [
+    "m3"
+  ],
+  "key": "3546ac5427e7814d",
+  "schema_version": 1,
+  "cache_version": "v1",
+  "created_at": "2026-05-25T09:01:10.289+00:00",
+  "last_used_at": "2026-05-25T09:01:10.289+00:00",
+  "hit_count": 0,
+  "quality": {
+    "blacklisted": false,
+    "blacklist_reason": null,
+    "integrity_ok": true,
+    "approved_at_origin": "2026-05-27T01:38:17.370+00:00",
+    "final_render_completed": true
+  }
+}
