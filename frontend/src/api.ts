@@ -1,6 +1,4 @@
 import type {
-  SeTrack,
-  SeItem,
   AbstractScreenplay,
   AbstractScreenplayResponse,
   AnalyzeJobDetail,
@@ -178,20 +176,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ screenplay: stripUids(screenplay) }),
     }),
-  listSe: () => http<{ se: SeTrack[] }>(`/api/se`),
-  setSe: (ts: string, items: SeItem[]) =>
-    http<{ se: { items: SeItem[] } }>(`/api/projects/${ts}/se`, {
-      method: "PUT",
-      body: JSON.stringify({ items }),
-    }),
-  getSeWaveform: (ts: string) =>
-    http<{ peaks: number[]; duration: number; scene_offsets: number[] }>(
-      `/api/projects/${ts}/se/waveform`,
-    ),
-  getSeThumbnails: (ts: string) =>
-    http<{ interval_sec: number; count: number }>(
-      `/api/projects/${ts}/se/thumbnails`,
-    ),
   // Server-side merge: 特定 line の指定フィールドだけ更新。
   // 並行 patch しても他 line を上書きしない (race condition 回避)。
   // patch.<field> = null でフィールド削除。

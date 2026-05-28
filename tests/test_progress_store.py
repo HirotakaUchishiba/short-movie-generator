@@ -126,22 +126,11 @@ def test_cascade_reset_after_bg_clears_kling_scene_overlay(tmp_path) -> None:
         assert p["stages"][s]["generated_at"] is not None
 
 
-def test_cascade_reset_after_overlay_resets_se(tmp_path) -> None:
-    """overlay の後続は se。overlay 再生成で se の承認がリセットされる。"""
+def test_cascade_reset_after_overlay_is_noop(tmp_path) -> None:
+    """overlay は _CASCADE_STAGES の末尾なので reset は noop。"""
     ts = str(tmp_path)
-    _approve_through(ts, "se")
+    _approve_through(ts, "overlay")
     reset = progress_store.cascade_reset_after(ts, "overlay")
-    assert reset == ["se"]
-    p = progress_store.load(ts)
-    assert p["stages"]["overlay"]["approved_at"] is not None
-    assert p["stages"]["se"]["approved_at"] is None
-    assert p["stages"]["se"]["generated_at"] is not None
-
-
-def test_cascade_reset_after_se_is_noop(tmp_path) -> None:
-    ts = str(tmp_path)
-    _approve_through(ts, "se")
-    reset = progress_store.cascade_reset_after(ts, "se")
     assert reset == []
     p = progress_store.load(ts)
     for s in progress_store._CASCADE_STAGES:

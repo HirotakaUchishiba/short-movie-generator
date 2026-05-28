@@ -53,7 +53,7 @@ from improvement.prompt_injector import compose_instructions  # noqa: E402
 
 logger = logging.getLogger(__name__)
 
-INTERNAL_STAGES = ("tts", "bg", "kling", "scene", "overlay", "se")
+INTERNAL_STAGES = ("tts", "bg", "kling", "scene", "overlay")
 VALID_LICENSES = ("user_owned", "fair_use_review", "public_domain")
 
 

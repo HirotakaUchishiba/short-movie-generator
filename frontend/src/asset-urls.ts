@@ -66,11 +66,7 @@ export function sceneAudioAssetUrl(
 export function overlayAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/overlay`, version);
 }
-// SE タイムラインの映像サムネ列 (idx は 0 始まり = 時刻 idx*interval)。
-export function seThumbUrl(ts: string, idx: number): string {
-  return `${API_BASE}/asset/${ts}/se-thumb/${idx}`;
-}
-// SE 込みの reels (= SE プレビュー再生)。version で auto-bake 後の cache bust。
+// 最終 reels (= overlay 焼き込み後の出力動画)。version で再焼き直し後の cache bust。
 export function reelsAssetUrl(ts: string, version?: number | string): string {
   return withVersion(`${API_BASE}/asset/${ts}/reels`, version);
 }

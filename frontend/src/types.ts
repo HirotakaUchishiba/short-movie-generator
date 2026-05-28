@@ -9,29 +9,8 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
-  | "se"
   | "final_import"
   | "publish";
-
-export interface SeTrack {
-  id: string;
-  title: string;
-  file: string;
-  category: string;
-  license: string;
-  source: string;
-  duration_sec?: number;
-}
-
-export interface SeItem {
-  time: number;
-  se_id: string;
-  volume: number;
-  source: string;
-  reason: string;
-  clip_start?: number;
-  clip_end?: number;
-}
 
 // QA failure tag は backend (qa/categories.py) を SSOT とし、
 // /api/config/qa-tags 経由で取得する。型は string に緩めて runtime validate に

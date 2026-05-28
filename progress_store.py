@@ -5,7 +5,7 @@ import io_utils
 
 STAGES = [
     "analyze",  # Stage 0: 参考動画 → 台本 (= analyze pipeline、from-reference-video 経由でのみ立つ)
-    "script", "tts", "bg", "kling", "scene", "overlay", "se",
+    "script", "tts", "bg", "kling", "scene", "overlay",
     "final_import", "publish",
 ]
 # CLI / UI から自動 run_next で起動できないステージ。ユーザの外部アクション
@@ -268,7 +268,7 @@ def revoke_overlay_only(ts_path: str) -> None:
 
 # cascade reset 対象は内部 stage のみ (script〜overlay)。
 # final_import / publish は外部アクション起点なのでチェーンに含めない。
-_CASCADE_STAGES = ["script", "tts", "bg", "kling", "scene", "overlay", "se"]
+_CASCADE_STAGES = ["script", "tts", "bg", "kling", "scene", "overlay"]
 
 
 def cascade_reset_after(ts_path: str, stage: str) -> list[str]:

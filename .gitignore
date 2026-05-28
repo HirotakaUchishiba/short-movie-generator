@@ -28,8 +28,6 @@ data/launchd_*.log
 data/intent_suggestions.json
 data/intent_suggestions_archive/
 data/intent_suggestions.errors.log
-assets/se/*.wav
-assets/se/*.mp3
 assets/reference_videos/
 
 # Layer 1 (Clip Library) のローカル cache。AI 生成物 (= bg.png + kling_clean.mp4) と

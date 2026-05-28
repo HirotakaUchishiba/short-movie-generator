@@ -7,7 +7,7 @@
     - 各 stage を順番に実行できる (= run_next_stage が dispatch する)
     - 承認なしでは次 stage が起動できない (= ゲート機能が効いている)
     - 各 stage 完了で progress_store.is_generated が True になる
-    - se (= 最後の音声 stage) 完了で output/reels_<TS>.mp4 と post_caption が出力される
+    - overlay 完了で output/reels_<TS>.mp4 と post_caption が出力される
     - final_import が EXTERNAL_ACTION_STAGES として run_next_stage から除外される
 """
 import json
@@ -235,7 +235,7 @@ def test_pipeline_full_run_through_overlay(
     _stub_stage_runners(monkeypatch, ts_path, template)
 
     # Stage 2-7 の順次実行 (各 stage の前に approve)
-    expected_order = ["tts", "bg", "kling", "scene", "overlay", "se"]
+    expected_order = ["tts", "bg", "kling", "scene", "overlay"]
     for expected in expected_order:
         progress_store.mark_approved(ts_path, progress_store.current_stage(ts_path))
         sp = staged_pipeline.load_project_screenplay(ts_path)
@@ -286,14 +286,14 @@ def test_run_next_stage_skips_external_action_stages(
     staged_pipeline.run_script(template, "smoke", ts_path)
     _stub_stage_runners(monkeypatch, ts_path, template)
 
-    for _ in range(6):  # tts → bg → kling → scene → overlay → se
+    for _ in range(5):  # tts → bg → kling → scene → overlay
         progress_store.mark_approved(
             ts_path, progress_store.current_stage(ts_path))
         sp = staged_pipeline.load_project_screenplay(ts_path)
         staged_pipeline.run_next_stage(sp, "smoke", ts_path)
 
-    # se まで生成完了。承認しても final_import は EXTERNAL_ACTION で除外
-    progress_store.mark_approved(ts_path, "se")
+    # overlay まで生成完了。承認しても final_import は EXTERNAL_ACTION で除外
+    progress_store.mark_approved(ts_path, "overlay")
     sp = staged_pipeline.load_project_screenplay(ts_path)
     result = staged_pipeline.run_next_stage(sp, "smoke", ts_path)
     assert result is None

@@ -441,12 +441,9 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
 
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage 6: シーン連結 + 字幕焼き込み。出力は ``temp/<TS>/overlaid.mp4``。
-
-    最終 ``output/reels_<TS>.mp4`` / SNS キャプション / final drop folder は
-    後段の Stage bgm (run_bgm) が生成する (= reels を書く責務を bgm に移譲)。
-    こうすることで BGM ミックスの有無に関わらず reels は常に bgm stage の出力に
-    なり、final_import は無変更で済む。
+    """Stage 6 (最終): シーン連結 + 字幕焼き込み + 最終 reels / SNS キャプション /
+    final drop folder の生成。出力は ``temp/<TS>/overlaid.mp4`` (中間) と
+    ``output/reels_<TS>.mp4`` (最終)。final_import 用 ``temp/<TS>/final/`` も用意。
 
     古い snapshot を resume する経路では UI の保存時 validator を通過していない
     ことがあるため、Stage 6 直前で composed 形式 + subtitle anchor 順序を
@@ -485,77 +482,24 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
 
     # cache promote: 素材まで生成完了 = 高信頼な素材として将来の hit 候補に
     # 格上げする (L3#2)。bg / kling 両方。失敗しても本流は進める。
-    # 内部で個別 entry の例外は握り潰すので、外側は import / setup 系の
-    # programming bug を残しておく (= bare Exception では mask しない)。
     for stage_name, module in (("bg", "bg_cache"), ("kling", "kling_cache")):
         try:
             _promote_cache_entries(ts_path, stage_name, module)
         except (ImportError, OSError, AttributeError) as e:
             logger.warning("%s promote setup failed: %s", module, e)
 
-    progress_store.mark_generated(ts_path, "overlay")
-    logger.info("[字幕] 焼き込み完了 — %s (reels は bgm stage が生成)", overlaid)
-
-
-def run_se(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage se: ``overlaid.mp4`` に効果音を重ねて ``output/reels_<TS>.mp4``。
-
-    SE 配置は ``metadata.json.se.items`` ([{time, se_id, volume, clip_start?, clip_end?}])。
-    空なら pass-through (overlaid を reels にコピー)。reels が確定するので SNS
-    キャプションと final_import 用 final/ drop folder もここで用意する。
-    """
-    from stages import se_mix
-    import se_library
-
-    _ensure_prev_approved("overlay", ts_path)
-
+    # 最終 reels + SNS キャプション + final drop folder。final_import (= Stage 7)
+    # が canonical 化するための入り口。
     ts = os.path.basename(ts_path)
-    overlaid = os.path.join(ts_path, "overlaid.mp4")
-    output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
-
-    if os.path.exists(overlaid):
-        video_in = overlaid
-    elif os.path.exists(output_path):
-        video_in = output_path
-        logger.warning(
-            "[se] overlaid が無いため既存 reels を入力に使用 "
-            "(SE の除去はできない可能性)")
-    else:
-        raise RuntimeError("se の入力 (overlaid / reels) が見つかりません")
-
-    meta = read_metadata(ts_path) or {}
-    items = (meta.get("se") or {}).get("items") or []
-    # 各 item を (se_path, time, volume) に解決 (実ファイル無し SE は除外)
-    placements = []
-    for it in items:
-        p = se_library.resolve_se_path(it.get("se_id"))
-        if p is None:
-            continue
-        placements.append((
-            p,
-            float(it.get("time", 0.0)),
-            float(it.get("volume", config.SE_DEFAULT_VOLUME)),
-            it.get("clip_start"),
-            it.get("clip_end"),
-        ))
-
+    reels_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
-    if not placements:
-        if os.path.abspath(video_in) != os.path.abspath(output_path):
-            shutil.copyfile(video_in, output_path)
-        logger.info("[se] SE なし — pass-through: %s", output_path)
-    else:
-        tmp_out = output_path + ".se.tmp.mp4"
-        se_mix.mix_se(video_in, placements, tmp_out)
-        os.replace(tmp_out, output_path)
-        logger.info("[se] SE ミックス完了 (%d 個): %s", len(placements), output_path)
-
+    shutil.copyfile(overlaid, reels_path)
     caption_path = generate_post_captions(
-        screenplay, screenplay_name, output_path)
+        screenplay, screenplay_name, reels_path)
     os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
 
-    progress_store.mark_generated(ts_path, "se")
-    logger.info("[se] 完了 — %s", output_path)
+    progress_store.mark_generated(ts_path, "overlay")
+    logger.info("[字幕] 焼き込み完了 — %s + %s", overlaid, reels_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
 
 
@@ -594,7 +538,6 @@ STAGE_RUNNERS = {
     "kling": run_kling,
     "scene": run_scene,
     "overlay": run_overlay,
-    "se": run_se,
 }
 
 
@@ -653,7 +596,7 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
         raise RuntimeError(f"unknown stage: {nxt}")
     started_at = datetime.now().isoformat(timespec="seconds")
     try:
-        if nxt in ("script", "overlay", "se"):
+        if nxt in ("script", "overlay"):
             runner(screenplay, screenplay_name, ts_path)
         else:
             runner(screenplay, ts_path)
@@ -951,10 +894,6 @@ def regen(stage: str, screenplay: dict, ts_path: str,
         if screenplay_name is None:
             raise ValueError("overlay 再生成には screenplay_name が必要です")
         run_overlay(screenplay, screenplay_name, ts_path)
-    elif stage == "se":
-        if screenplay_name is None:
-            raise ValueError("se 再生成には screenplay_name が必要です")
-        run_se(screenplay, screenplay_name, ts_path)
     else:
         raise ValueError(f"このstageは個別再生成に対応していません: {stage}")
     progress_store.increment_regen(ts_path, stage)
