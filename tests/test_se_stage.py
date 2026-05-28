@@ -78,7 +78,7 @@ def test_mix_se_with_clip_trims_source(tmp_path):
 
 @pytest.fixture
 def se_project(tmp_path, monkeypatch):
-    """bgm 承認済み + bgm_mixed.mp4 を持つ project を用意する。"""
+    """overlay 承認済みの project を用意する。"""
     monkeypatch.setattr(config, "TEMP_DIR", str(tmp_path))
     monkeypatch.setattr(config, "OUTPUT_DIR", str(tmp_path / "output"))
     monkeypatch.setattr(
@@ -86,17 +86,16 @@ def se_project(tmp_path, monkeypatch):
     ts = "20990101_000000"
     ts_path = tmp_path / ts
     ts_path.mkdir()
-    for st in ("overlay", "bgm"):
-        progress_store.mark_generated(str(ts_path), st)
-        progress_store.mark_approved(str(ts_path), st)
+    progress_store.mark_generated(str(ts_path), "overlay")
+    progress_store.mark_approved(str(ts_path), "overlay")
     return ts, str(ts_path)
 
 
 def test_run_se_passthrough_when_no_items(se_project):
-    """metadata に se items 無し → bgm_mixed をそのまま reels にコピー。"""
+    """metadata に se items 無し → overlaid をそのまま reels にコピー。"""
     ts, ts_path = se_project
-    with open(f"{ts_path}/bgm_mixed.mp4", "wb") as f:
-        f.write(b"fake-bgm-mixed")
+    with open(f"{ts_path}/overlaid.mp4", "wb") as f:
+        f.write(b"fake-overlaid")
     with open(f"{ts_path}/metadata.json", "w") as f:
         json.dump({"screenplay_name": "x"}, f)
 
@@ -104,12 +103,12 @@ def test_run_se_passthrough_when_no_items(se_project):
 
     reels = f"{config.OUTPUT_DIR}/reels_{ts}.mp4"
     with open(reels, "rb") as f:
-        assert f.read() == b"fake-bgm-mixed"
+        assert f.read() == b"fake-overlaid"
     assert progress_store.is_generated(ts_path, "se")
 
 
 def test_run_se_backward_compat_uses_existing_reels(se_project):
-    """bgm_mixed.mp4 が無い既存 project は既存 reels を入力にする。"""
+    """overlaid.mp4 が無い既存 project は既存 reels を入力にする。"""
     ts, ts_path = se_project
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     reels = f"{config.OUTPUT_DIR}/reels_{ts}.mp4"
@@ -126,7 +125,7 @@ def test_run_se_backward_compat_uses_existing_reels(se_project):
 
 
 def test_run_se_prefers_overlaid_to_strip_se(se_project):
-    """bgm_mixed が無い旧 project: overlaid を入力に SE を消せる (reels 自己参照しない)。"""
+    """overlaid を入力に SE を消せる (既存 SE 焼き込み reels を上書き)。"""
     ts, ts_path = se_project
     with open(f"{ts_path}/overlaid.mp4", "wb") as f:
         f.write(b"overlaid-no-se")
@@ -150,7 +149,7 @@ def test_run_se_mixes_items(se_project, tmp_path, monkeypatch):
     ts, ts_path = se_project
     src = tmp_path / "src.mp4"
     _make_video(src, dur=2.0)
-    shutil.copyfile(str(src), f"{ts_path}/bgm_mixed.mp4")
+    shutil.copyfile(str(src), f"{ts_path}/overlaid.mp4")
     se_file = tmp_path / "se.mp3"
     _make_se(se_file)
     monkeypatch.setattr(

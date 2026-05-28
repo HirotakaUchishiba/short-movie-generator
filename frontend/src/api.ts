@@ -1,5 +1,4 @@
 import type {
-  BgmTrack,
   SeTrack,
   SeItem,
   AbstractScreenplay,
@@ -179,15 +178,6 @@ export const api = {
       method: "PUT",
       body: JSON.stringify({ screenplay: stripUids(screenplay) }),
     }),
-  listBgm: () => http<{ bgm: BgmTrack[] }>(`/api/bgm`),
-  setBgm: (
-    ts: string,
-    body: { id: string; volume?: number; ducking?: boolean },
-  ) =>
-    http<{ bgm: { id: string; volume: number; ducking: boolean } }>(
-      `/api/projects/${ts}/bgm`,
-      { method: "PUT", body: JSON.stringify(body) },
-    ),
   listSe: () => http<{ se: SeTrack[] }>(`/api/se`),
   setSe: (ts: string, items: SeItem[]) =>
     http<{ se: { items: SeItem[] } }>(`/api/projects/${ts}/se`, {

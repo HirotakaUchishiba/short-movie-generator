@@ -110,18 +110,16 @@ def _read_waveform_cache(cache_path: str, src_mtime: float):
 
 @se_bp.route("/api/projects/<ts>/se/waveform", methods=["GET"])
 def api_se_waveform(ts):
-    """bgm_mixed (無ければ overlaid) の音声波形 peaks + duration を返す (mtime cache)。"""
+    """overlaid の音声波形 peaks + duration を返す (mtime cache)。"""
     validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
 
-    src = os.path.join(project_path, "bgm_mixed.mp4")
-    if not os.path.exists(src):
-        src = os.path.join(project_path, "overlaid.mp4")
+    src = os.path.join(project_path, "overlaid.mp4")
     if not os.path.exists(src):
         return api_error(
-            "SE_WAVEFORM_SOURCE_MISSING", "bgm_mixed / overlaid が見つかりません", 409)
+            "SE_WAVEFORM_SOURCE_MISSING", "overlaid が見つかりません", 409)
 
     cache_path = os.path.join(project_path, "se_waveform.json")
     src_mtime = os.path.getmtime(src)
@@ -170,17 +168,15 @@ def _ensure_thumbnails(src: str, thumb_dir: str, interval: float) -> int:
 
 @se_bp.route("/api/projects/<ts>/se/thumbnails", methods=["GET"])
 def api_se_thumbnails(ts):
-    """bgm_mixed (無ければ overlaid) から interval 秒ごとのサムネを抽出し枚数を返す (cache)。"""
+    """overlaid から interval 秒ごとのサムネを抽出し枚数を返す (cache)。"""
     validate_ts(ts)
     project_path = ts_path(ts)
     if not os.path.isdir(project_path):
         return api_error("PROJECT_NOT_FOUND", "プロジェクトが存在しません", 404)
-    src = os.path.join(project_path, "bgm_mixed.mp4")
-    if not os.path.exists(src):
-        src = os.path.join(project_path, "overlaid.mp4")
+    src = os.path.join(project_path, "overlaid.mp4")
     if not os.path.exists(src):
         return api_error(
-            "SE_THUMB_SOURCE_MISSING", "bgm_mixed / overlaid が見つかりません", 409)
+            "SE_THUMB_SOURCE_MISSING", "overlaid が見つかりません", 409)
     interval = 1.0
     count = _ensure_thumbnails(
         src, os.path.join(project_path, "se_thumbs"), interval)

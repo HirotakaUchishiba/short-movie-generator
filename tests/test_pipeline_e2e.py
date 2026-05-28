@@ -235,7 +235,7 @@ def test_pipeline_full_run_through_overlay(
     _stub_stage_runners(monkeypatch, ts_path, template)
 
     # Stage 2-7 の順次実行 (各 stage の前に approve)
-    expected_order = ["tts", "bg", "kling", "scene", "overlay", "bgm", "se"]
+    expected_order = ["tts", "bg", "kling", "scene", "overlay", "se"]
     for expected in expected_order:
         progress_store.mark_approved(ts_path, progress_store.current_stage(ts_path))
         sp = staged_pipeline.load_project_screenplay(ts_path)
@@ -286,7 +286,7 @@ def test_run_next_stage_skips_external_action_stages(
     staged_pipeline.run_script(template, "smoke", ts_path)
     _stub_stage_runners(monkeypatch, ts_path, template)
 
-    for _ in range(7):  # tts → bg → kling → scene → overlay → bgm → se
+    for _ in range(6):  # tts → bg → kling → scene → overlay → se
         progress_store.mark_approved(
             ts_path, progress_store.current_stage(ts_path))
         sp = staged_pipeline.load_project_screenplay(ts_path)

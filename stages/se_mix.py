@@ -1,9 +1,8 @@
 """Stage se の ffmpeg 効果音ミックス helper (純粋関数、staged_pipeline 非依存)。
 
-bgm_mixed.mp4 (TTS + 字幕 + BGM) に効果音を指定時刻へ重ねて reels を書く。各 SE は
+overlaid.mp4 (TTS + 字幕) に効果音を指定時刻へ重ねて reels を書く。各 SE は
 adelay で配置時刻にずらし volume 倍 + stereo/44100 に整えてから動画音声に amix する
-(normalize=0 で元音量維持、duration=first で動画長に固定)。映像は copy。詳細は
-docs/plannings/2026-05-27_se-overlay-stage.md。
+(normalize=0 で元音量維持、duration=first で動画長に固定)。映像は copy。
 """
 from __future__ import annotations
 

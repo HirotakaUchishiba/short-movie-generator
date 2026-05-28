@@ -9,20 +9,9 @@ export type StageName =
   | "kling"
   | "scene"
   | "overlay"
-  | "bgm"
   | "se"
   | "final_import"
   | "publish";
-
-export interface BgmTrack {
-  id: string;
-  title: string;
-  file: string;
-  mood: string;
-  duration_sec: number | null;
-  license: string;
-  source: string;
-}
 
 export interface SeTrack {
   id: string;

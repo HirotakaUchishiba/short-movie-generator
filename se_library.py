@@ -1,10 +1,8 @@
-"""効果音 (SE) ライブラリ (Stage se 用)。bgm_library と同型。
+"""効果音 (SE) ライブラリ (Stage se 用)。
 
 `data/se_catalog.json` から SE 一覧を読み、id → `assets/se/<file>` を解決する。
-category (sting / transition / reaction / emphasis) でフィルタもできる
-(= se_planner が emotion/intent → category → 具体 SE を選ぶのに使う)。実音源は
-商用利用可のものを運用者が `assets/se/` に配置する。詳細は
-docs/plannings/2026-05-27_se-overlay-stage.md。
+category (sting / transition / reaction / emphasis) でフィルタもできる。実音源は
+商用利用可のものを運用者が `assets/se/` に配置する。
 """
 from __future__ import annotations
 

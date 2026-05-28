@@ -5,7 +5,7 @@ import { itemsToRegions } from "./timeline-utils";
 import { seThumbUrl } from "../../../asset-urls";
 
 // CapCut 風マルチトラック timeline。横軸 = 時間 (pxPerSec 可変スケール + 横スクロール)。
-// 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ移動 + 端ドラッグ trim) / BGM を縦に積む。
+// 字幕 / 映像サムネ / 波形 / 効果音 (ドラッグ移動 + 端ドラッグ trim) を縦に積む。
 // playhead は <video> の currentTime と同期。効果音のみ編集可能 (他は参照表示)。
 interface Props {
   videoRef: React.MutableRefObject<HTMLVideoElement | null>;
@@ -18,7 +18,6 @@ interface Props {
   thumbInterval: number;
   subtitleBlocks: TimelineBlock[];
   sceneBlocks: TimelineBlock[];
-  bgmLabel: string | null;
   selectedIdxs: number[];
   onMove: (idx: number, time: number) => void;
   onSelect: (idx: number, additive: boolean) => void;
@@ -55,7 +54,6 @@ export default function MultiTrackTimeline({
   thumbInterval,
   subtitleBlocks,
   sceneBlocks,
-  bgmLabel,
   selectedIdxs,
   onMove,
   onSelect,
@@ -301,18 +299,6 @@ export default function MultiTrackTimeline({
                 </div>
               );
             })}
-          </div>
-
-          {/* BGM トラック (全体に 1 本、参照) */}
-          <div className="relative h-7">
-            {bgmLabel && (
-              <div
-                className="absolute top-1 h-5 rounded bg-indigo-700/70 text-[10px] text-white px-1 truncate"
-                style={{ left: 0, width: duration * pxPerSec }}
-              >
-                ♪ {bgmLabel}
-              </div>
-            )}
           </div>
 
           {/* playhead */}

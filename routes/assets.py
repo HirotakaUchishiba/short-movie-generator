@@ -118,30 +118,16 @@ def asset_overlay(ts):
     return "", 404
 
 
-@assets_bp.route("/asset/<ts>/bgm-mixed")
-def asset_bgm_mixed(ts):
-    """SE 配置 UI 用に bgm_mixed.mp4 を配信。無ければ overlaid.mp4 に fallback。"""
-    validate_ts(ts)
-    p = safe_join(ts_path(ts), "bgm_mixed.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    p = safe_join(ts_path(ts), "overlaid.mp4")
-    if os.path.exists(p):
-        return send_file(p, mimetype="video/mp4")
-    return "", 404
-
-
 @assets_bp.route("/asset/<ts>/reels")
 def asset_reels(ts):
-    """SE 込みの最終 reels を配信 (= SE プレビュー再生用)。無ければ bgm_mixed / overlaid。"""
+    """SE 込みの最終 reels を配信 (= SE プレビュー再生用)。無ければ overlaid に fallback。"""
     validate_ts(ts)
     p = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     if os.path.exists(p):
         return send_file(p, mimetype="video/mp4")
-    for name in ("bgm_mixed.mp4", "overlaid.mp4"):
-        p2 = safe_join(ts_path(ts), name)
-        if os.path.exists(p2):
-            return send_file(p2, mimetype="video/mp4")
+    p2 = safe_join(ts_path(ts), "overlaid.mp4")
+    if os.path.exists(p2):
+        return send_file(p2, mimetype="video/mp4")
     return "", 404
 
 

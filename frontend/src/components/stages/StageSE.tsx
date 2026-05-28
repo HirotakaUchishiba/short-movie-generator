@@ -1,7 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import StageGate, { useShellCtx } from "../StageGate";
 import { api } from "../../api";
-import type { SeTrack, SeItem, BgmTrack } from "../../types";
+import type { SeTrack, SeItem } from "../../types";
 import MultiTrackTimeline from "./se/MultiTrackTimeline";
 import {
   addItemAt,
@@ -17,13 +17,12 @@ import { reelsAssetUrl } from "../../asset-urls";
 export default function StageSE() {
   const ctx = useShellCtx();
   const ts = ctx.detail.timestamp;
-  const bgmApproved = !!ctx.detail.progress.stages.bgm.approved_at;
+  const overlayApproved = !!ctx.detail.progress.stages.overlay.approved_at;
   const seRegen = (
     ctx.detail.progress.stages.se as { regen_count?: number } | undefined
   )?.regen_count;
 
   const [tracks, setTracks] = useState<SeTrack[]>([]);
-  const [bgmTracks, setBgmTracks] = useState<BgmTrack[]>([]);
   const [items, setItems] = useState<SeItem[]>([]);
   const [peaks, setPeaks] = useState<number[]>([]);
   const [duration, setDuration] = useState(0);
@@ -41,14 +40,10 @@ export default function StageSE() {
       .listSe()
       .then((r) => setTracks(r.se))
       .catch((e) => setError(String(e)));
-    api
-      .listBgm()
-      .then((r) => setBgmTracks(r.bgm))
-      .catch(() => undefined);
   }, []);
 
   useEffect(() => {
-    if (!bgmApproved) return;
+    if (!overlayApproved) return;
     api
       .getSeWaveform(ts)
       .then((r) => {
@@ -64,7 +59,7 @@ export default function StageSE() {
         setThumbInterval(r.interval_sec || 1);
       })
       .catch(() => undefined);
-  }, [ts, bgmApproved]);
+  }, [ts, overlayApproved]);
 
   useEffect(() => {
     const s = (ctx.detail as { se?: { items?: SeItem[] } }).se;
@@ -76,12 +71,6 @@ export default function StageSE() {
       ?.scenes ?? [];
   const subtitleBlocks = computeSubtitleBlocks(scenes, sceneOffsets);
   const sceneBlocks = computeSceneBlocks(scenes, sceneOffsets);
-
-  const bgmId = (ctx.detail as { bgm?: { id?: string } }).bgm?.id;
-  const bgmLabel =
-    bgmId && bgmId !== "none"
-      ? (bgmTracks.find((b) => b.id === bgmId)?.title ?? bgmId)
-      : null;
 
   // 編集操作で items を変えるたびに呼ぶ。debounce して setSe + reels 焼き直しを
   // 自動実行する (= 効果音を重ねた / 消した時点で動画に即反映)。
@@ -136,11 +125,11 @@ export default function StageSE() {
     <StageGate
       stage="se"
       title="効果音"
-      description="字幕・映像・BGM・効果音をタイムラインで見ながら効果音を配置・移動・長さ変更・削除する。変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
+      description="字幕・映像・効果音をタイムラインで見ながら効果音を配置・移動・長さ変更・削除する。変更は自動で動画 (reels) に反映される。ffmpeg のみで AI 課金は発生しない。"
     >
-      {!bgmApproved ? (
+      {!overlayApproved ? (
         <div className="card text-center text-slate-400">
-          まだ BGM が承認されていません。BGM を承認してから効果音を載せます。
+          まだ字幕が承認されていません。字幕を承認してから効果音を載せます。
         </div>
       ) : (
         <>
@@ -199,7 +188,6 @@ export default function StageSE() {
               thumbInterval={thumbInterval}
               subtitleBlocks={subtitleBlocks}
               sceneBlocks={sceneBlocks}
-              bgmLabel={bgmLabel}
               selectedIdxs={selectedIdxs}
               onMove={(idx, t) =>
                 applyItems(

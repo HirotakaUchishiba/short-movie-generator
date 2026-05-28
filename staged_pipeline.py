@@ -497,90 +497,31 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
     logger.info("[字幕] 焼き込み完了 — %s (reels は bgm stage が生成)", overlaid)
 
 
-def run_bgm(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage bgm: ``overlaid.mp4`` に BGM をミックスして ``temp/<TS>/bgm_mixed.mp4``。
+def run_se(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
+    """Stage se: ``overlaid.mp4`` に効果音を重ねて ``output/reels_<TS>.mp4``。
 
-    BGM 選択は ``metadata.json.bgm`` ({id, volume, ducking})。id=none / 未選択は
-    pass-through (overlaid を bgm_mixed に)。overlaid.mp4 が無い既存 project は
-    既存 reels を入力にする (後方互換)。最終 reels / SNS キャプション / final drop は
-    後段の se stage が生成する (= reels を書く責務を se に移譲)。
+    SE 配置は ``metadata.json.se.items`` ([{time, se_id, volume, clip_start?, clip_end?}])。
+    空なら pass-through (overlaid を reels にコピー)。reels が確定するので SNS
+    キャプションと final_import 用 final/ drop folder もここで用意する。
     """
-    from stages import bgm_mix
-    import bgm_library
+    from stages import se_mix
+    import se_library
 
     _ensure_prev_approved("overlay", ts_path)
 
     ts = os.path.basename(ts_path)
     overlaid = os.path.join(ts_path, "overlaid.mp4")
-    reels = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
-    output_path = os.path.join(ts_path, "bgm_mixed.mp4")
-
-    # 入力: overlaid.mp4 (新フロー) があればそれ、無ければ既存 reels (後方互換)
-    if os.path.exists(overlaid):
-        video_in = overlaid
-    elif os.path.exists(reels):
-        video_in = reels
-        logger.info("[bgm] overlaid.mp4 が無いため既存 reels を入力に使用 (後方互換)")
-    else:
-        raise RuntimeError(
-            "overlay 出力 (overlaid.mp4 / reels) が見つかりません — overlay を先に実行してください")
-
-    meta = read_metadata(ts_path) or {}
-    bgm = meta.get("bgm") or {}
-    bgm_path = bgm_library.resolve_bgm_path(bgm.get("id"))
-
-    if bgm_path is None:
-        # BGM なし: overlaid を bgm_mixed に (pass-through)
-        shutil.copyfile(video_in, output_path)
-        logger.info("[bgm] BGM なし — pass-through: %s", output_path)
-    else:
-        volume = float(bgm.get("volume", config.BGM_VOLUME_RATIO))
-        ducking = bool(bgm.get("ducking", config.BGM_DUCKING_ENABLED))
-        tmp_out = output_path + ".tmp.mp4"
-        bgm_mix.mix_bgm(video_in, bgm_path, tmp_out,
-                        volume=volume, ducking=ducking)
-        os.replace(tmp_out, output_path)
-        logger.info("[bgm] BGM ミックス完了 (%s): %s", bgm.get("id"), output_path)
-
-    progress_store.mark_generated(ts_path, "bgm")
-    logger.info("[bgm] 完了 — %s (reels は se stage が生成)", output_path)
-
-
-def run_se(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
-    """Stage se: ``bgm_mixed.mp4`` に効果音を重ねて ``output/reels_<TS>.mp4``。
-
-    SE 配置は ``metadata.json.se.items`` ([{time, se_id, volume}])。空なら
-    pass-through (bgm_mixed を reels に)。bgm_mixed.mp4 が無い既存 project は
-    既存 reels を入力にする (後方互換)。reels が確定するので SNS キャプションと
-    final_import 用 final/ drop folder もここで用意する。
-    """
-    from stages import se_mix
-    import se_library
-
-    _ensure_prev_approved("bgm", ts_path)
-
-    ts = os.path.basename(ts_path)
-    bgm_mixed = os.path.join(ts_path, "bgm_mixed.mp4")
-    overlaid = os.path.join(ts_path, "overlaid.mp4")
     output_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
 
-    if os.path.exists(bgm_mixed):
-        video_in = bgm_mixed
-    elif os.path.exists(overlaid):
-        # bgm_mixed が無い旧 project は overlaid (= SE/BGM を載せる前) を入力に
-        # する。既存 reels を入力にすると SE が焼き込み済みで、SE を消しても
-        # pass-through が video_in == output_path になり copyfile が skip され、
-        # 削除した効果音が reels に残り続ける (= 鳴り続ける真因)。
+    if os.path.exists(overlaid):
         video_in = overlaid
-        logger.info("[se] bgm_mixed.mp4 が無いため overlaid を入力に使用")
     elif os.path.exists(output_path):
         video_in = output_path
         logger.warning(
-            "[se] bgm_mixed / overlaid が無いため既存 reels を入力に使用 "
+            "[se] overlaid が無いため既存 reels を入力に使用 "
             "(SE の除去はできない可能性)")
     else:
-        raise RuntimeError(
-            "se の入力 (bgm_mixed / overlaid / reels) が見つかりません")
+        raise RuntimeError("se の入力 (overlaid / reels) が見つかりません")
 
     meta = read_metadata(ts_path) or {}
     items = (meta.get("se") or {}).get("items") or []
@@ -653,7 +594,6 @@ STAGE_RUNNERS = {
     "kling": run_kling,
     "scene": run_scene,
     "overlay": run_overlay,
-    "bgm": run_bgm,
     "se": run_se,
 }
 
@@ -713,7 +653,7 @@ def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str 
         raise RuntimeError(f"unknown stage: {nxt}")
     started_at = datetime.now().isoformat(timespec="seconds")
     try:
-        if nxt in ("script", "overlay", "bgm", "se"):
+        if nxt in ("script", "overlay", "se"):
             runner(screenplay, screenplay_name, ts_path)
         else:
             runner(screenplay, ts_path)
@@ -1011,10 +951,6 @@ def regen(stage: str, screenplay: dict, ts_path: str,
         if screenplay_name is None:
             raise ValueError("overlay 再生成には screenplay_name が必要です")
         run_overlay(screenplay, screenplay_name, ts_path)
-    elif stage == "bgm":
-        if screenplay_name is None:
-            raise ValueError("bgm 再生成には screenplay_name が必要です")
-        run_bgm(screenplay, screenplay_name, ts_path)
     elif stage == "se":
         if screenplay_name is None:
             raise ValueError("se 再生成には screenplay_name が必要です")
