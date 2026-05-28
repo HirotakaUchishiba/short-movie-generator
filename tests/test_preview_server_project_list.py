@@ -11,9 +11,9 @@ import pytest
 
 @pytest.fixture
 def isolated_env(tmp_path, monkeypatch):
-    monkeypatch.setenv("ANALYTICS_DB_PATH", str(tmp_path / "analytics.db"))
-    from analytics import db as _db
-    _db.init_db()
+    import analyze.store as _store
+    monkeypatch.setattr(_store, "DB_PATH", str(tmp_path / "analyze.db"))
+    _store.ensure_schema()
     sp_dir = tmp_path / "screenplays"
     sp_dir.mkdir(parents=True)
     temp_dir = tmp_path / "temp"

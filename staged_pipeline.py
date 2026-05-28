@@ -442,8 +442,8 @@ def run_scene(screenplay: dict, ts_path: str) -> None:
 
 def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
     """Stage 6 (最終): シーン連結 + 字幕焼き込み + 最終 reels / SNS キャプション /
-    final drop folder の生成。出力は ``temp/<TS>/overlaid.mp4`` (中間) と
-    ``output/reels_<TS>.mp4`` (最終)。final_import 用 ``temp/<TS>/final/`` も用意。
+    出力は ``temp/<TS>/overlaid.mp4`` (中間) と
+    ``output/reels_<TS>.mp4`` (最終ダウンロード対象)。
 
     古い snapshot を resume する経路では UI の保存時 validator を通過していない
     ことがあるため、Stage 6 直前で composed 形式 + subtitle anchor 順序を
@@ -513,6 +513,7 @@ def run_download(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
     if not os.path.exists(reels):
         raise RuntimeError(f"reels が見つかりません: {reels}")
     progress_store.mark_generated(ts_path, "download")
+    progress_store.mark_approved(ts_path, "download")
     logger.info("[download] 完成 — %s", reels)
 
 

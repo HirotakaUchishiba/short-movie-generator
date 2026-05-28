@@ -8,7 +8,7 @@
     - 承認なしでは次 stage が起動できない (= ゲート機能が効いている)
     - 各 stage 完了で progress_store.is_generated が True になる
     - overlay 完了で output/reels_<TS>.mp4 と post_caption が出力される
-    - final_import が EXTERNAL_ACTION_STAGES として run_next_stage から除外される
+    - download が overlay 承認後に最終 stage として自動完了する
 """
 import json
 import os
@@ -234,8 +234,8 @@ def test_pipeline_full_run_through_overlay(
 
     _stub_stage_runners(monkeypatch, ts_path, template)
 
-    # Stage 2-7 の順次実行 (各 stage の前に approve)
-    expected_order = ["tts", "bg", "kling", "scene", "overlay"]
+    # Stage 2 以降の順次実行 (各 stage の前に approve)
+    expected_order = ["tts", "bg", "kling", "scene", "overlay", "download"]
     for expected in expected_order:
         progress_store.mark_approved(ts_path, progress_store.current_stage(ts_path))
         sp = staged_pipeline.load_project_screenplay(ts_path)
@@ -246,11 +246,13 @@ def test_pipeline_full_run_through_overlay(
         )
         assert progress_store.is_generated(ts_path, expected)
 
-    # Stage 7 完了 → pipeline raw + caption が出力ディレクトリに揃う
+    # download 完了 → pipeline raw + caption が出力ディレクトリに揃う
     assert os.path.exists(
         os.path.join(str(env["out"]), f"reels_{ts}.mp4"))
     assert os.path.exists(
         os.path.join(str(env["cap"]), "smoke.md"))
+    # download は最終 stage で自動承認される (= 全 stage 完了状態)
+    assert progress_store.next_stage(ts_path) is None
 
 
 def test_run_next_stage_blocks_on_unapproved(
@@ -273,28 +275,3 @@ def test_run_next_stage_blocks_on_unapproved(
     assert not progress_store.is_generated(ts_path, "tts")
 
 
-def test_run_next_stage_skips_external_action_stages(
-    env, stub_locations, minimal_screenplay, monkeypatch,
-):
-    """Stage 7 (final_import) は run_next_stage から除外される。"""
-    _write_template(env["sp"], "smoke", minimal_screenplay)
-    ts = "20990101_140000"
-    ts_path = os.path.join(str(env["temp"]), ts)
-    os.makedirs(ts_path, exist_ok=True)
-
-    template = staged_pipeline.load_template("smoke")
-    staged_pipeline.run_script(template, "smoke", ts_path)
-    _stub_stage_runners(monkeypatch, ts_path, template)
-
-    for _ in range(5):  # tts → bg → kling → scene → overlay
-        progress_store.mark_approved(
-            ts_path, progress_store.current_stage(ts_path))
-        sp = staged_pipeline.load_project_screenplay(ts_path)
-        staged_pipeline.run_next_stage(sp, "smoke", ts_path)
-
-    # overlay まで生成完了。承認しても final_import は EXTERNAL_ACTION で除外
-    progress_store.mark_approved(ts_path, "overlay")
-    sp = staged_pipeline.load_project_screenplay(ts_path)
-    result = staged_pipeline.run_next_stage(sp, "smoke", ts_path)
-    assert result is None
-    assert not progress_store.is_generated(ts_path, "final_import")

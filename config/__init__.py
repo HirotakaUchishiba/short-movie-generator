@@ -763,29 +763,3 @@ LOG_FILE = os.getenv("LOG_FILE")
 LOG_MAX_BYTES = int(os.getenv("LOG_MAX_BYTES", str(20 * 1024 * 1024)))
 LOG_BACKUP_COUNT = int(os.getenv("LOG_BACKUP_COUNT", "10"))
 
-# ───────────── Phase 1: フルオート量産経路 ─────────────
-# cost / cap 系は config.cost から re-export (= §3.1.4-b)。
-from config.cost import (  # noqa: F401, E402
-    AUTO_LOOP_ALLOW_PUBLIC,
-    AUTO_LOOP_STAGE_SOFT_LIMIT_SEC,
-    DAILY_COST_CAP_USD,
-    DAILY_VIDEO_CAP,
-    MONTHLY_COST_CAP_USD,
-    SLACK_WEBHOOK_URL,
-)
-
-# ───────────── Phase 2-4: QA / Bandit / Human gate ─────────────
-# QA validator / bandit / production gate 系は config.qa から re-export。
-from config.qa import (  # noqa: F401, E402
-    BANDIT_AXES,
-    BANDIT_EPSILON,
-    IMPROVEMENT_STRATEGY,
-    QA_RETRY_LIMITS,
-    QA_VALIDATOR_BLACKLIST,
-    QA_VALIDATORS_ENABLED,
-    SUBTITLE_AUDIO_SYNC_MATCH_MIN,
-    SUBTITLE_RENDER_EDGE_DENSITY_MIN,
-    SUBTITLE_TIMING_DRIFT_RATIO_MAX,
-    SUBTITLE_TIMING_DRIFT_RATIO_MIN,
-    VALID_IMPROVEMENT_STRATEGIES,
-)

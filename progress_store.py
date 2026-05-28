@@ -266,7 +266,7 @@ def revoke_overlay_only(ts_path: str) -> None:
 
 
 # cascade reset 対象は内部 stage のみ (script〜overlay)。
-# final_import / publish は外部アクション起点なのでチェーンに含めない。
+# download は最終 stage で artifact を持たないのでチェーンに含めない。
 _CASCADE_STAGES = ["script", "tts", "bg", "kling", "scene", "overlay"]
 
 
