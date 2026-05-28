@@ -1,0 +1,30 @@
+{
+  "augmented_animation_prompt": "subject speaks naturally following the emotion arc (satisfaction), with energetic gestures and pronounced movement, emotion arc: satisfaction, motion: relaxed exhale, body settling back, arms uncrossing, facial expression: warm soft smile, softened eyelids, mouth corners gently raised, tone: settled, content, quietly pleased, camera: slow tender handheld, gentle pull-back, audio dynamics arc: line0 [weak medium falling with_pauses], line1 [weak medium rising with_pauses]. Complete all major actions within the first 70% of the clip (by approximately 3.5s). In the remaining time, hold the final pose with minimal movement so the clip can be cleanly trimmed at the end.. no UI overlays, no chat bubbles, no notifications, no on-screen text, no smartphone popups, no infographics, no floating graphics",
+  "kling_duration": 5,
+  "bg_image_sha": "0c43c02a9aa19143",
+  "model_id": "fal-ai/kling-video/v3/standard/image-to-video",
+  "aspect_ratio": "9:16",
+  "cache_version": "v1",
+  "frontload_ratio": 0.7,
+  "original_audio_duration": 5.291519,
+  "camera_distance": "medium-close",
+  "location_ref": "enfp_sunset_ridge",
+  "character_refs": [
+    "m3"
+  ],
+  "action_id": "look_at_phone",
+  "composition_id": "b1d0968f51e7cf84",
+  "composition_version": "v2",
+  "key": "74251b6c5dde2fdc",
+  "schema_version": 1,
+  "created_at": "2026-05-25T09:17:30.092+00:00",
+  "last_used_at": "2026-05-25T09:17:30.092+00:00",
+  "hit_count": 0,
+  "quality": {
+    "blacklisted": false,
+    "blacklist_reason": null,
+    "ffprobe_ok": true,
+    "approved_at_origin": "2026-05-27T01:38:17.383+00:00",
+    "final_render_completed": true
+  }
+}

@@ -78,7 +78,6 @@ CORS(app)
 from routes.assets import assets_bp  # noqa: E402
 from routes.config import config_bp  # noqa: E402
 from routes.cost import cost_bp  # noqa: E402
-from routes.final_publish import final_publish_bp  # noqa: E402
 from routes.clip_library import clip_library_bp  # noqa: E402
 from routes.intent_suggestions import intent_suggestions_bp  # noqa: E402
 from routes.intent_catalog import intent_catalog_bp  # noqa: E402
@@ -101,7 +100,6 @@ app.register_blueprint(intent_catalog_bp)
 app.register_blueprint(clip_library_bp)
 app.register_blueprint(intent_suggestions_bp)
 app.register_blueprint(stages_bp)
-app.register_blueprint(final_publish_bp)
 app.register_blueprint(assets_bp)
 app.register_blueprint(screenplay_bp)
 app.register_blueprint(analyze_bp)

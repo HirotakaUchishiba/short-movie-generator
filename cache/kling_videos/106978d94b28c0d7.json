@@ -1,0 +1,30 @@
+{
+  "augmented_animation_prompt": "subject speaks naturally following the emotion arc (joy), with energetic gestures and pronounced movement, movement: talking with expressive hand gestures, hands moving naturally, occasional head tilts, emotion arc: joy, motion: shoulders relaxed, slight lean forward, natural open hand gestures, facial expression: genuine smile, eyes brightening with mild crow's feet at corners, tone: warm, pleased, naturally cheerful, camera: gentle steady shot with mild push-in, audio dynamics arc: line0 [moderate slow flat fluent], line1 [moderate medium flat with_pauses]. Complete all major actions within the first 85% of the clip (by approximately 4.2s). In the remaining time, hold the final pose with minimal movement so the clip can be cleanly trimmed at the end.. no UI overlays, no chat bubbles, no notifications, no on-screen text, no smartphone popups, no infographics, no floating graphics",
+  "kling_duration": 5,
+  "bg_image_sha": "ff9aeb97a406f57d",
+  "model_id": "fal-ai/kling-video/v3/standard/image-to-video",
+  "aspect_ratio": "9:16",
+  "cache_version": "v1",
+  "frontload_ratio": 0.85,
+  "original_audio_duration": 5.272404,
+  "camera_distance": "medium",
+  "location_ref": "enfp_lakeside",
+  "character_refs": [
+    "m3"
+  ],
+  "action_id": null,
+  "composition_id": "06beabc2a626cded",
+  "composition_version": "v1",
+  "key": "106978d94b28c0d7",
+  "schema_version": 1,
+  "created_at": "2026-05-26T14:30:27.006+00:00",
+  "last_used_at": "2026-05-26T14:30:27.006+00:00",
+  "hit_count": 0,
+  "quality": {
+    "blacklisted": false,
+    "blacklist_reason": null,
+    "ffprobe_ok": true,
+    "approved_at_origin": null,
+    "final_render_completed": false
+  }
+}

@@ -1,0 +1,396 @@
+{
+  "arc_id": "problem_solution_celebration",
+  "caption": "ENFPにピッタリな仕事7つを紹介🌟 言葉の才能・人付き合い・思いやりを武器にできる職業集 #MBTI #ENFP #適職診断 #転職 #天職",
+  "featured_characters": [
+    "m3"
+  ],
+  "hook_id": "direct_addr",
+  "scenes": [
+    {
+      "action_id": "stand_thinking",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 5,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_campsite",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.14,
+            "wpm": 280
+          },
+          "delivery": "親しみやすく問いかける口調、語尾やや下がり",
+          "emotion": "驚き",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "ENFP": "イーエヌエフピー",
+            "職業": "しょくぎょう"
+          },
+          "speaker": "m3",
+          "text": "ENFPの向いてる職業知ってるか！？"
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "low",
+        "visual_intent_id": "talking_head_calm"
+      },
+      "camera_distance": "medium-close",
+      "location_ref": "enfp_canyon",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.18,
+            "wpm": 320
+          },
+          "delivery": "明るく語尾を上げて項目を紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "WEB": "ウェブ"
+          },
+          "speaker": "m3",
+          "text": "WEBライター！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 340
+          },
+          "delivery": "落ち着いて説明する平坦なトーン",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "工夫": "くふう",
+            "柔軟": "じゅうなん",
+            "発想": "はっそう",
+            "表現": "ひょうげん",
+            "言語": "げんご"
+          },
+          "speaker": "m3",
+          "text": "言葉の才能を活かし、型にはまらない表現を生み出せる！"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_coast",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.16,
+            "wpm": 300
+          },
+          "delivery": "明るく弾むように紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "接客業": "せっきゃくぎょう"
+          },
+          "speaker": "m3",
+          "text": "接客業！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 360
+          },
+          "delivery": "親しみやすく流れるような説明口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "初対面": "しょたいめん",
+            "打ち解け": "うちとけ",
+            "捉え": "とらえ",
+            "気持ち": "きもち",
+            "相手": "あいて"
+          },
+          "speaker": "m3",
+          "text": "初めて会う人ともすぐに仲良くなれ、相手の心や要望を掴める！"
+        }
+      ]
+    },
+    {
+      "action_id": "triumph_pose",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "high",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_forest",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 300
+          },
+          "delivery": "元気よく宣言するように",
+          "emotion": "喜び",
+          "emotion_intensity": "strong",
+          "pronunciation_hints": {
+            "広報": "こうほう",
+            "担当": "たんとう"
+          },
+          "speaker": "m3",
+          "text": "広報担当！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 340
+          },
+          "delivery": "勢いよく解説する明るい口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "対応力": "たいおうりょく",
+            "得意": "とくい",
+            "情報発信": "じょうほうはっしん",
+            "柔軟": "じゅうなん",
+            "社交性": "しゃこうせい"
+          },
+          "speaker": "m3",
+          "text": "人付き合いの上手さと臨機応変さを活かした情報発信が得意！"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_lakeside",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 280
+          },
+          "delivery": "明るく短く紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "教師": "きょうし"
+          },
+          "speaker": "m3",
+          "text": "教師！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 340
+          },
+          "delivery": "温かく親しみある口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "明るく": "あかるく",
+            "生徒": "せいと",
+            "縮め": "ちぢめ",
+            "親しみ": "したしみ",
+            "距離": "きょり"
+          },
+          "speaker": "m3",
+          "text": "快活で親しみやすい人柄で生徒の心を開かせられる！"
+        }
+      ]
+    },
+    {
+      "action_id": "decisive_stand",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_meadow",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.16,
+            "wpm": 280
+          },
+          "delivery": "リズミカルに項目紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "営業職": "えいぎょうしょく"
+          },
+          "speaker": "m3",
+          "text": "営業職！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.17,
+            "wpm": 360
+          },
+          "delivery": "落ち着いて自信を持って説明",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "伝え": "つたえ",
+            "商品": "しょうひん",
+            "得意": "とくい",
+            "言葉": "ことば",
+            "魅力": "みりょく"
+          },
+          "speaker": "m3",
+          "text": "製品やサービスの良さを相手に合わせた表現で伝えるのが上手！"
+        }
+      ]
+    },
+    {
+      "action_id": "lean_back_relief",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "low",
+        "visual_intent_id": "talking_head_calm"
+      },
+      "camera_distance": "medium-close",
+      "location_ref": "enfp_mountain_trail",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.14,
+            "wpm": 280
+          },
+          "delivery": "穏やかに項目を紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "心理": "しんり"
+          },
+          "speaker": "m3",
+          "text": "心理カウンセラー！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 340
+          },
+          "delivery": "柔らかく寄り添うようなトーン",
+          "emotion": "満足",
+          "emotion_intensity": "soft",
+          "pronunciation_hints": {
+            "与える": "あたえる",
+            "安心感": "あんしんかん",
+            "寄り添": "よりそ",
+            "得意": "とくい",
+            "気持ち": "きもち",
+            "相手": "あいて",
+            "雰囲気": "ふんいき"
+          },
+          "speaker": "m3",
+          "text": "相手の心に共感し、リラックスできる空気感をつくるのが上手！"
+        }
+      ]
+    },
+    {
+      "action_id": "triumph_pose",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_summit",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.18,
+            "wpm": 280
+          },
+          "delivery": "締めくくりとして明るく紹介",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {},
+          "speaker": "m3",
+          "text": "コンサルタント業！"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.17,
+            "wpm": 340
+          },
+          "delivery": "落ち着いた自信のある説明口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "共感力": "きょうかんりょく",
+            "広い": "ひろい",
+            "得意": "とくい",
+            "提案": "ていあん",
+            "最適": "さいてき",
+            "視野": "しや",
+            "解決策": "かいけつさく"
+          },
+          "speaker": "m3",
+          "text": "優れた共感性と広い視野をもち、最善の解決策を提示できる！"
+        }
+      ]
+    },
+    {
+      "action_id": "look_at_phone",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 5,
+        "motion_intensity": "low",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium-close",
+      "location_ref": "enfp_sunset_ridge",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 280
+          },
+          "delivery": "親しげに軽く語りかける口調",
+          "emotion": "驚き",
+          "emotion_intensity": "normal",
+          "pronunciation_hints": {
+            "当たり": "あたり"
+          },
+          "speaker": "m3",
+          "text": "ちなみにこれマジで当たりすぎるぞ！"
+        }
+      ]
+    }
+  ]
+}

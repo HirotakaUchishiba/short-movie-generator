@@ -488,19 +488,32 @@ def run_overlay(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
         except (ImportError, OSError, AttributeError) as e:
             logger.warning("%s promote setup failed: %s", module, e)
 
-    # 最終 reels + SNS キャプション + final drop folder。final_import (= Stage 7)
-    # が canonical 化するための入り口。
+    # 最終 reels + SNS キャプション。後段 download stage がダウンロード提供する。
     ts = os.path.basename(ts_path)
     reels_path = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
     os.makedirs(config.OUTPUT_DIR, exist_ok=True)
     shutil.copyfile(overlaid, reels_path)
     caption_path = generate_post_captions(
         screenplay, screenplay_name, reels_path)
-    os.makedirs(os.path.join(ts_path, "final"), exist_ok=True)
 
     progress_store.mark_generated(ts_path, "overlay")
     logger.info("[字幕] 焼き込み完了 — %s + %s", overlaid, reels_path)
     logger.info("SNS投稿キャプション: %s", caption_path)
+
+
+def run_download(screenplay: dict, screenplay_name: str, ts_path: str) -> None:
+    """Stage download (最終): 完成 reels の存在を確認して mark_generated。
+
+    overlay が ``output/reels_<TS>.mp4`` を既に書いているので、ここでは
+    存在確認のみ。承認 (approved_at) は不要 (= 最終 stage、UI でダウンロード)。
+    """
+    _ensure_prev_approved("overlay", ts_path)
+    ts = os.path.basename(ts_path)
+    reels = os.path.join(config.OUTPUT_DIR, f"reels_{ts}.mp4")
+    if not os.path.exists(reels):
+        raise RuntimeError(f"reels が見つかりません: {reels}")
+    progress_store.mark_generated(ts_path, "download")
+    logger.info("[download] 完成 — %s", reels)
 
 
 def _promote_cache_entries(ts_path: str, stage: str, module_name: str) -> None:
@@ -538,74 +551,36 @@ STAGE_RUNNERS = {
     "kling": run_kling,
     "scene": run_scene,
     "overlay": run_overlay,
+    "download": run_download,
 }
 
 
-def _record_stage_run(ts_path: str, stage: str, started_at: str,
-                      status: str, error: str | None = None) -> None:
-    """generation_records.stage_runs に 1 stage 実行を追記する (best-effort)。
-
-    ``temp/<TS>`` 形式の ts_path から TS を抽出する。analytics DB エラーは
-    warn で握りつぶし pipeline を止めない (= cost 履歴と同様の方針)。
-    """
-    ts = os.path.basename(ts_path.rstrip("/")) or os.path.basename(ts_path)
-    ended_at = datetime.now().isoformat(timespec="seconds")
-    extra = {"error": error[:500]} if error else None
-    try:
-        from analytics import db as _adb
-
-        _adb.append_stage_run(
-            ts=ts, stage=stage,
-            started_at=started_at, ended_at=ended_at,
-            status=status, extra=extra,
-        )
-    except Exception as e:
-        # analytics DB は best-effort。どんな例外型 (= ImportError /
-        # sqlite3.Error / RuntimeError 等) でも pipeline は止めない。
-        # cost 履歴と同様の方針 (= 観測 layer は記録失敗で本流を妨げない)。
-        logger.warning("[gen-rec] append_stage_run failed (%s): %s", stage, e)
-
-
 def run_next_stage(screenplay: dict, screenplay_name: str, ts_path: str) -> str | None:
-    """次に実行すべきstageを1つだけ実行する。
-
-    - final_import / publish はユーザの外部アクション (CapCut 取り込み /
-      プラットフォーム公開) で発火するため、ここでは実行せず None を返す
-    - すでに全完了なら None
-    """
+    """次に実行すべきstageを1つだけ実行する。すでに全完了なら None。"""
     nxt = progress_store.next_stage(ts_path)
     if nxt is None:
         return None
 
     if nxt == "analyze":
         # 防御: STAGES 拡張により Stage 0 が先頭に来たが、ここに到達するのは
-        # run_script / analyze hook が mark_analyze_completed を呼び忘れた場合
-        # のみ (= 旧 progress.json の project や CLI 経路)。auto-skip して
-        # Stage 1 を狙う。analyze 自体は別 endpoint で起動するもので、CLI から
-        # は呼ばない。
+        # run_script / analyze hook が mark_analyze_completed を呼び忘れた
+        # 旧 progress.json の project のみ。auto-skip して Stage 1 を狙う。
         progress_store.mark_analyze_completed(ts_path)
         nxt = progress_store.next_stage(ts_path)
         if nxt is None:
             return None
 
-    if nxt in progress_store.EXTERNAL_ACTION_STAGES:
-        return None
-
     runner = STAGE_RUNNERS.get(nxt)
     if not runner:
         raise RuntimeError(f"unknown stage: {nxt}")
-    started_at = datetime.now().isoformat(timespec="seconds")
     try:
-        if nxt in ("script", "overlay"):
+        if nxt in ("script", "overlay", "download"):
             runner(screenplay, screenplay_name, ts_path)
         else:
             runner(screenplay, ts_path)
     except Exception as e:
-        _record_stage_run(ts_path, nxt, started_at,
-                          status="failed", error=str(e))
         _record_stage_failure(ts_path, nxt, e)
         raise
-    _record_stage_run(ts_path, nxt, started_at, status="completed")
     return nxt
 
 

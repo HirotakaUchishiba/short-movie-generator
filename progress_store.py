@@ -5,12 +5,11 @@ import io_utils
 
 STAGES = [
     "analyze",  # Stage 0: 参考動画 → 台本 (= analyze pipeline、from-reference-video 経由でのみ立つ)
-    "script", "tts", "bg", "kling", "scene", "overlay",
-    "final_import", "publish",
+    "script", "tts", "bg", "kling", "scene", "overlay", "download",
 ]
 # CLI / UI から自動 run_next で起動できないステージ。ユーザの外部アクション
 # (CapCut 取り込み / プラットフォームへの投稿) によって generated_at が立つ。
-EXTERNAL_ACTION_STAGES = frozenset({"final_import", "publish"})
+EXTERNAL_ACTION_STAGES = frozenset()
 PROGRESS_FILENAME = "tmp-progress.json"
 
 

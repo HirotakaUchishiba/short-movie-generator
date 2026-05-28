@@ -1,0 +1,319 @@
+{
+  "arc_id": "problem_solution_celebration",
+  "caption": "ENFPが輝けるお仕事７選\n#MBTI #ENFP #適職 #転職",
+  "featured_characters": [
+    "m3"
+  ],
+  "hook_id": "direct_addr",
+  "scenes": [
+    {
+      "action_id": "stand_thinking",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 5,
+        "motion_intensity": "high",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_campsite",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.14,
+            "wpm": 260
+          },
+          "delivery": "明るく問いかけるトーン、語尾を強調",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "ENFPに合う仕事って何だと思う？"
+        }
+      ]
+    },
+    {
+      "action_id": "focused_typing",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_canyon",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.18,
+            "wpm": 240
+          },
+          "delivery": "項目を提示する明るい口調",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "WEBライター"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 280
+          },
+          "delivery": "流れるように説明する",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "言葉の感覚が鋭くユニークな発想で表現を凝らせる"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_coast",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.16,
+            "wpm": 240
+          },
+          "delivery": "項目を明るく提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "接客業"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 280
+          },
+          "delivery": "親しみやすいトーンで流す",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "誰とでもすぐに仲良くなれて相手の感情や求めるものを察せる！"
+        }
+      ]
+    },
+    {
+      "action_id": "triumph_pose",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "high",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_forest",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 240
+          },
+          "delivery": "元気よく項目提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "広報担当"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 280
+          },
+          "delivery": "明朗に説明",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "人付き合いの上手さと臨機応変さを武器に情報を広められる！"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_lakeside",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 240
+          },
+          "delivery": "項目を明るく提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "教師"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 280
+          },
+          "delivery": "あたたかい口調で説明",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "快活で親近感があるから生徒と仲良くなるのが上手なんだ！"
+        }
+      ]
+    },
+    {
+      "action_id": "decisive_stand",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_meadow",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.16,
+            "wpm": 240
+          },
+          "delivery": "項目を明るく提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "営業職"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.17,
+            "wpm": 280
+          },
+          "delivery": "説得力ある口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "扱うものの良さを相手に応じて最適な言葉で届けられる！"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "low",
+        "visual_intent_id": "talking_head_calm"
+      },
+      "camera_distance": "medium-close",
+      "location_ref": "enfp_mountain_trail",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.14,
+            "wpm": 240
+          },
+          "delivery": "落ち着いて項目を提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "心理カウンセラー"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "falling",
+            "rms_peak": 0.17,
+            "wpm": 280
+          },
+          "delivery": "柔らかく穏やかな口調",
+          "emotion": "喜び",
+          "emotion_intensity": "soft",
+          "speaker": "m3",
+          "text": "相談者の心に寄り添いながら安らげる場を作るのが得意だ！"
+        }
+      ]
+    },
+    {
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 10,
+        "motion_intensity": "medium",
+        "visual_intent_id": "talking_head_animated"
+      },
+      "camera_distance": "medium",
+      "location_ref": "enfp_summit",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "rising",
+            "rms_peak": 0.18,
+            "wpm": 240
+          },
+          "delivery": "項目を明るく提示",
+          "emotion": "喜び",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "コンサルタント"
+        },
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.17,
+            "wpm": 280
+          },
+          "delivery": "自信を込めて締める",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "深い共感力と多角的な視点で最善の解決策を提示できる！"
+        }
+      ]
+    },
+    {
+      "action_id": "look_at_phone",
+      "animation_style": "expressive",
+      "annotation": {
+        "duration_bucket": 5,
+        "motion_intensity": "low",
+        "visual_intent_id": "talking_head_calm"
+      },
+      "camera_distance": "medium-close",
+      "location_ref": "enfp_sunset_ridge",
+      "lines": [
+        {
+          "acoustic": {
+            "pitch_trend": "flat",
+            "rms_peak": 0.18,
+            "wpm": 240
+          },
+          "delivery": "ニヤッと誘うような口調",
+          "emotion": "満足",
+          "emotion_intensity": "normal",
+          "speaker": "m3",
+          "text": "これマジで的を射てるからな！"
+        },
+        {
+          "emotion": "満足",
+          "text": "忘れたくなかったら絶対保存するんだぞ！"
+        }
+      ]
+    }
+  ]
+}
